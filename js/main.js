@@ -30,6 +30,8 @@ function spawnPoint(taken, inSwamp) {
     if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 80) continue;
     if (nearObjs(x, y, 40).some(o => hyp(o.x - x, o.y - y) < o.r + 20)) continue;
     if (!inSwamp && taken.some(p => hyp(p.x - x, p.y - y) < (taken.length > 40 ? 180 : 320))) continue;
+    // Nobody starts next to a landmark or a ruin: legendaries and loot have to be reached
+    if (world.landmarks.some(m => m.layer === 0 && hyp(m.x - x, m.y - y) < 450) || world.ruins.some(r => hyp(r.x - x, r.y - y) < 220)) continue;
     return { x, y };
   }
   return { x: rr(300, WORLD - 300), y: rr(300, WORLD - 300) };

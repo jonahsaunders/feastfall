@@ -133,7 +133,7 @@ function wireMatch(m) {
       if (NET.isHost()) return;
       for (const a of d.add || []) if (!G.items.some(i => i.id === a.id)) G.items.push(unpackItem(a));
       for (const id of d.rm || []) { const it = G.items.find(i => i.id === id); if (it) it.gone = true; }
-      if (d.upd) { const it = G.items.find(i => i.id === d.upd.id); if (it) it.stacks = d.upd.s; }
+      if (d.upd) { const it = G.items.find(i => i.id === d.upd.id); if (it) { it.stacks = d.upd.s; if (d.upd.k) it.kind = d.upd.k; } }
     },
     drop: d => { if (NET.isHost()) addItem(unpackItem(d)); },
     got: d => {
