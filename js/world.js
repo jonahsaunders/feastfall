@@ -1,14 +1,13 @@
 'use strict';
-// World: seeded RNG, biome layout, surface objects, tunnel network, ground mesh.
-const WORLD = 3200, TUN_R = 46, CELL = 160;
-const PIT = { x: 1600, y: 1600, r: 380 };
+// World: seeded RNG, a randomized biome layout, surface objects, tunnel network, ground mesh.
+// Everything comes from the match seed, so every player in an online match builds the same map.
+let WORLD = 4800;
+const TUN_R = 46, CELL = 160;
+const MAP_SIZES = { 3200: 'Standard', 4800: 'Large', 6400: 'Huge' };
+const PIT = { x: 2400, y: 2400, r: 380 };
 const BIOME_NAME = ['Forest', 'Desert', 'Mountains', 'Swamp'];
-const SWAMPS = [{ x: 620, y: 2450, r: 430 }, { x: 2050, y: 2150, r: 300 }];
-const FEAST_SITES = [
-  { x: 900, y: 1150, name: 'Old Clearing' },
-  { x: 2620, y: 2700, name: 'Dune Hollow' },
-  { x: 1750, y: 480, name: 'Summit Pass' },
-];
+let SWAMPS = [], FEAST_SITES = [];
+const FEAST_NAMES = ['Old Clearing', 'Dune Hollow', 'Summit Pass', 'Split Rock', 'Ashen Field', 'Long Meadow', 'Stone Circle', 'Salt Flat', 'High Pass', 'Crow Hollow'];
 
 function mulberry32(a) {
   return function () {
@@ -39,13 +38,37 @@ function makeNoise(seed, N) {
 
 let world = null;
 
+const sstep = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+// Regions (mountain ranges, deserts, swamps) are circles bent by noise, so their borders come out ragged.
+function warp(x, y) {
+  const u = clamp(x / WORLD, 0, 1), v = clamp(y / WORLD, 0, 1), k = 520 * WORLD / 3200;
+  return [x + (world.n1(u, v) - .5) * k, y + (world.n1(1 - v, u) - .5) * k];
+}
+function regionFactor(list, x, y, core) {
+  let m = 0;
+  for (const o of list) { const d = hyp(x - o.x, y - o.y); if (d < o.r) m = Math.max(m, sstep(o.r, o.r * core, d)); }
+  return m;
+}
 function biomeAt(x, y) {
-  const u = x / WORLD, v = y / WORLD;
-  const w = (world.n1(u, v) - .5) * 0.16 + (world.n2(u, v) - .5) * 0.06;
-  for (const s of SWAMPS) if (hyp(x - s.x, y - s.y) < s.r * (1 + w * 2.5)) return 3;
-  if (v + w < 0.27) return 2;
-  if (u + w > 0.68) return 1;
+  const [wx, wy] = warp(x, y);
+  for (const s of SWAMPS) if (hyp(wx - s.x, wy - s.y) < s.r) return 3;
+  if (regionFactor(world.mts, wx, wy, 0.3) > 0.3) return 2;
+  if (regionFactor(world.deserts, wx, wy, 0.5) > 0.4) return 1;
   return 0;
+}
+function heightAt(x, y) {
+  const u = clamp(x / WORLD, 0, 1), v = clamp(y / WORLD, 0, 1);
+  const a = world.n1(u, v), b = world.n2(u, v), [wx, wy] = warp(x, y);
+  let h = (a - .5) * 46 + (b - .5) * 18;
+  h += Math.pow(regionFactor(world.mts, wx, wy, 0.3), 1.3) * (40 + b * 240);        // mountain ranges
+  h += regionFactor(world.deserts, wx, wy, 0.5) * Math.sin(x / 150 + a * 7) * 13; // dunes
+  for (const s of SWAMPS) {
+    const d = hyp(wx - s.x, wy - s.y) / s.r;
+    if (d < 1.25) h += (-7 + (b - .5) * 14 - h) * sstep(1.25, 0.8, d);
+  }
+  const dp = hyp(x - PIT.x, y - PIT.y) / PIT.r;
+  if (dp < 1.3) h += (-34 - h) * sstep(1.3, 1.0, dp);
+  return h;
 }
 
 // ---- spatial grid for trees and rocks ----
@@ -95,16 +118,42 @@ function navPath(a, b) {
   return path;
 }
 
-function genWorld(seed) {
+function genWorld(seed, size = 4800) {
+  WORLD = size; PIT.x = PIT.y = size / 2;
+  const A = size / 3200; // 1 for Standard, 1.5 Large, 2 Huge
   rng = mulberry32(seed);
   world = {
-    seed, n1: makeNoise(seed + 1, 5), n2: makeNoise(seed + 2, 13),
-    grid: new Map(), objs: [], entrances: [], nodes: [], segs: [], tunnels: [], ores: [],
+    seed, size, n1: makeNoise(seed + 1, Math.round(5 * A)), n2: makeNoise(seed + 2, Math.round(13 * A)),
+    grid: new Map(), objs: [], entrances: [], nodes: [], segs: [], tunnels: [], ores: [], mts: [], deserts: [],
   };
+
+  // Regions: a few mountain ranges, deserts and swamps, placed at random, not on top of each other or the pit
+  SWAMPS = [];
+  const placeRegions = (list, n, rmin, rmax) => {
+    for (let t = 0; list.length < n && t < 500; t++) {
+      const r = rr(rmin, rmax) * Math.sqrt(A), x = rr(r * 0.4, size - r * 0.4), y = rr(r * 0.4, size - r * 0.4);
+      if (hyp(x - PIT.x, y - PIT.y) < PIT.r + r * 0.7 + 150) continue;
+      if ([...world.mts, ...world.deserts, ...SWAMPS].some(o => hyp(o.x - x, o.y - y) < (o.r + r) * 0.8)) continue;
+      list.push({ x, y, r });
+    }
+  };
+  placeRegions(world.mts, Math.max(1, Math.round(rr(1.3, 2.4) * A)), 560, 820);
+  placeRegions(world.deserts, Math.max(1, Math.round(rr(1, 1.9) * A)), 600, 860);
+  placeRegions(SWAMPS, Math.max(2, Math.round(rr(2, 3) * A)), 240, 420);
+  SWAMPS.sort((p, q) => q.r - p.r);
+  // Feast sites: three open spots, well apart
+  const names = [...FEAST_NAMES];
+  for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
+  FEAST_SITES = [];
+  for (let t = 0; FEAST_SITES.length < 3 && t < 800; t++) {
+    const x = rr(350, size - 350), y = rr(350, size - 350);
+    if (biomeAt(x, y) === 3 || hyp(x - PIT.x, y - PIT.y) < PIT.r + 400 || FEAST_SITES.some(f => hyp(f.x - x, f.y - y) < size * 0.28)) continue;
+    FEAST_SITES.push({ x, y, name: names[FEAST_SITES.length] });
+  }
 
   // Tunnel entrances, spread across the map
   const ents = [];
-  for (let tries = 0; ents.length < 9 && tries < 800; tries++) {
+  for (let tries = 0; ents.length < Math.round(9 * A) && tries < 1500; tries++) {
     const x = rr(260, WORLD - 260), y = rr(260, WORLD - 260);
     if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 160) continue;
     if (ents.some(e => hyp(e.x - x, e.y - y) < 700)) continue;
@@ -157,7 +206,7 @@ function genWorld(seed) {
   }
 
   // Iron ore embedded in tunnel walls
-  for (let k = 0; k < 30; k++) {
+  for (let k = 0; k < Math.round(30 * A); k++) {
     const s = pick(world.segs), t = rr(0.15, 0.85);
     const L = hyp(s.bx - s.ax, s.by - s.ay), side = rng() < .5 ? -1 : 1;
     const nx = -(s.by - s.ay) / L * side, ny = (s.bx - s.ax) / L * side;
@@ -166,7 +215,7 @@ function genWorld(seed) {
 
   // Trees and rocks by biome
   const place = { 0: [0.5, 0.05], 1: [0.07, 0.07], 2: [0.22, 0.28], 3: [0.14, 0.0] };
-  for (let k = 0; k < 5200; k++) {
+  for (let k = 0; k < Math.round(5200 * A * A); k++) {
     const x = rr(40, WORLD - 40), y = rr(40, WORLD - 40), b = biomeAt(x, y);
     if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 60) continue;
     if (ents.some(e => hyp(e.x - x, e.y - y) < 110)) continue;
@@ -181,7 +230,7 @@ function genWorld(seed) {
     world.objs.push(o); gridAdd(o);
   }
   // Swamp reeds: cut them for hay bales and feather charms
-  for (let k = 0; k < 900; k++) {
+  for (let k = 0; k < Math.round(450 * SWAMPS.length); k++) {
     const s = pick(SWAMPS), a = rr(0, 6.28), d = rr(0, s.r * 1.05);
     const x = s.x + Math.cos(a) * d, y = s.y + Math.sin(a) * d;
     if (biomeAt(x, y) !== 3 || nearObjs(x, y, 40).some(q => hyp(q.x - x, q.y - y) < q.r + 22)) continue;
@@ -190,7 +239,7 @@ function genWorld(seed) {
   }
   // Ruins: cabins, broken walls and watchtowers with a loot chest (built from blocks in buildRuins)
   world.ruins = [];
-  const kinds = ['tower', 'cabin', 'ruin', 'cabin', 'tower', 'ruin', 'cabin', 'ruin'];
+  const kinds = Array.from({ length: Math.round(8 * A) }, (_, i) => ['tower', 'cabin', 'ruin', 'cabin', 'tower', 'ruin', 'cabin', 'ruin'][i % 8]);
   for (let tries = 0; world.ruins.length < kinds.length && tries < 3000; tries++) {
     const x = rr(300, WORLD - 300), y = rr(300, WORLD - 300);
     if (biomeAt(x, y) === 3 || hyp(x - PIT.x, y - PIT.y) < PIT.r + 250) continue;
@@ -208,8 +257,9 @@ function genWorld(seed) {
     && !world.landmarks.some(q => q.layer === 0 && hyp(q.x - x, q.y - y) < 500) && !FEAST_SITES.some(f => hyp(f.x - x, f.y - y) < 300);
   const flatness = (x, y, d) => { const hs = [[-d, -d], [d, -d], [-d, d], [d, d], [0, 0]].map(([a, b]) => heightAt(x + a, y + b)); return Math.max(...hs) - Math.min(...hs); };
   let best = null;
+  const inRegion = list => { const o = pick(list), a = rr(0, 6.28), d = rr(0, o.r * 0.75); return [clamp(o.x + Math.cos(a) * d, 250, WORLD - 250), clamp(o.y + Math.sin(a) * d, 250, WORLD - 250)]; };
   for (let i = 0; i < 900; i++) { // Frostpeak Shrine: the highest open ground in the mountains
-    const x = rr(250, WORLD - 250), y = rr(150, WORLD * 0.3);
+    const [x, y] = inRegion(world.mts);
     if (biomeAt(x, y) !== 2 || !clear(x, y, 60) || flatness(x, y, 40) > 40) continue;
     const h = heightAt(x, y); if (!best || h > best.h) best = { x, y, h };
   }
@@ -217,14 +267,14 @@ function genWorld(seed) {
   world.landmarks.push({ id: 'altar', x: SWAMPS[0].x, y: SWAMPS[0].y, layer: 0 });
   best = null;
   for (let i = 0; i < 900; i++) { // Sunken Forge: flat desert, away from everything
-    const x = rr(WORLD * 0.72, WORLD - 250), y = rr(WORLD * 0.3, WORLD - 250);
+    const [x, y] = inRegion(world.deserts);
     if (biomeAt(x, y) !== 1 || !clear(x, y, 110)) continue;
     const fl = flatness(x, y, 90); if (!best || fl < best.fl) best = { x, y, fl };
   }
   if (best) world.landmarks.push({ id: 'forge', x: best.x, y: best.y, layer: 0 });
   best = null;
   for (let i = 0; i < 900; i++) { // Crow's Nest: a clearing in the forest
-    const x = rr(300, WORLD * 0.66), y = rr(WORLD * 0.32, WORLD - 300);
+    const x = rr(300, WORLD - 300), y = rr(300, WORLD - 300);
     if (biomeAt(x, y) !== 0 || hyp(x - PIT.x, y - PIT.y) < PIT.r + 250 || !clear(x, y, 55)) continue;
     const fl = flatness(x, y, 40); if (!best || fl < best.fl) best = { x, y, fl };
   }
@@ -245,8 +295,8 @@ const LANDMARKS = {
 
 // Low-poly ground: a jittered triangle mesh, each face coloured by biome.
 function renderGround() {
-  const S = 0.5, c = document.createElement('canvas');
-  c.width = c.height = WORLD * S;
+  const S = Math.min(0.5, 2048 / WORLD), c = document.createElement('canvas');
+  c.width = c.height = Math.round(WORLD * S);
   const g = c.getContext('2d');
   const step = 80, n = WORLD / step, V = [];
   for (let j = 0; j <= n; j++) for (let i = 0; i <= n; i++) {

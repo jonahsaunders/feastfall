@@ -170,7 +170,7 @@ function startOnline(d) {
     return f;
   });
   const me = humans.find(f => f.id === NET.me);
-  newMatch(d.bots, me, d.seed, humans);
+  newMatch(d.bots, me, d.seed, humans, MAP_SIZES[d.sz] ? d.sz : 4800);
   for (const f of G.fighters) if (f.bot && !NET.isHost()) f.remote = true;
   G.human = me;
   VIEW.pitch = -0.05;
@@ -187,13 +187,39 @@ try { LOBBY.nick = localStorage.getItem('ff_nick') || ''; } catch (e) {}
 if (!LOBBY.nick) LOBBY.nick = 'Player' + Math.floor(Math.random() * 900 + 100);
 // Where online play comes from, in order: claude.ai's room capability (when the page is an
 // Artifact), the Feastfall relay server (npm start, or ?server=wss://…), or two local tabs.
+const DESKTOP = /Electron/i.test(navigator.userAgent), DESKTOP_PORT = 47800;
+// "192.168.1.5", "192.168.1.5:47800", "http://host:8080" or "wss://host/ws" -> a WebSocket address
+function serverUrlFrom(text) {
+  let t = String(text).trim();
+  if (!t) return null;
+  if (/^https?:\/\//i.test(t)) t = t.replace(/^http/i, 'ws');
+  if (!/^wss?:\/\//i.test(t)) {
+    if (!/:\d+$/.test(t.split('/')[0])) t = t.split('/')[0] + ':' + DESKTOP_PORT;
+    t = (location.protocol === 'https:' ? 'wss://' : 'ws://') + t;
+  }
+  return /\/ws$/.test(t) ? t : t.replace(/\/?$/, '/ws');
+}
+function wireServerForm(joinedOther) {
+  const form = $('#srv-form');
+  form.hidden = false;
+  $('#srv-home').hidden = !joinedOther;
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const url = serverUrlFrom($('#srv').value);
+    if (!url) { toast('Type the address your friend sees in their game, like 192.168.1.5:47800'); return; }
+    location.search = '?server=' + encodeURIComponent(url);
+  });
+  $('#srv-home').addEventListener('click', () => { location.search = ''; });
+}
 async function netInit() {
   const status = $('#net-status'), hint = $('#net-hint');
+  const params = new URLSearchParams(location.search), joinedOther = !!params.get('server');
+  if (!window.claude) wireServerForm(joinedOther);
   let room = null, kind = '';
   try { room = window.claude && window.claude.use ? await window.claude.use('room') : null; } catch (e) { room = null; }
   if (room) kind = 'claude';
   if (!room) {
-    const srv = new URLSearchParams(location.search).get('server') || window.FEASTFALL_SERVER;
+    const srv = params.get('server') || window.FEASTFALL_SERVER;
     if (srv) { room = wsRoom(srv === 'auto' ? (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws' : srv); kind = 'server'; }
   }
   if (!room && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)) { room = fakeRoom(); kind = 'local'; }
@@ -204,11 +230,21 @@ async function netInit() {
   }
   hint.textContent = {
     claude: 'Everyone plays on this page. To play together, share it with edit access (view-only access can’t send moves). Up to 16 players, plus bots.',
-    server: 'Send friends this page’s address. Everyone on the same server shares a lobby. Up to 16 players, plus bots.',
+    server: joinedOther ? `Connected to ${params.get('server').replace(/^wss?:\/\//, '').replace(/\/ws$/, '')}. Up to 16 players, plus bots.` : 'Everyone on the same server shares a lobby. Up to 16 players, plus bots.',
     local: 'Local test mode: open this page in a second tab to play against yourself.',
   }[kind];
   NET.lobby = room;
   $('#online-ui').hidden = false;
+  // Running our own server (npm start or the desktop app): tell friends on the network how to reach it
+  if (kind === 'server' && !joinedOther && window.FEASTFALL_SERVER === 'auto') {
+    fetch('info.json').then(r => r.json()).then(i => {
+      if (!i.lan || !i.lan.length) return;
+      const el = $('#lan-info'), addr = `${i.lan[0]}:${i.port}`, others = i.lan.slice(1, 3).map(a => `${a}:${i.port}`);
+      el.textContent = (DESKTOP ? `Friends on your network: type ${addr} under “Join a server”.` : `Friends on your network can open http://${addr} or type ${addr} under “Join a server”.`)
+        + (others.length ? ` If that doesn’t connect, try ${others.join(' or ')}.` : '');
+      el.hidden = false;
+    }).catch(() => {});
+  }
   $('#nick').value = LOBBY.nick;
   room.onPeers(ch => {
     const mine = ch.peers.find(p => p.sameTab);
@@ -294,7 +330,7 @@ function startHostedMatch() {
     .map(p => ({ p: p.peer, n: String(p.presence.n).slice(0, 18), k: p.presence.k, c: p.presence.c }));
   if (!roster.some(r => r.p === NET.me)) roster.unshift({ p: NET.me, n: LOBBY.nick, k: STORE.kit, c: LOBBY.color });
   roster.sort((a, b) => a.p < b.p ? -1 : 1);
-  const d = { seed: Math.floor(Math.random() * 1e9), bots: Math.min(MAX_ONLINE_BOTS, +$('#m-bots').value), len: +$('#m-len').value, host: NET.me, roster };
+  const d = { seed: Math.floor(Math.random() * 1e9), bots: Math.min(MAX_ONLINE_BOTS, +$('#m-bots').value), len: +$('#m-len').value, sz: +$('#m-size').value, host: NET.me, roster };
   NET.send('start', d);
   lobbyPresence({ started: true });
   startOnline(d);

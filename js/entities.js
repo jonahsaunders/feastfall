@@ -469,7 +469,7 @@ function pickupToast(stacks, left) {
 function updateRats(dt) {
   G.rats = G.rats.filter(r => !r.dead);
   const under = G.fighters.filter(f => f.alive && f.layer === 1);
-  if (G.rats.length < 34 && Math.random() < dt * 2) {
+  if (G.rats.length < Math.round(34 * WORLD / 3200) && Math.random() < dt * 2) {
     const n = world.nodes[Math.floor(Math.random() * world.nodes.length)];
     if (!under.some(f => hyp(f.x - n.x, f.y - n.y) < 300))
       G.rats.push({ x: n.x, y: n.y, hp: 3, kbx: 0, kby: 0, node: world.nodes.indexOf(n), a: 0 });

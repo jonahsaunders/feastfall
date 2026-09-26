@@ -37,21 +37,6 @@ const lam = (c, o = {}) => new T.MeshLambertMaterial({ color: c, ...o });
 const hsl = (h, s, l) => new T.Color().setHSL(h / 360, s / 100, l / 100);
 const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
 
-function heightAt(x, y) {
-  const u = clamp(x / WORLD, 0, 1), v = clamp(y / WORLD, 0, 1);
-  const a = world.n1(u, v), b = world.n2(u, v);
-  let h = (a - .5) * 46 + (b - .5) * 18;
-  const w = (a - .5) * 0.16 + (b - .5) * 0.06;
-  h += smooth(0.34, 0.16, v + w) * (30 + b * 230);              // mountains to the north
-  h += smooth(0.62, 0.74, u + w) * Math.sin(x / 150 + a * 7) * 13; // dunes to the east
-  for (const s of SWAMPS) {
-    const d = hyp(x - s.x, y - s.y) / s.r;
-    if (d < 1.25) h += (-7 + (b - .5) * 14 - h) * smooth(1.25, 0.8, d);
-  }
-  const dp = hyp(x - PIT.x, y - PIT.y) / PIT.r;
-  if (dp < 1.3) h += (-34 - h) * smooth(1.3, 1.0, dp);
-  return h;
-}
 const groundY = f => f.layer ? 0 : heightAt(f.x, f.y);
 
 // Shared geometry, pivot at the base where it matters

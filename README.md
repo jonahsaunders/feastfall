@@ -1,6 +1,6 @@
 # Feastfall
 
-A first-person, low-poly battle royale that runs in the browser. Drop into a forest, desert, mountain and swamp map with up to 99 other fighters, gather and craft, build towers and traps, and be the last one standing. There's no mindless pointing: you win by reading the map, managing potions and using height.
+A first-person, low-poly battle royale that runs in the browser or as a Windows app. Drop into a freshly generated forest, desert, mountain and swamp map with up to 99 other fighters, gather and craft, build towers and traps, and be the last one standing. There's no mindless pointing: you win by reading the map, managing potions and using height.
 
 - **Towers and falls.** Craft planks and cobblestone, place blocks, pillar-jump up and shoot from above. Fall damage is real, so knockback, grappling hooks and lightning all bring towers down.
 - **Four ways to play.** Hunt people, mine rats in the tunnels for armour, set spike traps near the swamp, or tower up.
@@ -10,12 +10,28 @@ A first-person, low-poly battle royale that runs in the browser. Drop into a for
 - **Five legendary items**, one of each per match, each waiting at its own landmark. See [Legendaries](#legendaries).
 - **Ladders.** Craft them, lean them against a wall and climb. No fall damage while you're on one.
 - **After you die:** spectate whoever's left, and see your damage dealt, blocks placed, longest fall and potions drunk. The menu keeps your lifetime record.
-- **Online multiplayer** for up to 16 players plus bots, through a small relay server included here.
+- **A new map every match.** Mountain ranges, deserts, swamps, ruins, landmarks and feast sites are placed at random from the match seed, in three sizes: Standard, Large (default) and Huge.
+- **Online multiplayer** for up to 16 players plus bots, through a small relay server included here. The desktop app runs that server for you.
 - **Everything is generated in code:** the low-poly world, the item icons and the ambient music and sound effects. There are no asset files.
 
 ## Play
 
-### Solo (no install)
+### Desktop app (Windows)
+
+Download `Feastfall-Setup-<version>.exe` (installer) or `Feastfall-<version>-portable.exe` (runs without installing) from the releases, or build them yourself:
+
+```bash
+npm install
+npm run dist
+```
+
+The files land in `dist/`. To run from source without building, use `npm run desktop`.
+
+The app runs its own game server. Your online panel shows your address on the local network (for example `192.168.1.160:47800`): friends on the same network type it under **Join a server**. The first time you open the app, Windows asks whether to let it through the firewall. Allow it on private networks if you want friends to join. F11 toggles fullscreen.
+
+The builds aren't code-signed, so Windows SmartScreen says "Windows protected your PC" the first time. Choose **More info → Run anyway**.
+
+### In the browser, solo (no install)
 
 Serve the folder with any static file server and open it in a desktop browser (you need a keyboard and mouse):
 
@@ -27,14 +43,14 @@ or `python -m http.server 8000`. Opening `index.html` straight from disk won't w
 
 Solo play also works on **GitHub Pages**: push the repository and turn on Pages for the main branch.
 
-### Online with friends
+### In the browser, online with friends
 
 ```bash
 npm install
 npm start
 ```
 
-Open `http://localhost:8080`. The page connects back to the same server, so everyone who opens that address shares a lobby. One player clicks **Host a match**, everyone else clicks **Join**, and the host starts it. To play over the internet, run the server on any Node host (Render, Fly.io, Railway, a VPS) and share its address. Set `PORT` to change the port.
+Open `http://localhost:8080`. The page connects back to the same server, so everyone who opens that address shares a lobby. The online panel shows the address friends on your network can open. Browser players and desktop players can play together: either one can type the other's address under **Join a server**. One player clicks **Host a match**, everyone else clicks **Join**, and the host starts it. To play over the internet, run the server on any Node host (Render, Fly.io, Railway, a VPS) and share its address. Set `PORT` to change the port.
 
 To keep the page on GitHub Pages and run only the server elsewhere, set the server address in `config.js`:
 
@@ -83,7 +99,7 @@ In the inventory: click to pick up and put down, right-click to split a stack, s
 
 ## How it's built
 
-Plain JavaScript, no build step. [three.js](https://threejs.org/) r128 is loaded from cdnjs, and fonts come from Google Fonts.
+Plain JavaScript, no build step for the browser version. [three.js](https://threejs.org/) r128 and the Saira and JetBrains Mono fonts are bundled in `vendor/`. The desktop app is built with [Electron](https://www.electronjs.org/) and electron-builder.
 
 | File | What it does |
 | --- | --- |
@@ -100,6 +116,8 @@ Plain JavaScript, no build step. [three.js](https://threejs.org/) r128 is loaded
 | `js/audio.js` | Generated ambient music and positional sound effects |
 | `js/main.js` | Game loop, input, HUD, inventory screen, menus, kit store |
 | `server.js` | Static file server plus a WebSocket relay for multiplayer |
+| `desktop/main.js` | The Windows app: starts `server.js` inside the app and opens the game window |
+| `vendor/` | three.js r128 (MIT) and the fonts (SIL Open Font License), bundled so the game works offline |
 
 ### Multiplayer model
 

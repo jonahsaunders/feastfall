@@ -2,7 +2,7 @@
 // Match flow, input, HUD, inventory screen, screens (Play ↔ Options ↔ Game → Lose → Play), kit store.
 const $ = s => document.querySelector(s);
 function setHTML(sel, html) { const el = $(sel); if (el._h !== html) { el._h = html; el.innerHTML = html; } }
-G.settings = { len: 8, bots: 23, snow: true, dmgNums: true, shadows: true, sens: 1, vol: 0.6, fov: 75, tips: true };
+G.settings = { len: 8, bots: 23, snow: true, dmgNums: true, shadows: true, sens: 1, vol: 0.6, fov: 75, tips: true, mapSize: 4800 };
 G.mode = 'menu';
 const STORE = { coins: 150, owned: [], kit: 'killer', life: { matches: 0, wins: 0, kills: 0, best: 0, fall: 0 } };
 try { const s = JSON.parse(localStorage.getItem('ff_store')); if (s) Object.assign(STORE, s); } catch (e) {}
@@ -43,8 +43,8 @@ function makeBot(name, id) {
   return b;
 }
 // Deterministic from the seed, so every player in an online match builds the same world and bots.
-function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans = null) {
-  genWorld(seed);
+function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans = null, size = G.settings.mapSize) {
+  genWorld(seed, MAP_SIZES[size] ? size : 4800);
   resetBlocks();
   buildRuins();
   buildLandmarks();
@@ -57,7 +57,7 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
   for (let i = 0; i < nBots; i++) all.push(makeBot(names[i % names.length] + (i >= names.length ? String(Math.floor(i / names.length) + 1) : ''), 'b' + i));
   for (const f of all) { const p = spawnPoint(taken, f.kit === 'finder'); Object.assign(f, { x: p.x, y: p.y, z: heightAt(p.x, p.y), onGround: true }); taken.push(p); G.fighters.push(f); }
   if (!NET.on || NET.isHost()) {
-    for (let i = 0; i < 18; i++) spawnPot();
+    for (let i = 0; i < potCap(); i++) spawnPot();
     for (const r of world.ruins) addItem({ kind: 'chest', x: r.x, y: r.y, z: r.chestZ, layer: 0, stacks: ruinLoot(r) });
     for (const m of world.landmarks) addItem({ kind: 'relic', x: m.x, y: m.y, z: m.chestZ, layer: m.layer, stacks: [{ id: LANDMARKS[m.id].item, n: 1 }, { id: 'pot', n: 2 }] });
   }
@@ -71,6 +71,7 @@ function ruinLoot(r) {
   else { add(pick(['stone', 'wood', 'iron']), n(3, 6)); add(pick(['hay', 'spike', 'arrow']), pick([2, 3, 6])); }
   return s;
 }
+const potCap = () => Math.round(18 * WORLD / 3200);
 function spawnPot() {
   for (let i = 0; i < 30; i++) {
     const s = pick(SWAMPS), a = rr(0, 6.28), d = rr(0, s.r);
@@ -84,8 +85,8 @@ let camFocus = null;
 function startAttract() {
   NET.on = false;
   G.grace = 0;
-  newMatch(12, null);
-  G.human = { x: 1600, y: 1600, z: 0, layer: 0, biome: 0, alive: false, face: 0, id: 'cam' };
+  newMatch(12, null, undefined, null, 3200); // a small map behind the menu loads fast
+  G.human = { x: PIT.x, y: PIT.y, z: 0, layer: 0, biome: 0, alive: false, face: 0, id: 'cam' };
   camFocus = null;
 }
 function startGame() {
@@ -333,7 +334,7 @@ function step(dt) {
   potT += dt;
   if (potT > 3) {
     potT = 0; G.items = G.items.filter(i => !i.gone);
-    if ((!NET.on || NET.isHost()) && G.items.filter(i => i.stacks && i.stacks.length === 1 && i.stacks[0].id === 'pot').length < 18) spawnPot();
+    if ((!NET.on || NET.isHost()) && G.items.filter(i => i.stacks && i.stacks.length === 1 && i.stacks[0].id === 'pot').length < potCap()) spawnPot();
   }
   netTick(dt);
 }
@@ -674,7 +675,7 @@ function fillOptions() {
   $('#o-bots-v').textContent = G.settings.bots;
   $('#o-snow').checked = G.settings.snow; $('#o-dmg').checked = G.settings.dmgNums;
   $('#o-shadows').checked = G.settings.shadows; $('#o-sens').value = G.settings.sens; $('#o-vol').value = G.settings.vol;
-  $('#o-fov').value = G.settings.fov; $('#o-fov-v').textContent = G.settings.fov; $('#o-tips').checked = G.settings.tips;
+  $('#o-fov').value = G.settings.fov; $('#o-fov-v').textContent = G.settings.fov; $('#o-tips').checked = G.settings.tips; $('#o-map').value = G.settings.mapSize;
 }
 $('#o-len').addEventListener('change', e => { G.settings.len = +e.target.value; save(); });
 $('#o-bots').addEventListener('input', e => { G.settings.bots = +e.target.value; $('#o-bots-v').textContent = e.target.value; save(); });
@@ -684,6 +685,7 @@ $('#o-shadows').addEventListener('change', e => { G.settings.shadows = e.target.
 $('#o-sens').addEventListener('input', e => { G.settings.sens = +e.target.value; save(); });
 $('#o-vol').addEventListener('input', e => { G.settings.vol = +e.target.value; Sfx.setVolume(G.settings.vol); save(); });
 $('#o-fov').addEventListener('input', e => { G.settings.fov = +e.target.value; $('#o-fov-v').textContent = e.target.value; save(); });
+$('#o-map').addEventListener('change', e => { G.settings.mapSize = +e.target.value; save(); });
 $('#o-tips').addEventListener('change', e => { G.settings.tips = e.target.checked; save(); });
 $('#o-tips-reset').addEventListener('click', () => { tipsSeen = []; try { localStorage.removeItem('ff_tips'); } catch (e) {} toast('Tips will show again'); $('#o-tips-reset').textContent = 'Tips reset'; });
 $('#btn-spec').addEventListener('click', startSpectate);

@@ -5,9 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Feastfall: a first-person, low-poly battle royale about towers, traps, feasts and long falls.">
 <title>Feastfall</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Saira+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <style>
   :root {
     color-scheme: dark;
@@ -208,6 +206,10 @@
   .online { border: 1px solid var(--line); background: var(--moss); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
   .online .field input { background: var(--moss-2); color: var(--bone); border: 1px solid var(--line); padding: 5px 8px; font: inherit; width: 150px; }
   #net-count { font: 500 12px var(--mono); color: var(--dim); }
+  .srv-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .srv-row label { font-size: 14px; }
+  .srv-row input { flex: 1 1 150px; min-width: 0; background: var(--moss-2); color: var(--bone); border: 1px solid var(--line); padding: 5px 8px; font: 500 13px var(--mono); }
+  #lan-info { color: var(--gold); }
   #matches { display: flex; flex-direction: column; gap: 4px; }
   .match-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; background: var(--moss-2); padding: 5px 8px; }
   .match-row small { font: 500 12px var(--mono); color: var(--dim); }
@@ -251,6 +253,13 @@
     <div class="online">
       <div class="label">Play online</div>
       <p id="net-status" class="hint">Connecting…</p>
+      <p id="lan-info" class="hint" hidden></p>
+      <form id="srv-form" class="srv-row" hidden>
+        <label for="srv">Join a server</label>
+        <input id="srv" placeholder="192.168.1.5:47800" autocomplete="off" spellcheck="false">
+        <button class="btn ghost small">Connect</button>
+        <button type="button" class="btn ghost small" id="srv-home" hidden>Back to my lobby</button>
+      </form>
       <div id="online-ui" hidden>
         <div class="field"><label for="nick">Your name</label><input id="nick" maxlength="18" autocomplete="off"></div>
         <span id="net-count"></span>
@@ -261,6 +270,8 @@
           <ul id="match-players"></ul>
           <div id="host-controls" hidden>
             <div class="field"><label for="m-bots">Bots to fill the lobby · <b id="m-bots-v">20</b></label><input id="m-bots" type="range" min="0" max="45" step="1" value="20"></div>
+            <div class="field"><label for="m-size">Map size</label>
+              <select id="m-size"><option value="3200">Standard</option><option value="4800" selected>Large</option><option value="6400">Huge</option></select></div>
             <div class="field"><label for="m-len">Match length</label>
               <select id="m-len"><option value="5">5 min</option><option value="8" selected>8 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></div>
             <button class="btn" id="btn-start">Start match</button>
@@ -309,6 +320,8 @@
         <option value="30">30 real minutes</option>
         <option value="60">60 minutes (as designed)</option>
       </select></div>
+    <div class="field"><label for="o-map">Map size</label>
+      <select id="o-map"><option value="3200">Standard</option><option value="4800">Large</option><option value="6400">Huge</option></select></div>
     <div class="field"><label for="o-bots">Bots in solo matches · <b id="o-bots-v">23</b></label>
       <input id="o-bots" type="range" min="3" max="99" step="1"></div>
     <div class="field"><label for="o-snow">Snowstorm in the mountains</label><input id="o-snow" type="checkbox"></div>
@@ -318,7 +331,7 @@
     <div class="field"><label for="o-vol">Music and sound</label><input id="o-vol" type="range" min="0" max="1" step="0.05"></div>
     <div class="field"><label for="o-fov">Field of view · <b id="o-fov-v">75</b>°</label><input id="o-fov" type="range" min="60" max="100" step="1"></div>
     <div class="field"><label for="o-tips">Tips for new players</label><span class="row"><button class="btn ghost small" id="o-tips-reset" type="button">Show again</button><input id="o-tips" type="checkbox"></span></div>
-    <p class="hint">Match length and bot count apply to the next solo match. 99 bots is the design doc’s 100-player lobby and needs a fast computer.</p>
+    <p class="hint">Map size, match length and bot count apply to the next solo match. Every map is generated fresh. 99 bots is the design doc’s 100-player lobby and needs a fast computer.</p>
     <div class="row">
       <button class="btn" id="opt-resume">Resume</button>
       <button class="btn ghost" id="opt-leave">Leave match</button>
@@ -391,7 +404,7 @@
 <div id="cursor-stack" hidden></div>
 
 <script src="config.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="vendor/three.min.js"></script>
 <script src="js/world.js"></script>
 <script src="js/blocks.js"></script>
 <script src="js/audio.js"></script>
