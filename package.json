@@ -1,6 +1,6 @@
 {
   "name": "feastfall",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "A first-person, low-poly battle royale about towers, traps, feasts and long falls.",
   "private": true,
   "main": "desktop/main.js",
