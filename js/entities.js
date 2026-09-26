@@ -73,7 +73,7 @@ function power(f) {
 }
 function pvpOn() { return G.clockMin >= G.grace; }
 function jump(f, v = JUMP_V) {
-  if (!f.onGround) return false;
+  if (!f.onGround || f.pitT > 0) return false;
   if (isTitan(f)) v *= 1.3;
   f.vz = v; f.onGround = false; f.peakZ = f.z;
   return true;
@@ -115,6 +115,7 @@ function applyHit(t, m) {
   const src = m.by ? fighterById(m.by) : null;
   if (m.nofall) { t.noFallT = m.nofall; if (t === G.human) toast('You won the duel: you’ll land safely'); }
   if (src) { t.lastHitBy = src; t.lastHitT = G.t; }
+  if (m.shrink) shrinkNow(t);
   if (m.tp) Object.assign(t, { x: m.tp[0], y: m.tp[1], z: m.tp[2], vz: 0, onGround: false, peakZ: m.tp[2], kbx: 0, kby: 0, gather: null });
   if (m.pull) {
     t.kbx = Math.cos(m.pull[0]) * m.pull[1]; t.kby = Math.sin(m.pull[0]) * m.pull[1]; t.gather = null; t.hidden = false;
@@ -144,10 +145,35 @@ function announceKill(t, killer, fell) {
     if (!killer.remote && killer.kit === 'leech' && killer.alive) killer.hp = Math.min(killer.maxHp, killer.hp + 8);
     if (killer === G.human) { G.coinsEarned += 50; Sfx.play('kill'); toast(`You eliminated ${t.name}`); G.killFlash = 0.6; }
   }
-  G.feed.unshift({ txt: killer ? `${killer.name} ⟶ ${t.name}` : `${t.name} ${fell ? 'fell' : t.diedTo === 'lava' ? 'burned' : 'died'}`, t: 7, you: t === G.human || killer === G.human });
-  if (t === G.human) { G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : t.diedTo || 'the pit'; endGame(false); }
+  G.feed.unshift({ txt: killer ? `${killer.name} ⟶ ${t.name}` : `${t.name} ${fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : 'died'}`, t: 7, you: t === G.human || killer === G.human });
+  if (killer) streakCallout(killer, t, fell);
+  if (G.bounty === t) claimBounty(t, killer);
+  if (t === G.human) { G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : { lava: 'lava', pitfall: 'a pitfall' }[t.diedTo] || 'the pit'; endGame(false); }
   checkWin();
 }
+// Kill streaks and special kills: everyone sees them in the feed, and your own get a callout and 25 coins
+const MULTI = ['', '', 'Double kill', 'Triple kill', 'Quadra kill', 'Rampage'];
+const SPREE = { 3: 'Killing spree', 5: 'Rampage', 8: 'Unstoppable', 12: 'Legendary' };
+function streakCallout(k, t, fell) {
+  k.streak = (k.streak || 0) + 1;
+  k.multi = G.t - (k.lastKillT ?? -99) < 10 ? (k.multi || 1) + 1 : 1;
+  k.lastKillT = G.t;
+  const calls = [];
+  if (k.multi >= 2) calls.push(MULTI[Math.min(5, k.multi)]);
+  if (SPREE[k.streak]) calls.push(`${SPREE[k.streak]}: ${k.streak} kills`);
+  if (t.diedTo === 'pitfall') calls.push('Pitfall');
+  else if (fell) calls.push('Knocked off');
+  else if (t.diedTo === 'lava') calls.push('Burned');
+  else if (hyp(k.x - t.x, k.y - t.y) > 750) calls.push('Long shot');
+  if (!calls.length) return;
+  G.feed.unshift({ txt: `${k.name}: ${calls.join(' · ')}`, t: 6, you: k === G.human, streak: true });
+  if (k === G.human) {
+    showStreak(calls[0], calls.slice(1).join(' · '));
+    if (k.multi >= 2 || SPREE[k.streak]) G.coinsEarned += 25;
+  }
+}
+// Allies (bots that have teamed up) don't hurt each other
+const allied = (a, b) => !!(a && b && a.team && a.team === b.team);
 function checkWin() {
   const alive = G.fighters.filter(f => f.alive && !f.isClone);
   if (alive.length !== 1) return;
@@ -183,7 +209,7 @@ function swing(f, armed = true) {
   const reach = f.r + 44 * big, kb = (maul ? 720 : 300) * (titan ? 1.8 : 1);
   let hit = false;
   for (const t of G.fighters) {
-    if (t === f || !t.alive || t.layer !== f.layer || t.owner === f) continue;
+    if (t === f || !t.alive || t.layer !== f.layer || t.owner === f || allied(t, f)) continue;
     if (t.z - f.z > 50 * big || f.z - t.z > 50 * (t.size || 1)) continue;
     const a = Math.atan2(t.y - f.y, t.x - f.x);
     if (hyp(t.x - f.x, t.y - f.y) - t.r < reach && Math.abs(angDiff(f.face, a)) < 1.0 && hurt(t, dmg, f, a, kb, maul ? 400 : 0)) {
@@ -306,6 +332,8 @@ function useKit(f, ax, ay) {
     }
     case 'titan':
       if (f.layer) { if (f === G.human) toast('There’s no room to grow down here'); return false; }
+      if (inDuel(f)) { if (f === G.human) toast('You can’t grow inside a duel arena'); return false; }
+      if (!roomToGrow(f)) { if (f === G.human) toast('Not enough room to grow here'); return false; }
       f.titanT = TITAN_TIME;
       addFx('ring', f.x, f.y, f.layer, { col: '#e2733b', big: true, z: f.z + 2 });
       Sfx.play('grow', f.x, f.y, f.z);
@@ -373,8 +401,22 @@ function swapPlaces(o, t) {
   if (t.remote) NET.hit(t, m); else applyHit(t, m);
   addFx('puff', o.x, o.y, o.layer, { col: '#e8f4ff', z: o.z + 30 }); addFx('puff', op[0], op[1], o.layer, { col: '#e8f4ff', z: op[2] + 30 });
 }
+// Titans need clear space above and around them: a roof or the duel cage would trap them
+const inDuel = f => (G.duels || []).some(d => d.a === f || d.b === f);
+function roomToGrow(f) {
+  const r = 13 * TITAN_SIZE;
+  for (let i = Math.floor((f.x - r) / B); i <= Math.floor((f.x + r) / B); i++)
+    for (let k = Math.floor((f.y - r) / B); k <= Math.floor((f.y + r) / B); k++)
+      for (let j = Math.floor((f.z + STEP) / B); j <= Math.floor((f.z + FH * TITAN_SIZE) / B); j++)
+        if (solidAt(i, j, k)) return false;
+  return true;
+}
+// Back to normal size at once (a duel is starting)
+function shrinkNow(f) { f.titanT = 0; f.size = 1; f.r = 13; }
 // Duelist: a glass box in the sky around both fighters. The duelist's machine removes it when the duel ends.
+// Titans shrink straight away: the box is only 4 blocks tall inside.
 function startDuel(f, t) {
+  shrinkNow(f);
   const cx = (f.x + t.x) / 2, cy = (f.y + t.y) / 2, ci = Math.floor(cx / B), ck = Math.floor(cy / B);
   const base = Math.floor(Math.max(heightAt(cx, cy), f.z, t.z) / B) + 16, cells = [];
   for (let di = -3; di <= 3; di++) for (let dk = -3; dk <= 3; dk++) for (let j = base; j <= base + 5; j++) {
@@ -383,7 +425,7 @@ function startDuel(f, t) {
   for (const [i, j, k] of cells) setArena(i, j, k);
   const floor = (base + 1) * B;
   Object.assign(f, { x: (ci - 1.5) * B, y: (ck + .5) * B, z: floor, vz: 0, onGround: false, peakZ: floor, kbx: 0, kby: 0 });
-  const m = { tp: [Math.round((ci + 2.5) * B), Math.round((ck + .5) * B), floor], by: f.id };
+  const m = { tp: [Math.round((ci + 2.5) * B), Math.round((ck + .5) * B), floor], by: f.id, shrink: 1 };
   if (t.remote) NET.hit(t, m); else applyHit(t, m);
   G.duels = G.duels || [];
   G.duels.push({ owner: f, a: f, b: t, cells, t: 45 });
@@ -486,6 +528,18 @@ function land(f, fall, onType) {
   hurtRaw(f, dmg, null);
   if (f.alive) f.fellLast = false;
 }
+// Pitfall: the trapdoor gives way. You drop chest-deep into a hole, take a hit and can't get out for 2.5 seconds.
+function fallInPit(f, tr) {
+  const owner = fighterById(tr.b.owner), x = (tr.i + .5) * B, y = (tr.k + .5) * B;
+  breakBlock(tr.i, tr.j, tr.k, null);
+  Object.assign(f, { pitT: 2.5, gather: null, kbx: 0, kby: 0, hidden: false, x, y });
+  addFx('hole', x, y, 0, { t: 6, z: f.z + 0.6 });
+  NET.fx({ k: 'hole', x: Math.round(x), y: Math.round(y), z: Math.round(f.z) });
+  Sfx.play('fall', x, y, f.z);
+  if (f === G.human) toast('You fell into a pitfall! Stuck for a moment');
+  else if (owner === G.human) toast(`${f.name} fell into your pitfall`);
+  if (pvpOn() || !owner) { f.diedTo = 'pitfall'; hurtRaw(f, 3, owner); if (f.alive) f.diedTo = null; }
+}
 // Titan landing: a shockwave that throws everyone nearby
 function titanStomp(f) {
   addFx('ring', f.x, f.y, f.layer, { col: '#c9a26a', big: true, z: f.z + 1 });
@@ -521,7 +575,7 @@ function pourBucket(f, slot, i, j, k) {
 
 // ---- per-frame physics for a fighter we simulate ----
 function updateFighter(f, dt) {
-  for (const k of ['atkCd', 'kitCd', 'invuln', 'speedT', 'hurtT', 'swingT', 'punchT', 'drinkCd', 'slowT', 'spikeCd', 'noFallT', 'skyCd', 'titanT']) if (f[k] > 0) f[k] -= dt;
+  for (const k of ['atkCd', 'kitCd', 'invuln', 'speedT', 'hurtT', 'swingT', 'punchT', 'drinkCd', 'slowT', 'spikeCd', 'noFallT', 'skyCd', 'titanT', 'pitT']) if (f[k] > 0) f[k] -= dt;
   // Titan: grow and shrink smoothly; the collision circle grows too
   const want = f.titanT > 0 && !f.layer ? TITAN_SIZE : 1;
   if (f.size !== want) {
@@ -543,7 +597,7 @@ function updateFighter(f, dt) {
   if (f.sneak) sp *= 0.35;
   if (f.slowT > 0) sp *= 0.45;
   if (f.charge >= 0) { sp *= 0.55; f.charge = Math.min(1, f.charge + dt / 0.8); }
-  if (f.refillT > 0 || f.gather) sp = 0;
+  if (f.refillT > 0 || f.gather || f.pitT > 0) sp = 0;
   let mx = f.mx, my = f.my;
   const ml = hyp(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
   if (f.hidden && ml > 0.1) f.hidden = false;
@@ -619,7 +673,9 @@ function updateFighter(f, dt) {
     }
     // Traps: spikes, blast traps and launch pads; snare turf gives way under anyone but its owner
     const tr = !f.isClone ? trapAt(f) : null, trap = tr && tr.b;
-    if (trap && trap.type === 'pad') {
+    if (trap && trap.type === 'pitfall') {
+      if (trap.owner !== f.id && !(f.pitT > 0)) fallInPit(f, tr);
+    } else if (trap && trap.type === 'pad') {
       if (f.onGround && !(f.padCd > G.t)) {
         f.padCd = G.t + 0.6; jump(f, 900);
         if (trap.owner === f.id) f.noFallT = 6;
@@ -766,7 +822,7 @@ function updateProj(dt) {
     // Only the shooter's machine decides hits; everyone else just draws the arrow
     if (p.ghost || p.owner.remote) { for (const t of G.fighters) if (p.life > 0 && t !== p.owner && t.alive && t.layer === p.layer && hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + fh(t) + 4) p.life = 0; continue; }
     for (const t of G.fighters) {
-      if (p.life <= 0 || t === p.owner || !t.alive || t.layer !== p.layer || t.owner === p.owner) continue;
+      if (p.life <= 0 || t === p.owner || !t.alive || t.layer !== p.layer || t.owner === p.owner || allied(t, p.owner)) continue;
       if (hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + fh(t) + 4) {
         const a = Math.atan2(p.vy, p.vx);
         if (resists(t)) { addFx('ring', t.x, t.y, t.layer, { col: '#8fa3a8', z: t.z + 30 }); }

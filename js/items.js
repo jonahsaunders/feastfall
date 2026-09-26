@@ -22,6 +22,7 @@ const ITEMS = {
   blast:  { name: 'Blast Trap', stack: 8, cat: 'block', block: 'blast', desc: 'Tripwire’s trap. Blows apart nearby blocks and launches whoever steps on it (not you).' },
   turf:   { name: 'Snare Turf', stack: 32, cat: 'block', block: 'turf', desc: 'Snare’s fake ground. Looks like the terrain but gives way under anyone but you. Place it over a spike trap.' },
   pad:    { name: 'Launch Pad', stack: 16, cat: 'block', block: 'pad', desc: 'Updraft’s pad. Flings whoever steps on it about 14 blocks up. Off your own pads you land safely.' },
+  pitfall: { name: 'Pitfall', stack: 16, cat: 'block', block: 'pitfall', desc: 'A trapdoor that passes for the ground. Anyone but you who steps on it drops into a hole: 3 damage and stuck for 2.5 seconds. Look closely and you can spot them.' },
   ladder: { name: 'Ladder', stack: 64, cat: 'block', block: 'ladder', desc: 'Place against a wall or on the ground. Walk into it (or hold Space) to climb; Shift to hold still. No fall damage while on a ladder.' },
   charm:  { name: 'Feather Charm', stack: 8, cat: 'use', desc: 'Keep it anywhere in your inventory: it is used up to block one fall of 7+ blocks.' },
   bucket: { name: 'Bucket', stack: 16, cat: 'use', desc: 'Right click on swamp water, a lava pool, or poured water or lava to fill it.' },
@@ -61,6 +62,7 @@ const RECIPES = [
   { out: 'hay', cost: { reed: 3 }, cat: 'Blocks' },
   { out: 'spike', cost: { wood: 1, stone: 2 }, cat: 'Blocks' },
   { out: 'ladder', n: 4, cost: { wood: 2 }, cat: 'Blocks' },
+  { out: 'pitfall', n: 2, cost: { wood: 2, stone: 1 }, cat: 'Blocks' },
   { out: 'blast', cost: { stone: 2, iron: 1 }, cat: 'Blocks', kit: 'tripwire' },
   { out: 'turf', n: 4, cost: { wood: 1 }, cat: 'Blocks', kit: 'snare' },
   { out: 'pad', n: 2, cost: { wood: 1, reed: 1 }, cat: 'Blocks', kit: 'updraft' },
@@ -213,6 +215,10 @@ function paintIcon(id, kit) {
     L([[12, 9], [14, 5]], '#e6dfcc', 1.2); g.fillStyle = '#ffd24a'; g.beginPath(); g.arc(14.5, 4.5, 1.6, 0, 7); g.fill();
   } else if (id === 'pad') {
     P([[3, 16], [21, 16], [21, 20], [3, 20]], '#2f7d75'); P([[12, 3], [18, 10], [14.5, 10], [14.5, 15], [9.5, 15], [9.5, 10], [6, 10]], '#dff7f3', '#2f7d75');
+  } else if (id === 'pitfall') { // a trapdoor, slightly open over a dark hole
+    P([[3, 12], [21, 12], [21, 20], [3, 20]], '#1c1712');
+    P([[3, 12], [21, 12], [19, 7], [5, 7]], '#8a5a2e', '#5a3a1c'); L([[7, 9.5], [17, 9.5]], '#5a3a1c', 0.8);
+    L([[3, 20], [21, 20]], '#6b8a4a', 1.6);
   } else if (it.block && it.block !== 'spike' && it.block !== 'ladder') cube(BLOCKS[it.block].color);
   else if (it.tier) {
     const col = WCOL[it.tier];

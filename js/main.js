@@ -49,7 +49,7 @@ function loneliestPoint(taken) {
 function makeBot(name, id) {
   const kits = Object.keys(KITS).filter(k => !KITS[k].locked);
   const b = new Fighter(name, pick(kits), true, id);
-  Object.assign(b, { style: pick(STYLES), react: rr(0.3, 0.5), side: 1, side2: rng() < .5 ? -1 : 1 });
+  Object.assign(b, { style: pick(STYLES), react: rr(0.3, 0.5), side: 1, side2: rng() < .5 ? -1 : 1, bountyKeen: rng() < 0.3 });
   if (['tripwire', 'snare', 'updraft'].includes(b.kit)) b.style = 'trapper';
   return b;
 }
@@ -60,7 +60,8 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
   buildRuins();
   buildLandmarks();
   Object.assign(G, { fighters: [], rats: [], proj: [], fx: [], items: [], pings: [], feed: [], itemSeq: 0, t: 0, clockMin: 0, graceDone: false, feast: null, pit: false, over: false, coinsEarned: 0, killedBy: null,
-    winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, duels: [], killer: null, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0 } });
+    winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, duels: [], killer: null, teams: [], teamSeq: 0, allyT: 0,
+    bounty: null, bountySeen: null, bountyPingT: 0, bountyCheck: 0, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0 } });
   replayReset();
   const names = [...BOT_NAMES];
   for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
@@ -430,6 +431,92 @@ function updateNear() {
   });
 }
 
+// ---------- footsteps: anyone walking makes noise. Hard floors carry further, snowstorms muffle, sneaking is silent ----------
+const STEP_RANGE = { grass: 300, sand: 260, snow: 170, stone: 520, wood: 480, water: 360, big: 850 };
+let stepBudget = 0;
+function surfaceUnder(f) {
+  if (f.layer) return 'stone';
+  if (f.inLiq === 'water') return 'water';
+  const b = blockAt(Math.floor(f.x / B), Math.floor((f.z - 1) / B), Math.floor(f.y / B));
+  if (b) return b.type === 'cobble' || b.type === 'arena' ? 'stone' : b.type === 'water' ? 'water' : 'wood';
+  if (hyp(f.x - PIT.x, f.y - PIT.y) < PIT.r) return 'stone';
+  return ['grass', 'sand', 'snow', 'water'][biomeAt(f.x, f.y)];
+}
+function footsteps(dt) {
+  const L = VIEW.focus || G.human;
+  if (!L) return;
+  stepBudget = Math.min(6, stepBudget + dt * 30); // at most ~30 steps a second, however crowded
+  for (const f of G.fighters) {
+    const moved = hyp(f.x - (f.stepX ?? f.x), f.y - (f.stepY ?? f.y));
+    f.stepX = f.x; f.stepY = f.y;
+    if (!f.alive || f.layer !== L.layer || f.hidden || moved > 60 || moved < 0.2 || f.pitT > 0) continue;
+    const grounded = f.remote ? f.z - (f.layer ? 0 : heightAt(f.x, f.y)) < 4 || !!blockAt(Math.floor(f.x / B), Math.floor((f.z - 1) / B), Math.floor(f.y / B)) : f.onGround;
+    if (!grounded || (f.remote ? f.net.sn : f.sneak)) continue;
+    const size = f.size || 1;
+    if ((f.stepAcc = (f.stepAcc || 0) + moved) < 56 * size) continue;
+    f.stepAcc = 0;
+    const surf = size > 1.5 ? 'big' : surfaceUnder(f), range = STEP_RANGE[surf];
+    if (hyp(f.x - L.x, f.y - L.y) > range || stepBudget < 1) continue;
+    stepBudget--;
+    Sfx.step(surf, f.x, f.y, f.z, range, f === L ? 0.35 : 1);
+  }
+}
+
+// ---------- bounty: the top killer (3+ kills) shows on everyone's map every 30 seconds ----------
+const BOUNTY_MIN = 3, BOUNTY_PING = 30;
+const bountyReward = f => 50 + 25 * f.kills;
+function updateBounty(dt) {
+  if (G.bounty && !G.bounty.alive) setBounty(null);
+  if ((!NET.on || NET.isHost()) && (G.bountyCheck -= dt) <= 0) { // the host (or a solo game) picks the target
+    G.bountyCheck = 3;
+    let top = null;
+    for (const f of G.fighters) if (f.alive && !f.isClone && f.kills >= BOUNTY_MIN && (!top || f.kills > top.kills)) top = f;
+    if (top && top !== G.bounty && (!G.bounty || top.kills > G.bounty.kills)) { setBounty(top); NET.fx({ k: 'bounty', o: top.id }); }
+  }
+  const b = G.bounty;
+  if (b && G.t >= G.bountyPingT) {
+    G.bountyPingT = G.t + BOUNTY_PING;
+    G.bountySeen = { x: b.x, y: b.y, layer: b.layer, t: G.t };
+    if (b === G.human) toast('Your position was just shown to everyone');
+  }
+}
+function setBounty(f) {
+  G.bounty = f; G.bountySeen = null;
+  if (!f) return;
+  G.bountyPingT = G.t;
+  G.feed.unshift({ txt: `Bounty on ${f.name} · ${f.kills} kills`, t: 8, relic: true });
+  if (f === G.human) banner('There’s a bounty on you', `Everyone sees where you are every ${BOUNTY_PING} seconds. Stay alive.`);
+  else if (G.human.alive) toast(`Bounty on ${f.name}: kill them for ${bountyReward(f)} coins`);
+}
+function claimBounty(t, killer) {
+  const r = bountyReward(t);
+  G.feed.unshift({ txt: killer ? `${killer.name} claimed the bounty on ${t.name}` : `The bounty on ${t.name} is gone`, t: 8, relic: true });
+  if (killer === G.human) { G.coinsEarned += r; banner('Bounty claimed', `${t.name} is down · +${r} coins`); }
+  G.bounty = null; G.bountySeen = null;
+}
+function bountyLine() {
+  const b = G.bounty, h = G.human;
+  if (!b) return '';
+  if (b === h) return `Bounty on you · shown to everyone in ${Math.max(0, Math.ceil(G.bountyPingT - G.t))}s`;
+  const s = G.bountySeen;
+  let line = `★ Bounty: ${b.name} · ${b.kills} kills`;
+  if (s) {
+    const a = angDiff(h.face, Math.atan2(s.y - h.y, s.x - h.x));
+    line += ` · seen ${Math.round((G.t - s.t))}s ago, ${Math.round(hyp(s.x - h.x, s.y - h.y) / B)} blocks ${'↑↗→↘↓↙←↖'[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]}`;
+  }
+  return line;
+}
+
+// ---------- kill-streak callout ----------
+let streakT;
+function showStreak(title, sub) {
+  const el = $('#streak');
+  el.querySelector('b').textContent = title; el.querySelector('span').textContent = sub || '';
+  el.hidden = false; el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+  clearTimeout(streakT); streakT = setTimeout(() => el.hidden = true, 2200);
+  Sfx.play('streak');
+}
+
 // ---------- chat (online) ----------
 function openChat() {
   G.chatOpen = true; mouse.down = false; keys.clear();
@@ -466,6 +553,7 @@ function step(dt) {
   updateDuels(dt); clearStaleArenas();
   pickups();
   updateRats(dt); updateProj(dt); updateFx(dt); coolLava();
+  if (G.mode !== 'menu' && G.mode !== 'options') { updateAlliances(dt); updateBounty(dt); }
   potT += dt;
   if (potT > 3) {
     potT = 0; G.items = G.items.filter(i => !i.gone);
@@ -489,7 +577,7 @@ function frame(now) {
     } else if (G.mode === 'play' || G.mode === 'spectate' || (NET.on && (G.mode === 'paused' || G.mode === 'end'))) {
       // Online matches keep running while you pause or after you die; spectating always does
       if (G.mode === 'spectate' && !(G.specTarget && G.specTarget.alive)) spectate(1);
-      step(dt); render(dt); renderMinimap();
+      step(dt); render(dt); renderMinimap(); footsteps(dt);
       if (G.mode === 'play') { updateCross(dt); updateNear(); checkTips(dt); checkLandmarks(); replayRecord(dt); }
       const v = VIEW.focus || G.human;
       Sfx.update(v.layer ? 'under' : v.biome === 2 && G.settings.snow && !G.pit ? 'snow' : 'surface', dt, DAY.night);
@@ -515,8 +603,9 @@ function updateHud() {
   $('#alive').textContent = G.fighters.filter(f => f.alive && !f.isClone).length;
   $('#kills').textContent = h.kills;
   $('#where').textContent = h.layer ? 'Tunnels' : G.pit ? 'The Pit' : BIOME_NAME[h.biome];
-  const dl = dropLine();
+  const dl = dropLine(), bl = bountyLine();
   $('#droptag').hidden = !dl; if (dl) $('#droptag').textContent = dl;
+  $('#bountytag').hidden = !bl; if (bl) $('#bountytag').textContent = bl;
   $('#online-tag').hidden = !NET.on;
   $('#online-tag').textContent = NET.on ? `Online · ${G.fighters.filter(f => !f.bot && !f.isClone).length} players${NET.isHost() ? ' · hosting' : ''}` : '';
   setHTML('#hotbar', Array.from({ length: HOTBAR }, (_, i) => {
@@ -532,7 +621,7 @@ function updateHud() {
   const bp = bagPots(h);
   $('#bagpots').textContent = bp ? `${bp} potion${bp > 1 ? 's' : ''} in backpack${canRefill(h) ? ' · R to refill' : ''}` : 'No potions in backpack';
   $('#bagpots').classList.toggle('warn', canRefill(h));
-  setHTML('#feed', G.feed.map(k => `<div class="${k.you ? 'you' : ''}${k.chat ? ' chat' : ''}${k.relic ? ' relic' : ''}">${escapeHTML(k.txt)}</div>`).join(''));
+  setHTML('#feed', G.feed.map(k => `<div class="${k.you ? 'you' : ''}${k.chat ? ' chat' : ''}${k.relic ? ' relic' : ''}${k.streak ? ' streak' : ''}">${k.team ? `<i style="background:${k.team}"></i>` : ''}${escapeHTML(k.txt)}</div>`).join(''));
   let p = '';
   if (h.refillT > 0) p = 'Refilling hotbar…';
   else if (world.entrances.some(e => hyp(e.x - h.x, e.y - h.y) < 46) && !G.pit) p = h.layer ? '<kbd>E</kbd> Climb out' : '<kbd>E</kbd> Go down into the tunnels';
@@ -618,6 +707,9 @@ const TIPS = [
   { id: 'feast', when: () => !!G.feast, text: 'The feast has the best gear in the game. Everyone else is heading there too.' },
   { id: 'drop', when: () => (world.drops || []).some(d => d.st === 'announced'), text: 'Supply drops land at the blue square on your map. They hold iron swords, feast armour and buckets, and everyone can see the beam.' },
   { id: 'bucket', when: h => ['bucket', 'bucket_water', 'bucket_lava'].some(id => count(h, id)), text: 'Fill a bucket from swamp water or a lava pool (orange on the map). Pour water under you just before you land and you take no fall damage.' },
+  { id: 'bounty', when: () => !!G.bounty && G.bounty !== G.human, text: 'The top killer has a bounty: the gold star on your map is where they were last seen. Take them down for bonus coins.' },
+  { id: 'team', when: () => G.teams && G.teams.length > 0, text: 'Bots sometimes team up (matching colour squares by their names). Sooner or later one turns on the other.' },
+  { id: 'pitfall', when: h => count(h, 'pitfall') > 0, text: 'Pitfalls look like the ground. Place them where people walk: whoever steps on one is stuck in a hole for a couple of seconds.' },
   { id: 'near', when: () => NEAR_ELS.some(el => +el.style.opacity > 0), text: 'The red arrows around your crosshair point at people close by but out of view. Turn to face them.' },
   { id: 'night', when: () => DAY.night > 0.5, text: 'Night falls before the pit. Names are harder to read from a distance, and so is yours.' },
 ];

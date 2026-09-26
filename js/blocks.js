@@ -16,6 +16,7 @@ const BLOCKS = {
   // Poured from buckets: you fall through them; water breaks falls, lava burns
   water:  { name: 'Water',       solid: false, hard: 999,  color: '#3f8fd0', liquid: true, unbreakable: true },
   lava:   { name: 'Lava',        solid: false, hard: 999,  color: '#ff6a1a', liquid: true, unbreakable: true },
+  pitfall: { name: 'Pitfall',    solid: false, hard: 0.3,  color: '#8a5a2e', trap: true, pit: true },
 };
 const BL = { map: new Map(), ver: 0 };
 const bkey = (i, j, k) => i + ',' + j + ',' + k;

@@ -31,7 +31,13 @@ const Sfx = (() => {
     caveGain = ac.createGain(); caveGain.gain.value = 0; cave.connect(caveGain); caveGain.connect(master); cave.start();
   }
 
-  function out(g) { const n = ac.createGain(); n.gain.value = g; n.connect(master); return n; }
+  // A gain (and stereo pan, -1 left … 1 right) into the master bus
+  function out(g, pan = 0) {
+    const n = ac.createGain(); n.gain.value = g;
+    if (pan && ac.createStereoPanner) { const p = ac.createStereoPanner(); p.pan.value = pan; n.connect(p); p.connect(master); }
+    else n.connect(master);
+    return n;
+  }
   function tone(freq, dur, type, gain, to, when = 0, dest) {
     const t = ac.currentTime + when, o = ac.createOscillator(), g = ac.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, t);
@@ -68,17 +74,35 @@ const Sfx = (() => {
     grow: d => { tone(70, 0.7, 'sawtooth', 0.16, 180, 0, d); tone(140, 0.7, 'triangle', 0.14, 360, 0.05, d); },
     stomp: d => { tone(55, 0.5, 'sine', 0.7, 28, 0, d); noise(0.35, 400, 0.8, 0.5, 'lowpass', 90, d); },
     thud: d => { tone(70, 0.35, 'sine', 0.55, 35, 0, d); noise(0.2, 700, 1, 0.35, 'lowpass', 150, d); },
+    // Footsteps, by what's underfoot
+    step_grass: d => noise(0.07, 380, 0.9, 0.3, 'lowpass', 180, d),
+    step_sand: d => noise(0.09, 2600, 0.7, 0.16, 'bandpass', 1500, d),
+    step_snow: d => noise(0.11, 1100, 1.8, 0.28, 'bandpass', 600, d),
+    step_stone: d => { noise(0.035, 2100, 3, 0.3, 'bandpass', 0, d); tone(240, 0.03, 'triangle', 0.08, 160, 0, d); },
+    step_wood: d => { tone(150, 0.07, 'triangle', 0.22, 110, 0, d); noise(0.04, 900, 2, 0.12, 'bandpass', 0, d); },
+    step_water: d => noise(0.14, 1300, 0.8, 0.22, 'lowpass', 500, d),
+    step_big: d => { tone(60, 0.2, 'sine', 0.6, 32, 0, d); noise(0.14, 300, 1, 0.35, 'lowpass', 110, d); },
+    streak: d => { tone(523, 0.1, 'square', 0.07, 0, 0, d); tone(784, 0.12, 'square', 0.07, 0, 0.09, d); tone(1047, 0.3, 'triangle', 0.08, 0, 0.18, d); },
   };
-  // Positional: sounds fade with distance from the listener and are skipped when far away
+  // Positional: sounds fade with distance from whoever you're watching, and pan left or right
+  function place(x, y, z, range) {
+    const L = (typeof VIEW !== 'undefined' && VIEW.focus) || G.human;
+    if (x === undefined || !L) return [1, 0];
+    const d = hyp(x - L.x, y - L.y, (z || 0) - (L.z || 0));
+    const g = Math.pow(clamp(1 - d / range, 0, 1), 2);
+    return [g, d > 20 ? Math.sin(angDiff(L.face || 0, Math.atan2(y - L.y, x - L.x))) * 0.85 : 0];
+  }
   function play(name, x, y, z) {
     if (!ac || vol <= 0 || !SOUNDS[name]) return;
-    let g = 1;
-    if (x !== undefined && G.human) {
-      const d = hyp(x - G.human.x, y - G.human.y, (z || 0) - (G.human.z || 0));
-      g = Math.pow(clamp(1 - d / 900, 0, 1), 2);
-      if (g < 0.02) return;
-    }
-    SOUNDS[name](out(g));
+    const [g, pan] = place(x, y, z, 900);
+    if (g < 0.02) return;
+    SOUNDS[name](out(g, pan));
+  }
+  function step(surface, x, y, z, range, loud = 1) {
+    if (!ac || vol <= 0) return;
+    const [g, pan] = place(x, y, z, range);
+    if (g * loud < 0.02) return;
+    SOUNDS['step_' + surface](out(g * loud, pan));
   }
   let cricketT = 0;
   function update(env, dt, night = 0) {
@@ -102,5 +126,5 @@ const Sfx = (() => {
     }
   }
   function setVolume(v) { vol = v; if (master) master.gain.setTargetAtTime(v, ac.currentTime, 0.05); }
-  return { start, play, update, setVolume };
+  return { start, play, step, update, setVolume };
 })();

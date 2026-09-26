@@ -148,6 +148,16 @@
   #hud.spec .bottom, #hud.spec #cross, #hud.spec #prompt, #hud.spec #held-name, #hud.spec #clickto, #hud.spec #dmgdir, #hud.spec #hurt { display: none; }
   #spec { position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(12,17,14,.88); border: 1px solid var(--line); padding: 8px 14px; font: 600 14px var(--ui); white-space: pre; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
   #droptag { font: 600 13px var(--ui); color: #8fcaff; margin-top: 4px; }
+  #bountytag { font: 600 13px var(--ui); color: var(--gold); margin-top: 2px; max-width: 320px; }
+  #feed .streak { color: var(--gold); font-weight: 700; }
+  #feed i { display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: 0; }
+  #streak { position: absolute; left: 50%; top: calc(50% + 34px); transform: translateX(-50%); text-align: center; pointer-events: none; }
+  #streak b { display: block; font: 400 clamp(30px, 5vw, 44px)/1 var(--display); color: var(--gold); text-shadow: 0 3px 0 rgba(0,0,0,.55), 0 0 18px rgba(230,184,74,.35); }
+  #streak span { display: block; margin-top: 4px; font: 700 15px var(--ui); letter-spacing: .06em; color: var(--bone); text-shadow: 0 1px 3px #000; }
+  #streak.pop { animation: streakPop 2.2s ease both; }
+  @keyframes streakPop { 0% { opacity: 0; transform: translateX(-50%) scale(1.4); } 10% { opacity: 1; transform: translateX(-50%) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { #streak.pop { animation: none; } }
+  #hud.spec #streak { display: none; }
   #near i { position: absolute; left: 50%; top: 50%; width: 22px; height: 13px; opacity: 0; background: #ff5a48; clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%); filter: drop-shadow(0 0 2px rgba(0,0,0,.8)); transition: opacity .12s; }
   #hud.spec #near { display: none; }
   /* Death replay: letterbox bars and a caption */
@@ -375,6 +385,7 @@
       <span id="where"></span>
     </div>
     <div id="droptag" hidden></div>
+    <div id="bountytag" hidden></div>
     <div id="online-tag" hidden></div>
   </div>
   <div class="tr">
@@ -384,6 +395,7 @@
   <div id="hurt"></div>
   <div id="dmgdir"></div>
   <div id="near" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div id="streak" hidden><b></b><span></span></div>
   <div id="spec" hidden></div>
   <div id="board" hidden><h3>Players <small id="board-count"></small></h3><div id="board-list"></div></div>
   <div id="tipbox" hidden><b>Tip</b><p></p></div>

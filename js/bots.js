@@ -23,12 +23,13 @@ function botThink(b) {
   if (b.bow && b.arrows < 8 && (b.style === 'tower' || b.arrows < 4)) craft(b, recipe('arrow'));
   if (b.style === 'tower' && b.bow && count(b, 'wood') >= (b.arrows < 6 && count(b, 'stone') ? 2 : 1) && count(b, 'plank') < 16) craft(b, recipe('plank'));
   if (b.style === 'trapper' && count(b, 'spike') < 3) craft(b, recipe('spike'));
+  if (b.style === 'trapper' && count(b, 'pitfall') < 2) craft(b, recipe('pitfall'));
   if (count(b, 'reed') >= 3 && count(b, 'hide') >= 1 && !count(b, 'charm')) craft(b, recipe('charm'));
 
   let enemy = null, ed = 1e9, reach = true;
   const sight = sightRange(b);
   for (const o of G.fighters) {
-    if (o === b || !o.alive || o.layer !== b.layer || o.owner === b) continue;
+    if (o === b || !o.alive || o.layer !== b.layer || o.owner === b || allied(o, b)) continue;
     const d = hyp(o.x - b.x, o.y - b.y);
     if (o.hidden && d > 55) continue;
     const reachable = Math.abs(o.z - b.z) < 45;
@@ -45,6 +46,14 @@ function botThink(b) {
     if (!reach) b.plan = { type: 'fight', target: enemy, ranged: true };
     else b.plan = (power(b) >= power(enemy) * brave || cornered || G.pit) ? { type: 'fight', target: enemy } : { type: 'flee', target: enemy };
     return;
+  }
+  // Allies: join a partner's fight, otherwise keep up with the leader
+  if (b.team) {
+    const mates = b.team.m.filter(f => f !== b && f.alive);
+    const busy = mates.find(f => f.plan && f.plan.type === 'fight' && f.plan.target && f.plan.target.alive && !allied(f.plan.target, b) && hyp(f.x - b.x, f.y - b.y) < 500);
+    if (busy && pvpOn()) { b.plan = { type: 'fight', target: busy.plan.target }; return; }
+    const lead = b.team.m.find(f => f.alive);
+    if (lead && lead !== b && lead.layer === b.layer && hyp(lead.x - b.x, lead.y - b.y) > 220) { b.plan = { type: 'go', x: lead.x + rr(-60, 60), y: lead.y + rr(-60, 60), layer: lead.layer }; return; }
   }
   if (hotPots(b) < 4 && bagPots(b) > 0 && hotbarEmpty(b) >= 0) { b.plan = { type: 'refill' }; return; }
   if (G.pit) { b.plan = { type: 'go', x: PIT.x + rr(-120, 120), y: PIT.y + rr(-120, 120), layer: 0 }; return; }
@@ -93,7 +102,7 @@ function botThink(b) {
     }
     if (b.towerSpot) { b.plan = { type: 'tower', goal: rr(8, 13) * B }; return; }
   }
-  const trapId = ['blast', 'pad', 'spike'].find(id => count(b, id) > 0);
+  const trapId = ['blast', 'pad', 'pitfall', 'spike'].find(id => count(b, id) > 0);
   if (b.style === 'trapper' && trapId && b.layer === 0) {
     const spots = [...SWAMPS, ...world.entrances];
     const s = spots.reduce((a, s) => hyp(s.x - b.x, s.y - b.y) < hyp(a.x - b.x, a.y - b.y) ? s : a);
@@ -136,12 +145,75 @@ function botThink(b) {
     for (const it of G.items) if (!it.gone && (it.kind === 'chest' || it.kind === 'relic' || it.kind === 'supply') && it.layer === 0 && it.z < heightAt(it.x, it.y) + 30) { const d = hyp(it.x - b.x, it.y - b.y); if (d < bd) { bd = d; best = it; } }
     if (best) { b.plan = { type: 'go', x: best.x, y: best.y, layer: 0 }; return; }
   }
+  // The bounty: hunters (and some others) go for where the target was last seen
+  const bs = G.bountySeen, bt = G.bounty;
+  if (bs && bt && bt !== b && bt.alive && !allied(bt, b) && hyp(bs.x - b.x, bs.y - b.y) < 2200 && (b.style === 'hunter' || b.style === 'balanced' || b.bountyKeen)) {
+    if (hyp(bs.x - b.x, bs.y - b.y) > 60) { b.plan = { type: 'go', x: bs.x, y: bs.y, layer: bs.layer }; return; }
+  }
   // Hunt: chase a fresh rat-kill ping, otherwise head toward someone
   const ping = G.pings.find(p => p.src !== b && hyp(p.x - b.x, p.y - b.y) < 1600);
   if (ping && (b.style === 'hunter' || rng() < 0.4)) { b.plan = { type: 'go', x: ping.x, y: ping.y, layer: ping.layer }; return; }
   if (!b.plan || b.plan.type !== 'hunt' || rng() < 0.05) {
     const prey = pick(G.fighters.filter(o => o !== b && o.alive && !o.isClone));
     b.plan = prey ? { type: 'hunt', x: prey.x + rr(-200, 200), y: prey.y + rr(-200, 200), layer: prey.layer } : null;
+  }
+}
+
+// ---- alliances: bots near each other sometimes team up for a minute or two, then one turns on the other ----
+// Run where the bots are simulated (solo, or the host); other players hear about it through NET.fx.
+const TEAM_COLS = ['#5aa9c7', '#c4c24a', '#b670c9', '#6fc27a', '#e28fb3', '#d8a45a', '#7f8fe0'];
+function updateAlliances(dt) {
+  if (NET.on && !NET.isHost()) return;
+  if ((G.allyT = (G.allyT || 0) - dt) > 0) return;
+  G.allyT = 2;
+  const alive = G.fighters.filter(f => f.alive && !f.isClone);
+  for (const tm of G.teams) {
+    const live = tm.m.filter(f => f.alive);
+    if (live.length < 2) endTeam(tm, null);
+    else if (G.t > tm.until || alive.length <= 6 || G.pit) endTeam(tm, live);
+  }
+  G.teams = G.teams.filter(t => !t.done);
+  if (!pvpOn() || G.pit || alive.length <= 8 || G.teams.length >= Math.ceil(alive.length / 10)) return;
+  const free = alive.filter(f => f.bot && !f.remote && !f.team && f.layer === 0 && f.id[0] === 'b');
+  for (const a of free) {
+    if (rng() > 0.15) continue;
+    const near = free.filter(o => o !== a && hyp(o.x - a.x, o.y - a.y) < 260);
+    if (!near.length) continue;
+    const m = [a, near[0]];
+    if (near[1] && rng() < 0.4) m.push(near[1]);
+    const tm = { m, until: G.t + rr(60, 130), col: TEAM_COLS[(G.teamSeq = (G.teamSeq || 0) + 1) % TEAM_COLS.length] };
+    for (const f of m) { f.team = tm; if (f.plan && f.plan.target && m.includes(f.plan.target)) f.plan = null; }
+    G.teams.push(tm);
+    const ids = m.map(f => f.id);
+    announceTeam(ids, tm.col);
+    NET.fx({ k: 'team', ids, c: tm.col });
+    return; // one new alliance per check
+  }
+}
+// The alliance is over. If two or more are left, the strongest turns on the nearest partner.
+function endTeam(tm, live) {
+  tm.done = true;
+  for (const f of tm.m) f.team = null;
+  const ids = tm.m.map(f => f.id);
+  if (live && live.length >= 2 && pvpOn()) {
+    const tr = live.reduce((p, q) => power(q) > power(p) ? q : p);
+    const v = live.filter(f => f !== tr).sort((p, q) => hyp(p.x - tr.x, p.y - tr.y) - hyp(q.x - tr.x, q.y - tr.y))[0];
+    tr.plan = { type: 'fight', target: v }; tr.thinkT = 1.5;
+    announceBetrayal(ids, tr, v);
+    NET.fx({ k: 'betray', ids, a: tr.id, v: v.id });
+  } else { announceTeam(ids, null); NET.fx({ k: 'team', ids, c: null }); }
+}
+// Shared by the host and everyone it tells: team colours show next to names
+function announceTeam(ids, col) {
+  const fs = ids.map(fighterById).filter(Boolean);
+  for (const f of fs) f.teamCol = col;
+  if (col && fs.length >= 2) G.feed.unshift({ txt: `${fs.map(f => f.name).join(' and ')} teamed up`, t: 7, team: col });
+}
+function announceBetrayal(ids, a, v) {
+  announceTeam(ids, null);
+  if (a && v) {
+    G.feed.unshift({ txt: `${a.name} turned on ${v.name}!`, t: 8, streak: true });
+    if (v === G.human || a === G.human || hyp(a.x - G.human.x, a.y - G.human.y) < 700) toast(`${a.name} betrayed ${v.name}`);
   }
 }
 

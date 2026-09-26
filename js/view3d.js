@@ -41,15 +41,18 @@ function tagSprite() {
   s.scale.set(52, 13, 1); s.userData = { c, tex, key: '' };
   return s;
 }
-function drawTag(s, name, hp, max, clone) {
-  const key = name + '|' + Math.ceil(hp);
+// Name, health, a square in the team colour for allied bots, and a gold star on the bounty target
+function drawTag(s, name, hp, max, clone, team, bounty) {
+  const key = name + '|' + Math.ceil(hp) + '|' + (team || '') + (bounty ? '*' : '');
   if (s.userData.key === key) return;
   s.userData.key = key;
   const g = s.userData.c.getContext('2d');
   g.clearRect(0, 0, 256, 64);
   g.font = '600 26px "Saira Condensed", system-ui, sans-serif'; g.textAlign = 'center';
-  g.fillStyle = 'rgba(0,0,0,.6)'; g.fillText(name, 129, 30);
-  g.fillStyle = '#f2ead6'; g.fillText(name, 128, 28);
+  const label = (bounty ? '★ ' : '') + name, w = g.measureText(label).width;
+  g.fillStyle = 'rgba(0,0,0,.6)'; g.fillText(label, 129, 30);
+  g.fillStyle = bounty ? '#ffd24a' : '#f2ead6'; g.fillText(label, 128, 28);
+  if (team) { g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(128 - w / 2 - 22, 9, 16, 16); g.fillStyle = team; g.fillRect(128 - w / 2 - 20, 11, 12, 12); }
   if (!clone && hp < max) {
     g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(68, 40, 120, 10);
     g.fillStyle = '#c63d3d'; g.fillRect(68, 40, 120 * hp / max, 10);
@@ -58,14 +61,15 @@ function drawTag(s, name, hp, max, clone) {
 }
 
 // A red marker over far-away fighters: it stays the same size on screen, so people stay visible at range
-const MARK_TEX = (() => {
+const markTex = col => {
   const c = document.createElement('canvas'); c.width = c.height = 64;
   const g = c.getContext('2d');
   g.beginPath(); g.moveTo(8, 12); g.lineTo(56, 12); g.lineTo(32, 52); g.closePath();
   g.lineWidth = 7; g.strokeStyle = 'rgba(10,8,6,.75)'; g.stroke();
-  g.fillStyle = '#ff5a48'; g.fill();
+  g.fillStyle = col; g.fill();
   return new T.CanvasTexture(c);
-})();
+};
+const MARK_TEX = markTex('#ff5a48'), MARK_GOLD = markTex('#ffd24a'); // gold: the bounty target
 function makeFighter(f) {
   const g = new T.Group(), body = new T.Group(); g.add(body);
   const col = new T.Color(f.color);
@@ -107,7 +111,8 @@ function spot(f) {
 }
 function updFighter(m, f, dt) {
   const u = m.userData;
-  m.position.set(f.x, f.z, f.y);
+  u.sink = (u.sink || 0) + (((f.pitT > 0 || f.pitNet) ? 34 : 0) - (u.sink || 0)) * Math.min(1, dt * 10); // chest-deep in a pitfall
+  m.position.set(f.x, f.z - u.sink, f.y);
   m.scale.setScalar(f.size || 1);
   u.body.scale.y = f.sneak ? 0.86 : 1;
   m.rotation.y = -f.face;
@@ -131,7 +136,10 @@ function updFighter(m, f, dt) {
   const d = hyp(f.x - camera.position.x, f.y - camera.position.z);
   const v = VIEW.focus || G.human, snowy = v.biome === 2 && G.settings.snow && !G.pit && !v.layer;
   u.tag.visible = !f.hidden && d < (snowy ? 220 : v.layer ? 330 : 650 * (1 - 0.45 * DAY.night)) && !(G.mode === 'replay' && d < 130);
-  if (u.tag.visible) drawTag(u.tag, f.name, f.hp, f.maxHp, f.isClone);
+  const bounty = f === G.bounty;
+  if (u.tag.visible) drawTag(u.tag, f.name, f.hp, f.maxHp, f.isClone, f.teamCol, bounty);
+  const mt = bounty ? MARK_GOLD : MARK_TEX;
+  if (u.mark.material.map !== mt) { u.mark.material.map = mt; u.mark.material.needsUpdate = true; }
   // Markers reach much further than name tags, but not through snowstorms or far into the night
   const markR = snowy ? 240 : v.layer ? 330 : 1250 * (1 - 0.4 * DAY.night);
   u.mark.visible = !f.hidden && f !== v && d > 110 && d < markR && G.mode !== 'replay' && G.mode !== 'menu' && G.mode !== 'options';
@@ -165,7 +173,7 @@ function makeItem(it) {
     const halo = new T.Mesh(FG.flatRing, new T.MeshBasicMaterial({ color: 0xe0506a, transparent: true, opacity: 0.5 })); halo.scale.setScalar(13); halo.position.y = 0.8;
     g.add(p, n, halo); g.userData.bob = true;
   } else if (one && ITEMS[one].block) {
-    const c = new T.Mesh(ITEMS[one].block === 'spike' ? FG.spikeItem : FG.miniBlock, lam(BLOCKS[ITEMS[one].block].color));
+    const c = new T.Mesh(ITEMS[one].block === 'spike' || ITEMS[one].block === 'pitfall' ? FG.spikeItem : FG.miniBlock, lam(BLOCKS[ITEMS[one].block].color));
     c.position.y = 7; c.castShadow = true; g.add(c); g.userData.bob = true;
   } else if (one === 'hide') {
     const h = new T.Mesh(FG.hide, FMAT.hide); h.position.y = 2; g.add(h);
@@ -205,7 +213,9 @@ function makeProj(p) {
   return g;
 }
 const tmpV = new T.Vector3();
+FG.hole = new T.CircleGeometry(15, 9).rotateX(-Math.PI / 2);
 function makeFx(e) {
+  if (e.kind === 'hole') return new T.Mesh(FG.hole, new T.MeshBasicMaterial({ color: 0x0c0906, transparent: true }));
   if (e.kind === 'puff' || e.kind === 'chip') return new T.Mesh(FG.puff, new T.MeshBasicMaterial({ color: e.col, transparent: true }));
   if (e.kind === 'ring' || e.kind === 'strike') return new T.Mesh(FG.flatRing, new T.MeshBasicMaterial({ color: e.kind === 'strike' ? 0xbfe3ff : e.col, transparent: true, side: T.DoubleSide }));
   if (e.kind === 'rope') {
@@ -224,7 +234,8 @@ function makeFx(e) {
 }
 function updFx(m, e) {
   const k = 1 - e.t / e.max, hz = e.z !== undefined, base = hz ? e.z : e.layer ? 0 : heightAt(e.x, e.y);
-  if (e.kind === 'puff' || e.kind === 'chip') { m.position.set(e.x, base + (hz ? 0 : 20) + k * 20, e.y); m.scale.setScalar((e.big ? 30 : e.kind === 'chip' ? 6 : 14) * (0.4 + k)); m.material.opacity = 1 - k; }
+  if (e.kind === 'hole') { m.position.set(e.x, base, e.y); m.material.opacity = Math.min(0.92, e.t); }
+  else if (e.kind === 'puff' || e.kind === 'chip') { m.position.set(e.x, base + (hz ? 0 : 20) + k * 20, e.y); m.scale.setScalar((e.big ? 30 : e.kind === 'chip' ? 6 : 14) * (0.4 + k)); m.material.opacity = 1 - k; }
   else if (e.kind === 'ring') { m.position.set(e.x, base + (hz ? 0 : 2), e.y); m.scale.setScalar((e.big ? 50 : 26) * (0.3 + k)); m.material.opacity = 1 - k; }
   else if (e.kind === 'strike') { m.position.set(e.x, base + 2, e.y); m.scale.setScalar(75); m.material.opacity = 0.4 + 0.6 * Math.abs(Math.sin(G.t * 20)); }
   else if (e.kind === 'num') { m.position.set(e.x, base + (hz ? 0 : 70) + k * 25, e.y); m.material.opacity = 1 - k; }
@@ -376,7 +387,7 @@ function updateViewmodel(dt) {
     const p = vmParts.block, sw = h.swingT > 0 ? Math.sin((1 - h.swingT / 0.14) * Math.PI) : 0;
     p.material.color.set(BLOCKS[def.block].color);
     p.position.set(-2 - sw * 4, -1 + sw * 3, -sw * 6); p.rotation.set(0.35 - sw * 0.6, 0.7, 0.1);
-    p.scale.set(1, def.block === 'spike' ? 0.35 : 1, 1);
+    p.scale.set(1, def.block === 'spike' || def.block === 'pitfall' ? 0.35 : 1, 1);
   } else if (show === 'icon') {
     const p = vmParts.icon, sw = h.swingT > 0 ? Math.sin((1 - h.swingT / 0.14) * Math.PI) : 0;
     p.position.set(-3 - sw * 4, 1 + sw * 3, -sw * 6); p.rotation.set(-0.2, 0.35, 0.1);
@@ -417,7 +428,7 @@ const stars = new T.Points(starGeo, new T.PointsMaterial({ color: 0xdfe8ff, size
 stars.frustumCulled = false; scene.add(stars);
 const SNOW_DAY = new T.Color('#e1e8ec'), SNOW_NIGHT = new T.Color('#3a4452');
 const FOG = { surf: { c: DAY.sky, n: 450, f: 1900 }, snow: { c: new T.Color('#e1e8ec'), n: 10, f: 300 }, under: { c: new T.Color('#050403'), n: 40, f: 400 } };
-let camYaw = 0, deathLift = 0;
+let camYaw = 0, deathLift = 0, pitSink = 0;
 function render(dt) {
   if (world !== builtWorld) { build3D(); for (const [, m] of dyn) { scene.remove(m); if (m.userData.line) scene.remove(m.userData.line); } dyn.clear(); }
   frameNo++;
@@ -437,7 +448,8 @@ function render(dt) {
   if (fp) {
     deathLift = h.alive ? 0 : Math.min(140, deathLift + dt * 60);
     const bob = hyp(h.mx, h.my) > 0.1 && h.alive && h.onGround ? Math.sin(G.t * 11) * 1.4 : 0;
-    camera.position.set(h.x, h.z + EYE * (h.size || 1) - (h.sneak ? 9 : 0) + bob + deathLift, h.y);
+    pitSink += ((h.pitT > 0 ? 34 : 0) - pitSink) * Math.min(1, dt * 10);
+    camera.position.set(h.x, h.z + EYE * (h.size || 1) - (h.sneak ? 9 : 0) - pitSink + bob + deathLift, h.y);
     camera.rotation.y = -h.face - Math.PI / 2;
     camera.rotation.x = h.alive ? VIEW.pitch : Math.max(-1.2, VIEW.pitch - deathLift / 200);
     camera.fov = (G.settings.fov || 75) + (h.speedT > 0 ? 13 : 0);
@@ -562,6 +574,14 @@ function renderMinimap() {
     mctx.fillStyle = '#6fb8ff'; mctx.strokeStyle = '#0f2233'; mctx.lineWidth = 1.5;
     const r = 5 + pulse * 1.5; mctx.beginPath(); mctx.rect(d.x * S - r, d.y * S - r, r * 2, r * 2); mctx.fill(); mctx.stroke();
   }
+  // The bounty target: a gold star where they were last shown, with a ring that fades until the next ping
+  const bs = G.bountySeen;
+  if (bs && G.bounty && G.bounty !== G.human && bs.layer === h.layer) {
+    const age = (G.t - bs.t) / BOUNTY_PING;
+    mctx.strokeStyle = `rgba(255,210,74,${Math.max(0.15, 1 - age)})`; mctx.lineWidth = 2;
+    mctx.beginPath(); mctx.arc(bs.x * S, bs.y * S, 7 + (1 - Math.min(1, age * 6)) * 10, 0, 7); mctx.stroke();
+    mctx.fillStyle = '#ffd24a'; mctx.strokeStyle = '#3a2a08'; mctx.lineWidth = 1.5; star(bs.x * S, bs.y * S, 6);
+  }
   // Players you've seen in the last few seconds (fading), on your layer
   if (G.human.alive && G.mode === 'play') for (const f of G.fighters) {
     if (!f.alive || f === G.human || f.layer !== h.layer || !(G.t - (f.spotT ?? -99) < SPOT_TIME)) continue;
@@ -592,7 +612,9 @@ let blockVer = -1;
 function syncBlocks() {
   if (!Object.keys(blockMeshes).length) {
     for (const [type, def] of Object.entries(BLOCKS)) {
-      if (def.trap) { // spike traps, blast traps and launch pads: a low slab, plus spikes or a charge on top
+      if (def.pit) { // pitfalls: a thin slab coloured like the ground around it (the owner sees it in wood brown)
+        blockMeshes[type] = new T.InstancedMesh(SPIKE_BASE, lam('#ffffff'), 600); blockMeshes[type].setColorAt(0, new T.Color(1, 1, 1));
+      } else if (def.trap) { // spike traps, blast traps and launch pads: a low slab, plus spikes or a charge on top
         blockMeshes[type] = new T.InstancedMesh(SPIKE_BASE, lam(type === 'spike' ? '#5a4a3a' : def.color, type === 'pad' ? { emissive: 0x0f3a36 } : {}), 600);
         if (type === 'spike') blockMeshes.spikeTips = new T.InstancedMesh(SPIKE, lam('#b8bcbf'), 600 * 5);
         if (type === 'blast') blockMeshes.blastCaps = new T.InstancedMesh(BLAST_CAP, lam('#c63d3d', { emissive: 0x3a0a05 }), 600);
@@ -612,6 +634,14 @@ function syncBlocks() {
   for (const k of Object.keys(blockMeshes)) n[k] = 0;
   for (const [key, b] of BL.map) {
     const [i, j, k] = key.split(',').map(Number), cx = (i + .5) * B, cz = (k + .5) * B;
+    if (BLOCKS[b.type].pit) {
+      if (n.pitfall >= 600) continue;
+      const mine = b.owner && b.owner === G.human.id;
+      dummy.position.set(cx, Math.max(j * B, heightAt(cx, cz) - 2.2), cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 0.6, 1); dummy.updateMatrix();
+      blockMeshes.pitfall.setMatrixAt(n.pitfall, dummy.matrix);
+      blockMeshes.pitfall.setColorAt(n.pitfall++, col.set(mine ? BLOCKS.pitfall.color : TURF_COL[biomeAt(cx, cz)]).offsetHSL(0, 0, mine ? 0 : -0.035));
+      continue;
+    }
     if (BLOCKS[b.type].trap) {
       if (n[b.type] >= 600) continue;
       const y = Math.max(j * B, heightAt(cx, cz) - 1);
@@ -672,7 +702,7 @@ function syncAim() {
   if (type && a.pi !== null && count(h, type) > 0 && canPlace(type, a.pi, a.pj, a.pk)) {
     ghost.visible = true;
     ghost.position.set((a.pi + .5) * B, a.pj * B + B / 2, (a.pk + .5) * B);
-    ghost.scale.set(1, type === 'spike' ? 0.2 : 1, 1);
+    ghost.scale.set(1, type === 'spike' || type === 'pitfall' ? 0.2 : 1, 1);
     ghost.material.color.set(BLOCKS[type].color);
   } else if (pour && a.pi !== null && !solidAt(a.pi, a.pj, a.pk)) {
     ghost.visible = true;

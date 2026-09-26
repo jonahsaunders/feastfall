@@ -77,6 +77,11 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 </table>
 
 - **See who's around.** Red markers float over anyone within about 50 blocks, even when they're too far away to make out. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and the Hidden kit's disguises still keep you hidden.
+- **Footsteps you can place.** Everyone walking makes noise, panned left or right, and louder on stone and planks than on grass, sand or snow. Sneaking is silent, and you can hear a Titan coming from far off.
+- **Bounties.** Once someone has 3 or more kills and leads the match, they get a bounty. Everyone's map shows where they are every 30 seconds, they get a gold marker and a ★ by their name, and killing them pays 50 coins plus 25 per kill they had.
+- **Kill streaks.** Double and triple kills, killing sprees, and special kills (Knocked off, Burned, Long shot, Pitfall) get called out in the feed. Your own streaks earn bonus coins.
+- **Bots team up.** Bots near each other sometimes form an alliance of two or three (a matching colour square by their names). Allies stick together and join each other's fights, and sooner or later one turns on the other.
+- **Pitfalls.** A trapdoor that passes for the ground. Whoever steps on it drops chest-deep into a hole, takes 3 damage and is stuck for 2.5 seconds. Look closely and you can spot them.
 - **29 kits** with 8 free each week (see [Kits](#kits)).
 - **Lava pools** glow in the mountains and deserts (orange on the map). They burn anyone who walks in, and they fill buckets forever.
 - **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, and you climb a ladder to reach them.
@@ -227,12 +232,12 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | `js/blocks.js` | Placeable blocks, collision, fall support, raycasting, poured water and lava |
 | `js/items.js` | Item registry, drawn icons, inventory, armour, recipes |
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
-| `js/bots.js` | Bot playstyles: hunter, miner, trapper, tower, balanced |
+| `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced) and bot alliances |
 | `js/net.js` | Online play: lobby, matches, state sync, host migration |
 | `js/scene3d.js` | Renderer, lights, terrain mesh, instanced scenery, tunnels |
 | `js/view3d.js` | Per-frame 3D: players, markers, items, effects, supply drops, first-person held item, minimap |
 | `js/replay.js` | Records the last few seconds and plays them back when you die |
-| `js/audio.js` | Generated ambient music and positional sound effects |
+| `js/audio.js` | Generated ambient music, positional stereo sound effects and footsteps |
 | `js/main.js` | Game loop, input, HUD, inventory screen, menus, kit store |
 | `server.js` | Static file server plus a WebSocket relay for multiplayer |
 | `desktop/main.js` | The Windows app: starts `server.js` inside the app and opens the game window |
