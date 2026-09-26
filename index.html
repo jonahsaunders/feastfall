@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Feastfall: a first-person, low-poly battle royale about towers, traps, feasts and long falls.">
+<title>Feastfall</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Saira+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --night: #0f1411; --moss: #17201a; --moss-2: #1f2b23; --line: #33443a;
+    --bone: #e6dfcc; --dim: #9aa89c; --ember: #e2733b; --ember-2: #f08a52;
+    --blood: #c63d3d; --steel: #8fa3a8; --gold: #e6b84a;
+    --ui: "Saira Condensed", "Arial Narrow", system-ui, sans-serif;
+    --display: "Saira Stencil One", Impact, "Arial Black", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--night); color: var(--bone); font: 500 15px/1.4 var(--ui); overflow: hidden; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: default; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  button:focus-visible, .kit:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  kbd { font: 700 12px var(--mono); background: var(--bone); color: var(--night); border-radius: 3px; padding: 1px 5px; }
+  .btn { border: 0; background: var(--ember); color: #1a0f08; font: 700 18px var(--ui); letter-spacing: .08em; text-transform: uppercase; padding: 10px 22px; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
+  .btn:hover { background: var(--ember-2); }
+  .btn.ghost { background: var(--moss-2); color: var(--bone); }
+  .btn.ghost:hover { background: var(--line); }
+  .label { font: 600 12px var(--ui); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+
+  /* ---------- Play screen ---------- */
+  #screen-play { position: fixed; inset: 0; display: flex; pointer-events: none; }
+  .menu { pointer-events: auto; width: min(520px, 100%); height: 100%; overflow-y: auto; box-sizing: border-box;
+    padding-block: 28px; padding-inline: 28px; display: flex; flex-direction: column; gap: 18px;
+    background: linear-gradient(90deg, rgba(15,20,17,.97) 70%, rgba(15,20,17,.82)); border-right: 1px solid var(--line); }
+  .logo { font: 400 clamp(44px, 9vw, 64px)/.86 var(--display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+  .logo span { color: var(--ember); display: block; }
+  .tag-line { margin: 0; color: var(--dim); max-width: 38ch; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .coins { font: 700 15px var(--mono); color: var(--gold); display: flex; align-items: center; gap: 6px; }
+  .coins::before { content: ""; width: 12px; height: 12px; background: var(--gold); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+  #kits { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+  .kit { background: var(--moss); border: 1px solid var(--line); padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+  .kit:hover { border-color: var(--dim); }
+  .kit.sel { border-color: var(--ember); background: #2a1d15; box-shadow: inset 3px 0 0 var(--ember); }
+  .kit.locked { opacity: .62; }
+  .kit-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .kit h3 { margin: 0; font: 700 17px var(--ui); letter-spacing: .03em; text-transform: uppercase; }
+  .kit .tag { font: 500 11px var(--mono); color: var(--dim); white-space: nowrap; }
+  .kit.sel .tag { color: var(--ember-2); }
+  .kit p { margin: 0; font-size: 13.5px; color: #c9c3b1; }
+  .buy { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+  .buy button { border: 1px solid var(--line); background: var(--moss-2); padding: 4px 8px; font-size: 13px; }
+  .buy .b-coins { border-color: var(--gold); color: var(--gold); }
+  .buy button:disabled { opacity: .45; cursor: not-allowed; }
+  #store-note { margin: 0; color: var(--gold); font-size: 13px; min-height: 0; }
+  #store-note:empty { display: none; }
+  .controls { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13.5px; color: #c9c3b1; margin: 0; }
+  .controls dt { text-align: right; white-space: nowrap; }
+  .controls dd { margin: 0; }
+  .desk-note { display: none; color: var(--gold); font-size: 13.5px; margin: 0; }
+  @media (hover: none) { .desk-note { display: block; } }
+  .live-tag { position: fixed; right: 16px; bottom: 14px; font: 500 12px var(--mono); color: var(--dim); pointer-events: none; }
+  .live-tag::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--blood); margin-right: 6px; animation: blink 1.4s infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+
+  /* ---------- Panels: options, end ---------- */
+  .overlay { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(8,11,9,.72); padding-inline: 16px; }
+  .panel { width: min(460px, 100%); background: var(--moss); border: 1px solid var(--line); padding: 22px 24px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box; max-height: 92vh; overflow-y: auto; }
+  .panel h2 { margin: 0; font: 400 34px/1 var(--display); }
+  .field { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .field select, .field input[type=range] { background: var(--moss-2); color: var(--bone); border: 1px solid var(--line); padding: 5px 8px; font: inherit; }
+  .field input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--ember); }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stats div { background: var(--moss-2); padding: 10px 12px; display: flex; flex-direction: column; }
+  .stats span { font: 600 11px var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .stats b { font: 700 22px var(--mono); font-variant-numeric: tabular-nums; }
+  #end-title { font-size: 44px; }
+  #end-sub { margin: -8px 0 0; color: var(--dim); }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; }
+  .tl { position: absolute; left: 16px; top: calc(14px + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; gap: 2px; background: rgba(12,17,14,.78); padding: 8px 12px; }
+  #clock { font: 700 30px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  #phase { font: 600 14px var(--ui); color: var(--gold); letter-spacing: .04em; }
+  .facts { display: flex; gap: 14px; margin-top: 6px; font-size: 13px; color: var(--dim); }
+  .facts b { color: var(--bone); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .tr { position: absolute; right: 16px; top: calc(14px + env(safe-area-inset-top, 0px)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+  #minimap { width: 180px; height: 180px; border: 2px solid var(--line); background: #000; image-rendering: auto; }
+  #feed { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font: 600 13px var(--ui); }
+  #feed div { background: rgba(10,14,11,.75); padding: 2px 8px; }
+  #feed .you { color: var(--ember-2); }
+  .bottom { position: absolute; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .bars { display: flex; gap: 14px; align-items: center; }
+  #hp { display: flex; gap: 2px; }
+  #hp i { width: 11px; height: 12px; background: rgba(0,0,0,.55); clip-path: polygon(20% 0, 100% 0, 80% 100%, 0 100%); }
+  #hp i.on { background: var(--blood); }
+  #hp i.half { background: linear-gradient(90deg, var(--blood) 50%, rgba(0,0,0,.55) 50%); }
+  #armor { display: flex; gap: 3px; }
+  #armor i { width: 12px; height: 12px; border: 1.5px solid var(--steel); clip-path: polygon(50% 0, 100% 25%, 100% 70%, 50% 100%, 0 70%, 0 25%); background: transparent; }
+  #armor i.on { background: var(--steel); }
+  #hotbar { display: flex; gap: 4px; }
+  .slot { position: relative; width: 52px; height: 52px; background: rgba(15,20,17,.82); border: 2px solid var(--line); display: grid; place-items: center; overflow: hidden; }
+  .slot.sel { border-color: var(--ember); background: rgba(42,29,21,.9); }
+  .slot.empty { opacity: .6; }
+  .slot svg { width: 28px; height: 28px; margin-top: -8px; }
+  .slot .key { position: absolute; left: 3px; top: 1px; font: 700 10px var(--mono); color: var(--dim); }
+  .slot .sub { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font: 600 10.5px var(--ui); color: #c9c3b1; white-space: nowrap; overflow: hidden; }
+  .slot .cd { position: absolute; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,.6); }
+  #bagpots { font-size: 12.5px; color: var(--dim); background: rgba(12,17,14,.7); padding: 1px 8px; }
+  #bagpots.warn { color: var(--gold); }
+  #prompt { position: absolute; left: 50%; bottom: calc(158px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(10,14,11,.8); padding: 5px 12px; font-size: 14px; white-space: nowrap; }
+  #toast { background: rgba(12,17,14,.78); padding: 3px 10px; position: absolute; left: 50%; bottom: calc(196px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); color: var(--gold); font-weight: 600; text-shadow: 0 1px 3px #000; white-space: nowrap; }
+  #banner { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); text-align: center; pointer-events: none; width: min(640px, calc(100% - 32px)); }
+  #banner { background: rgba(12,17,14,.72); padding: 12px 18px; box-sizing: border-box; }
+  #banner h2 { margin: 0; font: 400 clamp(34px, 6vw, 54px)/1 var(--display); color: var(--bone); text-shadow: 0 3px 0 rgba(0,0,0,.5); text-wrap: balance; }
+  #banner p { margin: 6px 0 0; color: var(--gold); font-weight: 600; text-shadow: 0 1px 3px #000; }
+  #banner.show { animation: bannerIn 4.2s ease both; }
+  @keyframes bannerIn { 0% { opacity: 0; transform: translate(-50%, -10px); } 8%, 82% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { #banner.show { animation: none; } .live-tag::before { animation: none; } }
+
+  #cross { position: absolute; left: 50%; top: 50%; width: 30px; height: 30px; transform: translate(-50%, -50%); --p: 0; }
+  #cross::before { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--bone); box-shadow: 0 0 0 1.5px rgba(0,0,0,.55); }
+  #cross::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--gold) calc(var(--p) * 1turn), transparent 0);
+    -webkit-mask: radial-gradient(circle, transparent 11px, #000 12px); mask: radial-gradient(circle, transparent 11px, #000 12px); }
+  #cross.hit::before { width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; background: var(--blood); }
+  #hurt { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 50%, rgba(198,61,61,.6)); opacity: 0; transition: opacity .18s; }
+  #status { font-size: 13px; font-weight: 600; color: var(--gold); background: rgba(12,17,14,.7); padding: 1px 8px; }
+  #status:empty { display: none; }
+  #clickto { position: absolute; left: 50%; top: 60%; transform: translateX(-50%); background: rgba(12,17,14,.85); border: 1px solid var(--ember); padding: 8px 16px; font: 700 16px var(--ui); letter-spacing: .08em; text-transform: uppercase; }
+
+  /* ---------- Hotbar items ---------- */
+  .slot img { width: 32px; height: 32px; margin-top: -4px; }
+  .slot .n, .islot .n, #cursor-stack .n { position: absolute; right: 3px; bottom: 1px; font: 700 12px var(--mono); color: #fff; text-shadow: 0 1px 0 #000, 0 0 3px #000; }
+  .slot .sub { bottom: auto; top: 1px; left: auto; right: 3px; text-align: right; font: 700 10px var(--mono); color: var(--gold); }
+  #held-name { position: absolute; left: 50%; bottom: calc(116px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); font: 700 15px var(--ui); letter-spacing: .04em; text-shadow: 0 1px 3px #000; }
+  #held-name.fade { animation: heldFade 1.6s ease both; }
+  @keyframes heldFade { 0%, 70% { opacity: 1; } 100% { opacity: 0; } }
+  #online-tag { font: 600 12px var(--mono); color: var(--ember-2); margin-top: 4px; }
+  #chat { position: absolute; left: 16px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); width: min(360px, calc(100% - 32px)); pointer-events: auto; background: rgba(12,17,14,.92); color: var(--bone); border: 1px solid var(--ember); padding: 7px 10px; font: 500 14px var(--ui); }
+  #feed .chat { color: var(--bone); font-weight: 500; }
+  #armor i.iron { background: #d6dde0; border-color: var(--gold); }
+
+  /* ---------- Inventory screen ---------- */
+  #inv { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(6,9,7,.55); padding-inline: 16px; }
+  .inv-card { width: min(980px, 100%); max-height: calc(100% - 32px); overflow-y: auto; background: rgba(23,32,26,.98); border: 1px solid var(--line); padding: 16px 20px 18px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px; }
+  .inv-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .inv-head h2 { margin: 0; font: 400 28px var(--display); }
+  .inv-body { display: grid; grid-template-columns: 150px auto minmax(250px, 1fr); gap: 20px; align-items: start; }
+  .inv-col { display: flex; flex-direction: column; gap: 8px; }
+  #inv-close { background: none; border: 1px solid var(--line); padding: 3px 10px; font-size: 13px; }
+  .igrid { display: grid; grid-template-columns: repeat(9, 46px); gap: 4px; }
+  #equip { display: grid; grid-template-columns: 46px; gap: 4px; }
+  .islot { position: relative; width: 46px; height: 46px; padding: 0; background: #121a15; border: 1px solid var(--line); display: grid; place-items: center; }
+  .islot:hover { border-color: var(--bone); background: #1a241e; }
+  .islot img { width: 34px; height: 34px; pointer-events: none; }
+  .islot small { font: 600 10px var(--ui); color: #5d6b61; letter-spacing: .06em; text-transform: uppercase; }
+  #hot .islot { background: #1c1510; border-color: #4a3a2a; }
+  #inv-stats { display: grid; gap: 4px; }
+  #inv-stats div { display: flex; justify-content: space-between; gap: 6px; font-size: 13px; background: var(--moss-2); padding: 3px 8px; }
+  #inv-stats b { font-family: var(--mono); font-size: 12px; text-align: right; }
+  #drop-zone { border: 1px dashed var(--line); color: var(--dim); font-size: 13px; padding: 8px; text-align: center; cursor: pointer; }
+  #drop-zone:hover { border-color: var(--ember); color: var(--bone); }
+  #craft-tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+  .ctab { background: var(--moss-2); border: 1px solid var(--line); padding: 3px 10px; font-size: 13px; }
+  .ctab.on { border-color: var(--ember); color: var(--ember-2); }
+  #recipes { display: flex; flex-direction: column; gap: 4px; }
+  .recipe { display: grid; grid-template-columns: 34px 1fr auto; align-items: center; gap: 8px; background: var(--moss-2); border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+  .recipe:hover { border-color: var(--ember); }
+  .recipe.off { opacity: .5; }
+  .recipe .ri { width: 30px; height: 30px; }
+  .rn { display: flex; flex-direction: column; font-weight: 600; line-height: 1.15; }
+  .rn small { font: 500 11px var(--mono); color: var(--dim); }
+  .rc { display: flex; gap: 6px; }
+  .cost { display: inline-flex; align-items: center; gap: 1px; font: 700 12px var(--mono); }
+  .cost img { width: 18px; height: 18px; }
+  .cost.short { color: #e0707a; }
+  #tip { position: fixed; z-index: 5; width: 240px; background: #0c110e; border: 1px solid var(--ember); padding: 8px 10px; pointer-events: none; font-size: 13px; box-shadow: 0 6px 20px rgba(0,0,0,.5); }
+  #tip b { display: block; font-size: 15px; color: var(--bone); margin-bottom: 3px; }
+  #tip p { margin: 2px 0 0; color: #c9c3b1; }
+  #cursor-stack { position: fixed; left: 0; top: 0; width: 44px; height: 44px; pointer-events: none; z-index: 6; display: grid; place-items: center; }
+  #cursor-stack img { width: 36px; height: 36px; filter: drop-shadow(0 3px 4px rgba(0,0,0,.6)); }
+  .hint { margin: 0; color: var(--dim); font-size: 13px; }
+
+  /* ---------- Online lobby ---------- */
+  .online { border: 1px solid var(--line); background: var(--moss); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .online .field input { background: var(--moss-2); color: var(--bone); border: 1px solid var(--line); padding: 5px 8px; font: inherit; width: 150px; }
+  #net-count { font: 500 12px var(--mono); color: var(--dim); }
+  #matches { display: flex; flex-direction: column; gap: 4px; }
+  .match-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; background: var(--moss-2); padding: 5px 8px; }
+  .match-row small { font: 500 12px var(--mono); color: var(--dim); }
+  .btn.small { font-size: 13px; padding: 5px 12px; }
+  #match-panel { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  #match-panel h3 { margin: 0; font: 700 16px var(--ui); text-transform: uppercase; letter-spacing: .06em; }
+  #match-players { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+  #match-players li { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 8px; font-size: 14px; }
+  #match-players i { width: 10px; height: 10px; border-radius: 50%; }
+  #match-players small { color: var(--dim); font-family: var(--mono); font-size: 11.5px; }
+  #host-controls { display: flex; flex-direction: column; gap: 8px; }
+  #host-controls select, #host-controls input[type=range] { background: var(--moss-2); color: var(--bone); border: 1px solid var(--line); padding: 4px 6px; font: inherit; }
+  @media (max-width: 900px) {
+    .inv-body { grid-template-columns: 1fr; }
+    .igrid { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+    .islot { width: 100%; height: auto; aspect-ratio: 1; }
+    #equip { grid-template-columns: repeat(4, 46px); }
+  }
+  @media (max-width: 640px) {
+    #minimap { width: 120px; height: 120px; }
+    .slot { width: 38px; height: 38px; }
+    .slot img { width: 24px; height: 24px; }
+    .menu { background: rgba(15,20,17,.96); }
+  }
+</style>
+</head>
+<body>
+<canvas id="game" aria-label="Game view"></canvas>
+
+<section id="screen-play">
+  <div class="menu">
+    <h1 class="logo">Feast<span>fall</span></h1>
+    <p class="tag-line">First person. Last one standing wins. Mine, hunt, trap or tower: craft blocks and build up. Feast at 25:00, the pit at 60:00.</p>
+    <p class="desk-note">This prototype needs a keyboard and mouse.</p>
+    <div class="row">
+      <button class="btn" id="btn-play">Play vs bots</button>
+      <button class="btn ghost" id="btn-options">Options</button>
+      <span class="coins" id="coins" title="Coins">0</span>
+    </div>
+    <div class="online">
+      <div class="label">Play online</div>
+      <p id="net-status" class="hint">Connecting…</p>
+      <div id="online-ui" hidden>
+        <div class="field"><label for="nick">Your name</label><input id="nick" maxlength="18" autocomplete="off"></div>
+        <span id="net-count"></span>
+        <div id="matches"></div>
+        <div class="row"><button class="btn ghost small" id="btn-host">Host a match</button></div>
+        <div id="match-panel" hidden>
+          <h3 id="match-title"></h3>
+          <ul id="match-players"></ul>
+          <div id="host-controls" hidden>
+            <div class="field"><label for="m-bots">Bots to fill the lobby · <b id="m-bots-v">20</b></label><input id="m-bots" type="range" min="0" max="45" step="1" value="20"></div>
+            <div class="field"><label for="m-len">Match length</label>
+              <select id="m-len"><option value="5">5 min</option><option value="8" selected>8 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></div>
+            <button class="btn" id="btn-start">Start match</button>
+          </div>
+          <button class="btn ghost small" id="btn-leave-match">Leave</button>
+        </div>
+        <p class="hint" id="net-hint"></p>
+      </div>
+    </div>
+    <div>
+      <div class="label" style="margin-bottom:8px">Choose a kit · rotation changes weekly</div>
+      <div id="kits"></div>
+      <p id="store-note"></p>
+    </div>
+    <div>
+      <div class="label" style="margin-bottom:8px">Controls</div>
+      <dl class="controls">
+        <dt><kbd>WASD</kbd></dt><dd>Move</dd>
+        <dt>Mouse</dt><dd>Look around. Click the game to capture the mouse; arrow keys also turn</dd>
+        <dt><kbd>Space</kbd> · <kbd>Shift</kbd></dt><dd>Jump · sneak (you won’t walk off edges, and it blocks Faller damage)</dd>
+        <dt>Left click</dt><dd>Swing (hold to keep swinging), hold on a block to break it, draw the bow, drink, or use your kit</dd>
+        <dt>Right click</dt><dd>With blocks: place them (hold, jump and look down to tower up). Otherwise: drink</dd>
+        <dt><kbd>1</kbd>–<kbd>9</kbd> · wheel</dt><dd>Select hotbar slot</dd>
+        <dt><kbd>Tab</kbd></dt><dd>Inventory and crafting</dd>
+        <dt><kbd>Q</kbd> · <kbd>F</kbd> · <kbd>R</kbd></dt><dd>Kit ability · drink · refill hotbar with potions from your backpack</dd>
+        <dt><kbd>E</kbd></dt><dd>Enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron</dd>
+        <dt><kbd>G</kbd> · <kbd>Ctrl</kbd>+<kbd>G</kbd></dt><dd>Drop one of the held item · drop the whole stack</dd>
+        <dt><kbd>T</kbd></dt><dd>Chat (online)</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Release the mouse, pause and open options</dd>
+      </dl>
+    </div>
+  </div>
+  <div class="live-tag">Live bot match</div>
+</section>
+
+<section id="screen-options" class="overlay" hidden>
+  <div class="panel">
+    <h2>Options</h2>
+    <p class="hint" id="pause-note" hidden>You’re in an online match: the game keeps running while this is open.</p>
+    <div class="field"><label for="o-len">Match length (60 in-game minutes)</label>
+      <select id="o-len">
+        <option value="5">5 real minutes</option>
+        <option value="8">8 real minutes</option>
+        <option value="15">15 real minutes</option>
+        <option value="30">30 real minutes</option>
+        <option value="60">60 minutes (as designed)</option>
+      </select></div>
+    <div class="field"><label for="o-bots">Bots in solo matches · <b id="o-bots-v">23</b></label>
+      <input id="o-bots" type="range" min="3" max="99" step="1"></div>
+    <div class="field"><label for="o-snow">Snowstorm in the mountains</label><input id="o-snow" type="checkbox"></div>
+    <div class="field"><label for="o-dmg">Damage numbers</label><input id="o-dmg" type="checkbox"></div>
+    <div class="field"><label for="o-shadows">Shadows (turn off if it runs slowly)</label><input id="o-shadows" type="checkbox"></div>
+    <div class="field"><label for="o-sens">Mouse sensitivity</label><input id="o-sens" type="range" min="0.3" max="2.5" step="0.1"></div>
+    <div class="field"><label for="o-vol">Music and sound</label><input id="o-vol" type="range" min="0" max="1" step="0.05"></div>
+    <p class="hint">Match length and bot count apply to the next solo match. 99 bots is the design doc’s 100-player lobby and needs a fast computer.</p>
+    <div class="row">
+      <button class="btn" id="opt-resume">Resume</button>
+      <button class="btn ghost" id="opt-leave">Leave match</button>
+      <button class="btn" id="opt-back">Back</button>
+    </div>
+  </div>
+</section>
+
+<section id="screen-end" class="overlay" hidden>
+  <div class="panel">
+    <h2 id="end-title">You lost</h2>
+    <p id="end-sub"></p>
+    <div class="stats" id="end-stats"></div>
+    <p class="hint" id="end-online" hidden>The match carries on for the others. Leaving takes you back to the lobby.</p>
+    <div class="row"><button class="btn" id="btn-again">Back to Play</button></div>
+  </div>
+</section>
+
+<section id="hud" hidden>
+  <div class="tl">
+    <div id="clock">00:00</div>
+    <div id="phase"></div>
+    <div class="facts">
+      <span>Alive <b id="alive">0</b></span>
+      <span>Kills <b id="kills">0</b></span>
+      <span id="where"></span>
+    </div>
+    <div id="online-tag" hidden></div>
+  </div>
+  <div class="tr">
+    <canvas id="minimap" width="360" height="360"></canvas>
+    <div id="feed"></div>
+  </div>
+  <div id="hurt"></div>
+  <div id="cross"></div>
+  <div id="clickto" hidden>Click to play</div>
+  <div id="prompt" hidden></div>
+  <div id="toast" hidden></div>
+  <div id="held-name" hidden></div>
+  <input id="chat" maxlength="80" placeholder="Say something · Enter to send" autocomplete="off" hidden>
+  <div class="bottom">
+    <div id="status"></div>
+    <div class="bars"><div id="armor" title="Armour"></div><div id="hp" title="Health"></div></div>
+    <div id="hotbar"></div>
+    <div id="bagpots"></div>
+  </div>
+</section>
+
+<div id="banner" hidden><h2></h2><p></p></div>
+
+<section id="inv" hidden>
+  <div class="inv-card">
+    <div class="inv-head"><h2>Inventory</h2>
+      <span class="hint">Click to pick up and put down · right click splits · shift-click moves or wears · hover + 1–9 to swap into the hotbar</span>
+      <button id="inv-close">Close · Tab</button></div>
+    <div class="inv-body">
+      <div class="inv-col"><h3 class="label">Worn</h3><div id="equip"></div><div id="inv-stats"></div></div>
+      <div class="inv-col"><h3 class="label">Backpack</h3><div id="pack" class="igrid"></div>
+        <h3 class="label">Hotbar</h3><div id="hot" class="igrid"></div>
+        <div id="drop-zone" role="button" tabindex="0">Drop held stack on the ground</div></div>
+      <div class="inv-col"><h3 class="label">Craft</h3><div id="craft-tabs"></div><div id="recipes"></div></div>
+    </div>
+  </div>
+  <div id="tip" hidden></div>
+</section>
+<div id="cursor-stack" hidden></div>
+
+<script src="config.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="js/world.js"></script>
+<script src="js/blocks.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/items.js"></script>
+<script src="js/entities.js"></script>
+<script src="js/bots.js"></script>
+<script src="js/net.js"></script>
+<script src="js/scene3d.js"></script>
+<script src="js/view3d.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
