@@ -16,6 +16,12 @@ function nearestEntrance(x, y) {
 const canShoot = b => b.bow && b.arrows > 0;
 
 function botThink(b) {
+  // On a motorcycle: keep riding unless someone's close, then stop and get off to fight
+  if (b.bike) {
+    const foe = G.fighters.find(o => o !== b && o.alive && !o.isClone && o.layer === 0 && !allied(o, b) && hyp(o.x - b.x, o.y - b.y) < 260);
+    if ((foe && pvpOn()) || !b.plan || b.plan.type !== 'bike') b.plan = { ...(b.plan || {}), type: 'bike', k: b.bike, stop: true };
+    return;
+  }
   // Crafting happens instantly whenever a bot can afford something it wants
   for (const [id, t] of [['sword3', 3], ['sword2', 2], ['sword1', 1]]) if (b.weapon < t && craft(b, recipe(id))) break;
   for (const id of ['hide_chest', 'hide_legs', 'hide_head', 'hide_feet']) if (!b.equip[ITEMS[id].slot]) craft(b, recipe(id));
@@ -159,6 +165,34 @@ function botThink(b) {
   }
 }
 
+// ---- motorcycles ----
+function bikeFor(b, x, y) {
+  if (b.layer || isTitan(b) || b.noBikeT > G.t || hyp(x - b.x, y - b.y) < 1000) return null;
+  return (G.bikes || []).find(k => !k.gone && !k.rider && bikeStill(k) && k.hp > 35 && hyp(k.x - b.x, k.y - b.y) < 320) || null;
+}
+// Ride toward the goal, looking ahead for trees, rocks, walls and lava; slow down and get off near the end.
+// Bots ride a little slower than their top speed, but they still crash sometimes.
+function botDrive(b, dt) {
+  const k = b.bike, p = b.plan || {};
+  const d = p.x === undefined ? 0 : hyp(p.x - k.x, p.y - k.y);
+  if (p.stop || d < 170) {
+    Object.assign(k, { throttle: 0, steer: 0, brake: Math.abs(k.speed) > 40 });
+    if (Math.abs(k.speed) < 70 && !k.air) { dismountBike(b); b.plan = null; b.noBikeT = G.t + 25; }
+    return;
+  }
+  let a = angDiff(k.face, Math.atan2(p.y - k.y, p.x - k.x));
+  const look = 50 + Math.abs(k.speed) * 0.4;
+  const blocked = off => { const x = k.x + Math.cos(k.face + off) * look, y = k.y + Math.sin(k.face + off) * look; return !!(bikeObstacle(k, x, y) || lavaPoolAt(x, y, 25)); };
+  const ahead = blocked(0);
+  if (ahead) a = !blocked(0.6) ? 0.9 : !blocked(-0.6) ? -0.9 : a;
+  k.steer = clamp(a * 2.2, -1, 1);
+  k.throttle = Math.abs(a) > 1.1 ? 0.25 : ahead ? 0.15 : 1;
+  k.brake = ahead && k.speed > 240;
+  // Stuck against something: give up on the bike for a while
+  b.bikeStuck = Math.abs(k.speed) < 25 ? (b.bikeStuck || 0) + dt : 0;
+  if (b.bikeStuck > 2.5) { dismountBike(b); b.plan = null; b.noBikeT = G.t + 25; b.bikeStuck = 0; }
+}
+
 // ---- alliances: bots near each other sometimes team up for a minute or two, then one turns on the other ----
 // Run where the bots are simulated (solo, or the host); other players hear about it through NET.fx.
 const TEAM_COLS = ['#5aa9c7', '#c4c24a', '#b670c9', '#6fc27a', '#e28fb3', '#d8a45a', '#7f8fe0'];
@@ -207,7 +241,8 @@ function endTeam(tm, live) {
 function announceTeam(ids, col) {
   const fs = ids.map(fighterById).filter(Boolean);
   for (const f of fs) f.teamCol = col;
-  if (col && fs.length >= 2) G.feed.unshift({ txt: `${fs.map(f => f.name).join(' and ')} teamed up`, t: 7, team: col });
+  const names = fs.map(f => f.name);
+  if (col && fs.length >= 2) G.feed.unshift({ txt: `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} teamed up`, t: 7, team: col });
 }
 function announceBetrayal(ids, a, v) {
   announceTeam(ids, null);
@@ -305,8 +340,21 @@ function botUpdate(b, dt) {
   }
   b.thinkT = (b.thinkT || 0) - dt;
   if (b.thinkT <= 0) { b.thinkT = rr(0.3, 0.45); botThink(b); }
+  if (b.bike) { botDrive(b, dt); return; }
   const p = b.plan;
   if (!p) return;
+  if (p.type === 'bike') { // walk to the bike and get on
+    const k = p.k;
+    if (!k || k.gone || k.rider || !bikeStill(k)) { b.plan = null; return; }
+    if (hyp(k.x - b.x, k.y - b.y) < 36) { if (!mountBike(b, k)) b.plan = null; }
+    else steer(b, k.x, k.y, 0, dt);
+    return;
+  }
+  // Long trip on the surface with a bike parked nearby: take it
+  if ((p.type === 'go' || p.type === 'hunt') && p.layer === 0) {
+    const k = bikeFor(b, p.x, p.y);
+    if (k) { b.plan = { type: 'bike', k, x: p.x, y: p.y }; return; }
+  }
   if (p.type !== 'gather') b.gather = null;
   if (b.hp < 9 && hotPots(b) > 0 && b.drinkCd <= 0 && b.refillT <= 0) { if (drink(b)) b.drinkCd = rr(0.25, 0.5); }
 

@@ -131,6 +131,8 @@ function wireMatch(m) {
       if (d.k === 'c' && o) for (const dd of [-0.7, 0.7]) spawnClone(o, d.f + dd);
       if (d.k === 'ping') G.pings.push({ x: d.x, y: d.y, layer: 1, t: 12, src: fighterById(msg.peer) });
       if (d.k === 'relic' && typeof d.i === 'string') announceRelic(o, d.i);
+      if (d.k === 'bk' && typeof d.i === 'string') applyBikeMsg(d);
+      if (d.k === 'bkx') { const k = bikeById(d.i); if (k && !k.gone) { k.gone = true; const r = riderOf(k); if (r && r.bike === k) { if (r.remote) r.bike = null; else dismountBike(r, true); } } bikeBoomFx(d.x, d.y, d.z); }
       if (d.k === 'hole') addFx('hole', d.x, d.y, 0, { t: 6, z: d.z + 0.6 });
       if (d.k === 'team' && Array.isArray(d.ids)) announceTeam(d.ids, typeof d.c === 'string' ? d.c : null);
       if (d.k === 'betray' && Array.isArray(d.ids)) announceBetrayal(d.ids, fighterById(d.a), fighterById(d.v));

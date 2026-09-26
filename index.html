@@ -158,6 +158,14 @@
   @keyframes streakPop { 0% { opacity: 0; transform: translateX(-50%) scale(1.4); } 10% { opacity: 1; transform: translateX(-50%) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { #streak.pop { animation: none; } }
   #hud.spec #streak { display: none; }
+  #bikehud { display: flex; align-items: center; gap: 10px; background: rgba(12,17,14,.8); padding: 4px 12px; }
+  #bk-speed { font: 700 30px/1 var(--mono); font-variant-numeric: tabular-nums; min-width: 2.2ch; text-align: right; }
+  #bikehud small { font: 600 12px var(--ui); color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+  .bk-hp { width: 110px; height: 7px; background: rgba(0,0,0,.6); }
+  #bk-hp { display: block; height: 100%; background: var(--steel); }
+  #bikehud.wreck #bk-hp { background: var(--blood); }
+  #bikehud.wreck { animation: blink 0.6s infinite; }
+  @media (prefers-reduced-motion: reduce) { #bikehud.wreck { animation: none; } }
   #near i { position: absolute; left: 50%; top: 50%; width: 22px; height: 13px; opacity: 0; background: #ff5a48; clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%); filter: drop-shadow(0 0 2px rgba(0,0,0,.8)); transition: opacity .12s; }
   #hud.spec #near { display: none; }
   /* Death replay: letterbox bars and a caption */
@@ -322,7 +330,7 @@
         <dt><kbd>1</kbd>–<kbd>9</kbd> · wheel</dt><dd>Select hotbar slot</dd>
         <dt><kbd>Tab</kbd></dt><dd>Inventory and crafting</dd>
         <dt><kbd>Q</kbd> · <kbd>F</kbd> · <kbd>R</kbd></dt><dd>Kit ability · drink · refill hotbar with potions from your backpack</dd>
-        <dt><kbd>E</kbd></dt><dd>Enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron</dd>
+        <dt><kbd>E</kbd></dt><dd>Get on or off a motorcycle, enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron</dd>
         <dt><kbd>G</kbd> · <kbd>Ctrl</kbd>+<kbd>G</kbd></dt><dd>Drop one of the held item · drop the whole stack</dd>
         <dt><kbd>P</kbd> (hold)</dt><dd>Scoreboard</dd>
         <dt><kbd>T</kbd></dt><dd>Chat (online)</dd>
@@ -406,6 +414,7 @@
   <div id="held-name" hidden></div>
   <input id="chat" maxlength="80" placeholder="Say something · Enter to send" autocomplete="off" hidden>
   <div class="bottom">
+    <div id="bikehud" hidden><b id="bk-speed">0</b><small>km/h</small><div class="bk-hp" title="Bike damage"><i id="bk-hp"></i></div></div>
     <div id="status"></div>
     <div class="bars"><div id="armor" title="Armour"></div><div id="hp" title="Health"></div></div>
     <div id="hotbar"></div>
@@ -448,6 +457,7 @@
 <script src="js/audio.js"></script>
 <script src="js/items.js"></script>
 <script src="js/entities.js"></script>
+<script src="js/bikes.js"></script>
 <script src="js/bots.js"></script>
 <script src="js/net.js"></script>
 <script src="js/scene3d.js"></script>

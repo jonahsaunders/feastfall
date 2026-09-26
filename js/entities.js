@@ -93,6 +93,7 @@ function hurt(t, amt, src, ang, kb, up = 0) {
   if (t === G.human && src && src.isFighter) G.dmgDir = { a: Math.atan2(src.y - t.y, src.x - t.x), t: 1 };
   t.hp -= amt; t.hurtT = 0.2; t.gather = null; t.refillT = 0; t.hidden = false;
   const steady = t.kit === 'heavy' || isTitan(t);
+  if (t.bike && !steady && (up || kb > 600)) dismountBike(t, true); // a big hit knocks you off your bike
   if (!steady && kb) { t.kbx += Math.cos(ang) * kb; t.kby += Math.sin(ang) * kb; }
   if (up && !steady) { if (t.onGround) jump(t, up); else t.vz = Math.max(t.vz, up * 0.6); }
   if (G.settings.dmgNums) addFx('num', t.x, t.y, t.layer, { txt: amt.toFixed(1), z: t.z + 70 });
@@ -116,6 +117,7 @@ function applyHit(t, m) {
   if (m.nofall) { t.noFallT = m.nofall; if (t === G.human) toast('You won the duel: you’ll land safely'); }
   if (src) { t.lastHitBy = src; t.lastHitT = G.t; }
   if (m.shrink) shrinkNow(t);
+  if (m.tp && t.bike) dismountBike(t, true);
   if (m.tp) Object.assign(t, { x: m.tp[0], y: m.tp[1], z: m.tp[2], vz: 0, onGround: false, peakZ: m.tp[2], kbx: 0, kby: 0, gather: null });
   if (m.pull) {
     t.kbx = Math.cos(m.pull[0]) * m.pull[1]; t.kby = Math.sin(m.pull[0]) * m.pull[1]; t.gather = null; t.hidden = false;
@@ -128,6 +130,7 @@ function applyHit(t, m) {
 }
 function killFighter(t, src) {
   if (t.deadDone) return;
+  if (t.bike) dismountBike(t, true); // the bike rolls on without you
   t.alive = false; t.hp = 0; t.deadDone = true;
   let killer = src && src.isFighter && (src.owner || src) !== t ? (src.owner || src) : null;
   if (!killer && t.lastHitBy && G.t - t.lastHitT < 8) killer = t.lastHitBy;
@@ -145,10 +148,10 @@ function announceKill(t, killer, fell) {
     if (!killer.remote && killer.kit === 'leech' && killer.alive) killer.hp = Math.min(killer.maxHp, killer.hp + 8);
     if (killer === G.human) { G.coinsEarned += 50; Sfx.play('kill'); toast(`You eliminated ${t.name}`); G.killFlash = 0.6; }
   }
-  G.feed.unshift({ txt: killer ? `${killer.name} ⟶ ${t.name}` : `${t.name} ${fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : 'died'}`, t: 7, you: t === G.human || killer === G.human });
+  G.feed.unshift({ txt: killer ? `${killer.name} ⟶ ${t.name}` : `${t.name} ${fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : t.diedTo === 'crash' ? 'crashed' : 'died'}`, t: 7, you: t === G.human || killer === G.human });
   if (killer) streakCallout(killer, t, fell);
   if (G.bounty === t) claimBounty(t, killer);
-  if (t === G.human) { G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : { lava: 'lava', pitfall: 'a pitfall' }[t.diedTo] || 'the pit'; endGame(false); }
+  if (t === G.human) { G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : { lava: 'lava', pitfall: 'a pitfall', crash: 'a motorcycle crash', bike: 'an exploding motorcycle' }[t.diedTo] || 'the pit'; endGame(false); }
   checkWin();
 }
 // Kill streaks and special kills: everyone sees them in the feed, and your own get a callout and 25 coins
@@ -162,6 +165,8 @@ function streakCallout(k, t, fell) {
   if (k.multi >= 2) calls.push(MULTI[Math.min(5, k.multi)]);
   if (SPREE[k.streak]) calls.push(`${SPREE[k.streak]}: ${k.streak} kills`);
   if (t.diedTo === 'pitfall') calls.push('Pitfall');
+  else if (t.diedTo === 'ram') calls.push('Road kill');
+  else if (t.diedTo === 'bike') calls.push('Wrecked');
   else if (fell) calls.push('Knocked off');
   else if (t.diedTo === 'lava') calls.push('Burned');
   else if (hyp(k.x - t.x, k.y - t.y) > 750) calls.push('Long shot');
@@ -260,7 +265,7 @@ function shoot(f, charge, pitch = 0) {
 }
 function useKit(f, ax, ay) {
   const K = KITS[f.kit];
-  if (!K.item || f.kitCd > 0 || (K.uses && f.uses <= 0)) return false;
+  if (!K.item || f.kitCd > 0 || (K.uses && f.uses <= 0) || f.bike) return false;
   const aim = Math.atan2(ay - f.y, ax - f.x);
   switch (f.kit) {
     case 'mage': {
@@ -353,7 +358,7 @@ function useKit(f, ax, ay) {
 }
 // Skyhook: grapple to whatever the crosshair is on, up to 22 blocks away
 function fireSkyhook(f, pitch) {
-  if (f.skyCd > 0 || f.layer) return false;
+  if (f.skyCd > 0 || f.layer || f.bike) return false;
   const cp = Math.cos(pitch), eye = f.z + EYE * (f.size || 1), dx = Math.cos(f.face) * cp, dy = Math.sin(f.face) * cp, dz = Math.sin(pitch);
   const a = rayPick(f.x, f.y, eye, dx, dy, dz, 550);
   if (!a) return false;
@@ -395,6 +400,7 @@ function shuffleHotbar(t) {
 }
 // Trickster: trade places
 function swapPlaces(o, t) {
+  if (o.bike) dismountBike(o, true);
   const op = [o.x, o.y, o.z], layer = t.layer;
   Object.assign(o, { x: t.x, y: t.y, z: t.z, layer, vz: 0, onGround: false, peakZ: t.z, kbx: 0, kby: 0, gather: null });
   const m = { tp: op.map(Math.round), by: o.id };
@@ -417,6 +423,7 @@ function shrinkNow(f) { f.titanT = 0; f.size = 1; f.r = 13; }
 // Titans shrink straight away: the box is only 4 blocks tall inside.
 function startDuel(f, t) {
   shrinkNow(f);
+  if (f.bike) dismountBike(f, true);
   const cx = (f.x + t.x) / 2, cy = (f.y + t.y) / 2, ci = Math.floor(cx / B), ck = Math.floor(cy / B);
   const base = Math.floor(Math.max(heightAt(cx, cy), f.z, t.z) / B) + 16, cells = [];
   for (let di = -3; di <= 3; di++) for (let dk = -3; dk <= 3; dk++) for (let j = base; j <= base + 5; j++) {
@@ -453,7 +460,7 @@ function spawnClone(f, dir) {
 }
 function toggleLayer(f) {
   const e = world.entrances.find(e => hyp(e.x - f.x, e.y - f.y) < 46);
-  if (!e || G.pit || !f.onGround) return false;
+  if (!e || G.pit || !f.onGround || f.bike) return false;
   if (!f.layer && f.z > heightAt(e.x, e.y) + 20) return false;
   if ((f.size || 1) > 1.2) { if (f === G.human) toast('You’re too big to fit down the tunnel'); return false; }
   f.layer = 1 - f.layer; f.x = e.x; f.y = e.y; f.z = f.layer ? 0 : heightAt(e.x, e.y); f.vz = 0; f.onGround = true;
@@ -573,6 +580,31 @@ function pourBucket(f, slot, i, j, k) {
   return true;
 }
 
+// Water puts fires out; lava sets you on fire (poured lava only burns other people once PvP is on)
+function touchLiquid(f) {
+  const liq = f.isClone ? null : liquidAt(f);
+  f.inLiq = liq ? liq.type : null;
+  if (f.inLiq === 'water') f.burnT = 0;
+  else if (f.inLiq === 'lava') {
+    const by = liq.owner ? fighterById(liq.owner) : null;
+    if (!liq.owner || liq.owner === f.id || pvpOn()) {
+      if (!(f.burnT > 0) && f === G.human) toast('You’re in lava! Get out');
+      f.burnT = 3; f.burnBy = by && by !== f ? by : null;
+    }
+  }
+}
+// Burning: fast damage in lava, slower once you're out, until it wears off (water puts it out)
+function burnTick(f, dt) {
+  if (!(f.burnT > 0)) return;
+  f.burnT -= dt; f.burnTick = (f.burnTick || 0) - dt;
+  if (f.burnTick > 0) return;
+  const inLava = f.inLiq === 'lava';
+  f.burnTick = inLava ? 0.45 : 0.7;
+  f.diedTo = 'lava';
+  hurtRaw(f, inLava ? 1.5 : 0.5, f.burnBy);
+  if (f.alive) { f.diedTo = null; addFx('puff', f.x, f.y, f.layer, { col: '#ff7a2a', z: f.z + 20 + Math.random() * 30 }); }
+}
+
 // ---- per-frame physics for a fighter we simulate ----
 function updateFighter(f, dt) {
   for (const k of ['atkCd', 'kitCd', 'invuln', 'speedT', 'hurtT', 'swingT', 'punchT', 'drinkCd', 'slowT', 'spikeCd', 'noFallT', 'skyCd', 'titanT', 'pitT']) if (f[k] > 0) f[k] -= dt;
@@ -593,6 +625,8 @@ function updateFighter(f, dt) {
     f.poisonT -= dt; f.poisonTick = (f.poisonTick || 0) - dt;
     if (f.poisonTick <= 0) { f.poisonTick = 0.8; hurtRaw(f, 0.5, f.poisonBy); }
   }
+  // On a motorcycle, the bike does the moving (bikes.js)
+  if (f.bike) { rideBike(f, dt); burnTick(f, dt); return; }
   if (f.speedT > 0) sp *= 1.8;
   if (f.sneak) sp *= 0.35;
   if (f.slowT > 0) sp *= 0.45;
@@ -643,20 +677,12 @@ function updateFighter(f, dt) {
     }
     // Water: sink slowly (no fall damage builds up), hold Space to swim up, and it puts fires out.
     // Lava: sets you on fire (poured lava only burns other people once PvP is on).
-    const liq = f.isClone ? null : liquidAt(f);
-    f.inLiq = liq ? liq.type : null;
+    touchLiquid(f);
     if (f.inLiq === 'water') {
-      f.peakZ = f.z; f.burnT = 0;
+      f.peakZ = f.z;
       if (f.glide) { f.vz = 170; f.onGround = false; }
       else if (!f.onGround) f.vz = Math.max(f.vz, -110);
-    } else if (f.inLiq === 'lava') {
-      if (!f.onGround) f.vz = Math.max(f.vz, -160);
-      const by = liq.owner ? fighterById(liq.owner) : null;
-      if (!liq.owner || liq.owner === f.id || pvpOn()) {
-        if (!(f.burnT > 0) && f === G.human) toast('You’re in lava! Get out');
-        f.burnT = 3; f.burnBy = by && by !== f ? by : null;
-      }
-    }
+    } else if (f.inLiq === 'lava' && !f.onGround) f.vz = Math.max(f.vz, -160);
     // Vertical: stand, step, fall, land
     const sup = supportAt(f.x, f.y, f.z, f.r, 0), supType = SUP_TYPE;
     if (f.onGround) {
@@ -695,17 +721,7 @@ function updateFighter(f, dt) {
     const turf = !f.isClone && turfUnder(f);
     if (turf) { breakBlock(turf[0], turf[1], turf[2], null); addFx('puff', f.x, f.y, 0, { col: '#6b8a4a', z: f.z + 10 }); if (f === G.human) toast('The ground gave way: Snare Turf!'); }
   }
-  // Burning: fast damage in lava, slower once you're out, until it wears off (water puts it out)
-  if (f.burnT > 0) {
-    f.burnT -= dt; f.burnTick = (f.burnTick || 0) - dt;
-    if (f.burnTick <= 0) {
-      const inLava = f.inLiq === 'lava';
-      f.burnTick = inLava ? 0.45 : 0.7;
-      f.diedTo = 'lava';
-      hurtRaw(f, inLava ? 1.5 : 0.5, f.burnBy);
-      if (f.alive) { f.diedTo = null; addFx('puff', f.x, f.y, f.layer, { col: '#ff7a2a', z: f.z + 20 + Math.random() * 30 }); }
-    }
-  }
+  burnTick(f, dt);
   if (!f.alive) return;
   // Gathering: stand still next to a resource
   if (f.gather) {

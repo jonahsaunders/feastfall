@@ -5,7 +5,8 @@
 // so an online match keeps running underneath.
 const REPLAY = { buf: [], acc: 0, t: 0, t0: 0, t1: 0, hold: 0, killer: null, view: null, cam: null, saved: null, proxies: new Map(), onDone: null };
 const RP_KEEP = 6, RP_HZ = 30, RP_LEN = 5;
-const RP_F = ['x', 'y', 'z', 'face', 'hp', 'swingT', 'hurtT', 'mx', 'my', 'sneak', 'hidden', 'disguise', 'size', 'layer', 'invuln', 'punchT', 'charge', 'burnT', 'burnNet', 'gather'];
+const RP_F = ['x', 'y', 'z', 'face', 'hp', 'swingT', 'hurtT', 'mx', 'my', 'sneak', 'hidden', 'disguise', 'size', 'layer', 'invuln', 'punchT', 'charge', 'burnT', 'burnNet', 'gather', 'bike', 'pitT', 'pitNet'];
+const RP_K = ['x', 'y', 'z', 'face', 'speed', 'steer', 'air', 'vz', 'wheel', 'gone']; // motorcycles
 
 function replayReset() { REPLAY.buf = []; REPLAY.acc = 0; REPLAY.proxies.clear(); }
 
@@ -21,7 +22,8 @@ function replayRecord(dt) {
     if (f !== h && f !== h.lastHitBy && (f.layer !== h.layer || hyp(f.x - h.x, f.y - h.y) > 1100)) continue;
     fs.push([f, RP_F.map(k => f[k])]);
   }
-  REPLAY.buf.push({ t: G.t, fs, ps: G.proj.map(p => [p, p.x, p.y, p.z, p.vx, p.vy, p.vz]) });
+  const ks = (G.bikes || []).filter(k => hyp(k.x - h.x, k.y - h.y) < 1300).map(k => [k, RP_K.map(n => k[n])]);
+  REPLAY.buf.push({ t: G.t, fs, ks, ps: G.proj.map(p => [p, p.x, p.y, p.z, p.vx, p.vy, p.vz]) });
   while (REPLAY.buf.length && REPLAY.buf[0].t < G.t - RP_KEEP) REPLAY.buf.shift();
 }
 
@@ -52,7 +54,12 @@ function replayApply(dt) {
   while (i < b.length - 2 && b[i + 1].t <= R.t) i++;
   const A = b[i], Bf = b[Math.min(i + 1, b.length - 1)], k = Bf.t > A.t ? clamp((R.t - A.t) / (Bf.t - A.t), 0, 1) : 0;
   const next = new Map(Bf.fs), shown = new Set();
-  R.saved = { fighters: G.fighters.map(f => [f, RP_F.map(n => f[n]), f.alive]), proj: G.proj, fx: G.fx };
+  R.saved = { fighters: G.fighters.map(f => [f, RP_F.map(n => f[n]), f.alive]), bikes: (G.bikes || []).map(k => [k, RP_K.map(n => k[n])]), proj: G.proj, fx: G.fx };
+  const nk = new Map(Bf.ks || []);
+  for (const [bk, va] of A.ks || []) {
+    const vb = nk.get(bk) || va;
+    RP_K.forEach((n, q) => { let v = va[q]; if (typeof v === 'number' && typeof vb[q] === 'number') v = n === 'face' ? v + angDiff(v, vb[q]) * k : v + (vb[q] - v) * k; bk[n] = v; });
+  }
   for (const [f, va] of A.fs) {
     const vb = next.get(f) || va;
     RP_F.forEach((n, q) => {
@@ -95,6 +102,7 @@ function replayRestore() {
   const s = REPLAY.saved;
   if (!s) return;
   for (const [f, vals, alive] of s.fighters) { RP_F.forEach((n, q) => { f[n] = vals[q]; }); f.alive = alive; }
+  for (const [k, vals] of s.bikes) RP_K.forEach((n, q) => { k[n] = vals[q]; });
   G.proj = s.proj; G.fx = s.fx; REPLAY.saved = null;
 }
 const replayReady = () => REPLAY.buf.length >= 20;

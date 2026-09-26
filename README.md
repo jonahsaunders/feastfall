@@ -74,6 +74,16 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 <p><b>Death replay.</b> When you die, the last few seconds play back over your killer's shoulder, slowing down for the final blow. Skip it with Space, or watch it again from the end screen.</p>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/bike.jpg" alt="Riding a motorcycle at 72 km/h through the forest, with a bot riding alongside">
+<p><b>Motorcycles.</b> Nearly three times as fast as running, and just as easy to wreck. Hit a tree at full speed and it can kill you, getting off at speed hurts, hard landings hurt, and a smoking bike is about to explode. Run people over, crest a dune and fly, or loot by driving over drops.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/pitfall.jpg" alt="A fighter stuck chest-deep in a pitfall, with another pitfall set in the ground nearby">
+<p><b>Pitfalls.</b> A trapdoor that passes for the ground. Whoever steps on it drops chest-deep into a hole, takes 3 damage and is stuck for 2.5 seconds. Yours show up in brown; other people's you have to spot.</p>
+</td>
+</tr>
 </table>
 
 - **See who's around.** Red markers float over anyone within about 50 blocks, even when they're too far away to make out. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and the Hidden kit's disguises still keep you hidden.
@@ -81,7 +91,7 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 - **Bounties.** Once someone has 3 or more kills and leads the match, they get a bounty. Everyone's map shows where they are every 30 seconds, they get a gold marker and a ★ by their name, and killing them pays 50 coins plus 25 per kill they had.
 - **Kill streaks.** Double and triple kills, killing sprees, and special kills (Knocked off, Burned, Long shot, Pitfall) get called out in the feed. Your own streaks earn bonus coins.
 - **Bots team up.** Bots near each other sometimes form an alliance of two or three (a matching colour square by their names). Allies stick together and join each other's fights, and sooner or later one turns on the other.
-- **Pitfalls.** A trapdoor that passes for the ground. Whoever steps on it drops chest-deep into a hole, takes 3 damage and is stuck for 2.5 seconds. Look closely and you can spot them.
+- **Motorcycles** are parked around the map (orange on the minimap when you're close). Swamp, sand and snow slow them down, spike traps shred the tyres, launch pads send them flying, and pitfalls wreck them. Bots ride them too.
 - **29 kits** with 8 free each week (see [Kits](#kits)).
 - **Lava pools** glow in the mountains and deserts (orange on the map). They burn anyone who walks in, and they fill buckets forever.
 - **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, and you climb a ladder to reach them.
@@ -197,7 +207,8 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 | 1–9 · wheel | Select a hotbar slot |
 | Tab | Inventory and crafting |
 | Q · F · R | Kit ability · drink · refill the hotbar with potions from your backpack |
-| E | Enter or leave a tunnel; hold to chop, mine or cut reeds |
+| E | Get on or off a motorcycle, enter or leave a tunnel; hold to chop, mine or cut reeds |
+| On a motorcycle | W · S throttle and brake/reverse, A · D steer, Space hard brake, mouse looks around, E gets off |
 | G · Ctrl+G | Drop one of the held item · drop the whole stack |
 | P (hold) | Scoreboard |
 | T | Chat (online) |
@@ -232,6 +243,7 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | `js/blocks.js` | Placeable blocks, collision, fall support, raycasting, poured water and lava |
 | `js/items.js` | Item registry, drawn icons, inventory, armour, recipes |
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
+| `js/bikes.js` | Motorcycles: riding, jumps, crashes, running people over, explosions |
 | `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced) and bot alliances |
 | `js/net.js` | Online play: lobby, matches, state sync, host migration |
 | `js/scene3d.js` | Renderer, lights, terrain mesh, instanced scenery, tunnels |

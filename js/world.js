@@ -300,6 +300,14 @@ function genWorld(seed, size = 4800) {
     world.drops.push({ x, y, min: min + rr(-1, 1), st: '' });
     break;
   }
+  // Motorcycles: a few parked on open, flat ground in the forest and desert
+  world.bikes = [];
+  for (let t = 0; world.bikes.length < Math.round(3 * A) && t < 3000; t++) {
+    const x = rr(300, WORLD - 300), y = rr(300, WORLD - 300), bi = biomeAt(x, y);
+    if (bi >= 2 || hyp(x - PIT.x, y - PIT.y) < PIT.r + 150 || !clear(x, y, 45) || flatness(x, y, 30) > 8) continue;
+    if (world.bikes.some(b => hyp(b.x - x, b.y - y) < 700) || world.lavas.some(p => hyp(p.x - x, p.y - y) < p.r + 200)) continue;
+    world.bikes.push({ x, y, face: rr(0, 6.28) });
+  }
   world.ground = renderGround();
 }
 const LANDMARKS = {

@@ -75,6 +75,7 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
     for (const r of world.ruins) addItem({ kind: 'chest', x: r.x, y: r.y, z: r.chestZ, layer: 0, stacks: ruinLoot(r) });
     for (const m of world.landmarks) addItem({ kind: 'relic', x: m.x, y: m.y, z: m.chestZ, layer: m.layer, stacks: [{ id: LANDMARKS[m.id].item, n: 1 }, { id: 'pot', n: 2 }] });
   }
+  spawnBikes();
 }
 // Watchtowers (you have to climb them) hold the best ruin loot
 function ruinLoot(r) {
@@ -187,6 +188,7 @@ function phases() {
     G.fighters.forEach(f => { if (f.isClone) f.alive = false; });
     alive.forEach((f, i) => {
       if (f.remote) return;
+      if (f.bike) dismountBike(f, true);
       const a = i / alive.length * 6.28, x = PIT.x + Math.cos(a) * 250, y = PIT.y + Math.sin(a) * 250;
       Object.assign(f, { layer: 0, x, y, z: heightAt(x, y), vz: 0, onGround: true, gather: null, plan: null, path: null, hidden: false });
     });
@@ -242,7 +244,8 @@ document.addEventListener('mousemove', e => {
   // Chrome sometimes reports one huge jump right after capture: ignore it
   if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
   const k = SENS * G.settings.sens;
-  G.human.face += e.movementX * k;
+  if (G.human.bike) { VIEW.lookYaw = clamp((VIEW.lookYaw || 0) + e.movementX * k, -2.6, 2.6); VIEW.lookT = performance.now(); } // riding: the mouse swings the camera
+  else G.human.face += e.movementX * k;
   VIEW.pitch = clamp(VIEW.pitch - e.movementY * k, -1.45, 1.3);
 });
 addEventListener('keydown', e => {
@@ -271,7 +274,7 @@ addEventListener('keydown', e => {
   if (keys.has(k)) return;
   keys.add(k);
   if (k >= '1' && k <= '9') selectSlot(+k - 1);
-  else if (k === ' ' && h.alive) jump(h);
+  else if (k === ' ' && h.alive && !h.bike) jump(h);
   else if (k === 'escape') pause();
   else if (k === 'tab' || k === 'i') toggleInv();
   else if (k === 'q' && h.alive) { const a = aimWorld(); if (!useKit(h, a.x, a.y)) kitFail(h); }
@@ -279,8 +282,9 @@ addEventListener('keydown', e => {
   else if (k === 'f') drink(h);
   else if (k === 'g' && h.alive) dropHeld(h, e.ctrlKey);
   else if (k === 't' && NET.on) openChat();
-  else if (k === 'e') {
-    if (!toggleLayer(h)) { const o = gatherTarget(h); if (o) { h.gather = o; h.gatherT = 0; } }
+  else if (k === 'e' && h.alive) {
+    if (h.bike) dismountBike(h);
+    else if (!mountBike(h, nearBike(h)) && !toggleLayer(h)) { const o = gatherTarget(h); if (o) { h.gather = o; h.gatherT = 0; } }
   }
 });
 addEventListener('keyup', e => {
@@ -296,6 +300,7 @@ cv.addEventListener('mousedown', e => {
   if (G.mode !== 'play' || !G.human.alive) return;
   if (G.invOpen) { toggleInv(); return; }
   if (!locked && !noLock && !freeLook) { lockPointer(); return; }
+  if (G.human.bike) return; // hands on the handlebars
   const h = G.human, item = heldId(h), bucket = item === 'bucket' || !!(item && ITEMS[item].bucket);
   if (e.button === 2) { mouse.rdown = true; if (bucket) useBucket(h); else if (!(item && ITEMS[item].block)) drink(h); return; }
   if (e.button !== 0) return;
@@ -351,7 +356,8 @@ function useBucket(h) {
 }
 function kitFail(h) {
   const K = KITS[h.kit];
-  if (!K.item) toast(`${K.name} is a passive kit.`);
+  if (h.bike) toast('Get off the motorcycle to use your kit');
+  else if (!K.item) toast(`${K.name} is a passive kit.`);
   else if (K.uses && h.uses <= 0) toast(`${K.item} is used up.`);
   else if (h.kitCd > 0) toast(`${K.item} recharging: ${Math.ceil(h.kitCd)}s`);
   else if (h.kit === 'mage') toast(pvpOn() ? 'Nobody within range to pull.' : 'Wait for PvP to turn on.');
@@ -359,6 +365,15 @@ function kitFail(h) {
 function humanInput(dt) {
   const h = G.human;
   if (!h.alive) { h.mx = h.my = 0; return; }
+  if (h.bike) { // W/S throttle, A/D steer, Space brake; the camera drifts back behind you
+    const k = h.bike, busy = G.invOpen || G.chatOpen || G.mode !== 'play';
+    k.throttle = busy ? 0 : (keys.has('w') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('arrowdown') ? 1 : 0);
+    k.steer = busy ? 0 : (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
+    k.brake = !busy && keys.has(' ');
+    if (performance.now() - (VIEW.lookT || 0) > 700) VIEW.lookYaw = (VIEW.lookYaw || 0) * Math.exp(-3 * dt);
+    h.mx = h.my = 0; h.pitch = VIEW.pitch; G.aim = null;
+    return;
+  }
   if (freeLook && !G.invOpen && !G.chatOpen && G.mode === 'play') {
     const ex = innerWidth * 0.06, ey = innerHeight * 0.07;
     if (mouse.x < ex) h.face -= dt * 2.2; else if (mouse.x > innerWidth - ex) h.face += dt * 2.2;
@@ -449,7 +464,7 @@ function footsteps(dt) {
   for (const f of G.fighters) {
     const moved = hyp(f.x - (f.stepX ?? f.x), f.y - (f.stepY ?? f.y));
     f.stepX = f.x; f.stepY = f.y;
-    if (!f.alive || f.layer !== L.layer || f.hidden || moved > 60 || moved < 0.2 || f.pitT > 0) continue;
+    if (!f.alive || f.layer !== L.layer || f.hidden || moved > 60 || moved < 0.2 || f.pitT > 0 || f.bike) continue;
     const grounded = f.remote ? f.z - (f.layer ? 0 : heightAt(f.x, f.y)) < 4 || !!blockAt(Math.floor(f.x / B), Math.floor((f.z - 1) / B), Math.floor(f.y / B)) : f.onGround;
     if (!grounded || (f.remote ? f.net.sn : f.sneak)) continue;
     const size = f.size || 1;
@@ -460,6 +475,15 @@ function footsteps(dt) {
     stepBudget--;
     Sfx.step(surf, f.x, f.y, f.z, range, f === L ? 0.35 : 1);
   }
+}
+
+// Engine noise for the (up to three) nearest running motorcycles
+function engineSounds() {
+  const L = VIEW.focus || G.human, on = G.mode === 'play' || G.mode === 'spectate' || (NET.on && G.mode === 'end');
+  const list = !on || !L ? [] : (G.bikes || []).filter(k => !k.gone && (k.rider || !bikeStill(k)) && hyp(k.x - L.x, k.y - L.y) < 800)
+    .sort((a, b) => hyp(a.x - L.x, a.y - L.y) - hyp(b.x - L.x, b.y - L.y)).slice(0, 3)
+    .map(k => ({ id: k.id, x: k.x, y: k.y, z: k.z, speed: k.speed, mine: k.rider === G.human.id }));
+  Sfx.engines(list);
 }
 
 // ---------- bounty: the top killer (3+ kills) shows on everyone's map every 30 seconds ----------
@@ -552,7 +576,7 @@ function step(dt) {
   G.fighters = G.fighters.filter(f => f.alive || !f.isClone);
   updateDuels(dt); clearStaleArenas();
   pickups();
-  updateRats(dt); updateProj(dt); updateFx(dt); coolLava();
+  updateRats(dt); updateProj(dt); updateFx(dt); coolLava(); updateBikes(dt);
   if (G.mode !== 'menu' && G.mode !== 'options') { updateAlliances(dt); updateBounty(dt); }
   potT += dt;
   if (potT > 3) {
@@ -583,6 +607,7 @@ function frame(now) {
       Sfx.update(v.layer ? 'under' : v.biome === 2 && G.settings.snow && !G.pit ? 'snow' : 'surface', dt, DAY.night);
       hudT -= dt; if (hudT <= 0) { hudT = 0.1; updateHud(); }
     } else { render(0); renderMinimap(); }
+    engineSounds();
   }
   requestAnimationFrame(frame);
 }
@@ -622,8 +647,20 @@ function updateHud() {
   $('#bagpots').textContent = bp ? `${bp} potion${bp > 1 ? 's' : ''} in backpack${canRefill(h) ? ' · R to refill' : ''}` : 'No potions in backpack';
   $('#bagpots').classList.toggle('warn', canRefill(h));
   setHTML('#feed', G.feed.map(k => `<div class="${k.you ? 'you' : ''}${k.chat ? ' chat' : ''}${k.relic ? ' relic' : ''}${k.streak ? ' streak' : ''}">${k.team ? `<i style="background:${k.team}"></i>` : ''}${escapeHTML(k.txt)}</div>`).join(''));
+  // Motorcycle: speedometer and damage while riding
+  const bk = h.bike;
+  $('#bikehud').hidden = !bk;
+  $('#cross').hidden = !!bk;
+  if (bk) {
+    $('#bk-speed').textContent = kmh(bk.speed);
+    const hp = Math.max(0, bk.hp / BIKE.hp);
+    $('#bk-hp').style.width = `${(hp * 100).toFixed(0)}%`;
+    $('#bikehud').classList.toggle('wreck', bk.hp < 35);
+  }
   let p = '';
-  if (h.refillT > 0) p = 'Refilling hotbar…';
+  if (bk) p = `<kbd>W</kbd><kbd>S</kbd> Throttle · <kbd>A</kbd><kbd>D</kbd> Steer · <kbd>Space</kbd> Brake · <kbd>E</kbd> Get off (hurts at speed)`;
+  else if (h.alive && nearBike(h)) p = isTitan(h) ? 'Too big to ride while you’re a Titan' : `<kbd>E</kbd> Ride the motorcycle`;
+  else if (h.refillT > 0) p = 'Refilling hotbar…';
   else if (world.entrances.some(e => hyp(e.x - h.x, e.y - h.y) < 46) && !G.pit) p = h.layer ? '<kbd>E</kbd> Climb out' : '<kbd>E</kbd> Go down into the tunnels';
   else { const o = gatherTarget(h); if (o) p = `Hold <kbd>E</kbd> ${{ tree: 'Chop tree for wood', rock: 'Break rock for stone', reed: 'Cut reeds', ore: 'Mine iron ore (slow)' }[o.kind]}`; }
   const held = heldId(h);
@@ -641,6 +678,7 @@ function updateHud() {
   if (h.invuln > 0) st.push('Invincible');
   if (h.speedT > 0) st.push('Sprinting');
   if (h.titanT > 0) st.push(`Titan · ${Math.ceil(h.titanT)}s`);
+  if (bk && bk.hp < 35) st.push('Your bike is smoking: it’s about to blow');
   if (h.burnT > 0) st.push('On fire');
   else if (h.inLiq === 'water') st.push('In water');
   if (h.punchT > 0) st.push('Punch charged');
@@ -709,6 +747,7 @@ const TIPS = [
   { id: 'bucket', when: h => ['bucket', 'bucket_water', 'bucket_lava'].some(id => count(h, id)), text: 'Fill a bucket from swamp water or a lava pool (orange on the map). Pour water under you just before you land and you take no fall damage.' },
   { id: 'bounty', when: () => !!G.bounty && G.bounty !== G.human, text: 'The top killer has a bounty: the gold star on your map is where they were last seen. Take them down for bonus coins.' },
   { id: 'team', when: () => G.teams && G.teams.length > 0, text: 'Bots sometimes team up (matching colour squares by their names). Sooner or later one turns on the other.' },
+  { id: 'bike', when: h => !!nearBike(h, 200) || !!h.bike, text: 'Motorcycles are fast and fragile. Hit a tree at full speed and it can kill you, getting off at speed hurts, and a smoking bike is about to explode. Space brakes.' },
   { id: 'pitfall', when: h => count(h, 'pitfall') > 0, text: 'Pitfalls look like the ground. Place them where people walk: whoever steps on one is stuck in a hole for a couple of seconds.' },
   { id: 'near', when: () => NEAR_ELS.some(el => +el.style.opacity > 0), text: 'The red arrows around your crosshair point at people close by but out of view. Turn to face them.' },
   { id: 'night', when: () => DAY.night > 0.5, text: 'Night falls before the pit. Names are harder to read from a distance, and so is yours.' },

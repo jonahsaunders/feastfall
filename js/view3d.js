@@ -120,6 +120,8 @@ function updFighter(m, f, dt) {
   u.walk = moving ? u.walk + dt * 11 : u.walk * 0.8;
   u.legL.rotation.z = Math.sin(u.walk) * 0.6; u.legR.rotation.z = -Math.sin(u.walk) * 0.6;
   u.arm.rotation.z = f.swingT > 0 ? 2.4 - (1 - f.swingT / 0.14) * 2.3 : f.gather ? 1.4 + Math.sin(G.t * 11) * 0.7 : 1.0 + Math.sin(u.walk) * 0.15;
+  if (f.bike) { u.legL.rotation.z = u.legR.rotation.z = 1.25; u.arm.rotation.z = 1.35; u.body.position.set(-6, 8, 0); } // seated, hands on the bars
+  else u.body.position.set(0, 0, 0);
   if (u.w !== f.weapon) { u.w = f.weapon; u.mB.color.set(WCOL[f.weapon]); u.blade.visible = f.weapon > 0; u.fist.visible = f.weapon === 0; const m5 = f.weapon === 5; u.blade.scale.set(m5 ? 2.6 : 1, m5 ? 0.75 : 1, m5 ? 2 : 1); }
   const am = armorMask(f);
   if (u.a !== am) {
@@ -135,7 +137,7 @@ function updFighter(m, f, dt) {
   if (u.ring.visible) u.ring.material.color.setHex(f.invuln > 0 ? 0x9d7cf0 : 0xf0b43c);
   const d = hyp(f.x - camera.position.x, f.y - camera.position.z);
   const v = VIEW.focus || G.human, snowy = v.biome === 2 && G.settings.snow && !G.pit && !v.layer;
-  u.tag.visible = !f.hidden && d < (snowy ? 220 : v.layer ? 330 : 650 * (1 - 0.45 * DAY.night)) && !(G.mode === 'replay' && d < 130);
+  u.tag.visible = !f.hidden && d < (snowy ? 220 : v.layer ? 330 : 650 * (1 - 0.45 * DAY.night)) && !(G.mode === 'replay' && d < 130) && !(f === G.human && G.mode === 'play');
   const bounty = f === G.bounty;
   if (u.tag.visible) drawTag(u.tag, f.name, f.hp, f.maxHp, f.isClone, f.teamCol, bounty);
   const mt = bounty ? MARK_GOLD : MARK_TEX;
@@ -322,6 +324,38 @@ function syncDrops() {
   }
 }
 
+// ---- motorcycles ----
+FG.wheel = new T.TorusGeometry(8.5, 3.2, 6, 14);
+FG.hub = new T.CylinderGeometry(3, 3, 5, 6).rotateX(Math.PI / 2);
+function makeBike(k) {
+  const g = new T.Group(), body = new T.Group(); g.add(body);
+  const m = (geo, mat, x, y, z) => { const o = new T.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = true; body.add(o); return o; };
+  const paint = lam(k.col), dark = FMAT.dark, chrome = FMAT.steel, tyre = lam('#1d1b19');
+  const wr = m(FG.wheel, tyre, -21, 11.7, 0), wf = m(FG.wheel, tyre, 22, 11.7, 0);
+  wr.add(new T.Mesh(FG.hub, chrome)); wf.add(new T.Mesh(FG.hub, chrome));
+  m(new T.BoxGeometry(34, 6, 5), dark, 0, 19, 0).rotation.z = 0.12;         // frame
+  m(new T.BoxGeometry(16, 9, 11), paint, 6, 26, 0);                           // tank
+  m(new T.BoxGeometry(19, 4, 9), dark, -10, 27, 0);                           // seat
+  m(new T.BoxGeometry(13, 5, 7), paint, -24, 22, 0).rotation.z = -0.3;        // tail
+  const fork = m(new T.BoxGeometry(3, 22, 3), chrome, 19, 22, 0); fork.rotation.z = -0.35;
+  m(new T.BoxGeometry(3, 3, 24), dark, 15, 33, 0);                            // handlebar
+  m(new T.SphereGeometry(3.4, 6, 4), lam('#fff4c8', { emissive: 0x8a7a40 }), 23, 28, 0); // headlight
+  m(new T.CylinderGeometry(1.8, 2.2, 16, 5), chrome, -13, 13, 7).rotation.z = Math.PI / 2 - 0.2; // exhaust
+  g.userData = { body, wr, wf };
+  return g;
+}
+function updBike(g, k) {
+  const u = g.userData, sp = Math.min(1, Math.abs(k.speed) / 300);
+  g.position.set(k.x, k.z, k.y);
+  g.rotation.y = -k.face;
+  u.body.rotation.x = (k.steer || 0) * sp * 0.32;                                // lean into turns
+  u.body.rotation.z = k.air ? clamp(k.vz / 1600, -0.35, 0.35) : 0;               // nose up off jumps
+  u.wr.rotation.z = u.wf.rotation.z = -k.wheel;
+}
+function syncBikes(L) {
+  for (const k of G.bikes || []) if (!k.gone) sync(k, makeBike, updBike, L === 0 && hyp(k.x - camera.position.x, k.y - camera.position.z) < 1300);
+}
+
 // ---- snow ----
 const SNOW_N = 1400, snowGeo = new T.BufferGeometry(), snowPos = new Float32Array(SNOW_N * 3);
 for (let i = 0; i < SNOW_N; i++) { snowPos[i * 3] = rr(-350, 350); snowPos[i * 3 + 1] = rr(-60, 260); snowPos[i * 3 + 2] = rr(-350, 350); }
@@ -435,7 +469,8 @@ function render(dt) {
   const h = G.human, playing = G.mode !== 'menu' && G.mode !== 'options';
   const spec = G.mode === 'spectate' && G.specTarget && G.specTarget.alive ? G.specTarget : null;
   const rp = G.mode === 'replay' ? REPLAY.view : null; // death replay: a free camera over the killer's shoulder
-  const focus = rp ? rp.focus : spec || h, L = focus.layer, fp = playing && !spec && !rp; // fp: first person
+  const ride = playing && !spec && !rp && h.alive && h.bike; // on a motorcycle: a chase camera behind you
+  const focus = rp ? rp.focus : spec || h, L = focus.layer, fp = playing && !spec && !rp && !ride; // fp: first person
   VIEW.focus = focus;
   timeOfDay(playing ? G.clockMin : 14);
   surfaceGroup.visible = L === 0; underGroup.visible = L === 1;
@@ -454,6 +489,14 @@ function render(dt) {
     camera.rotation.x = h.alive ? VIEW.pitch : Math.max(-1.2, VIEW.pitch - deathLift / 200);
     camera.fov = (G.settings.fov || 75) + (h.speedT > 0 ? 13 : 0);
     if (h.hurtT > 0 && h.alive) { const s = h.hurtT * 14; camera.position.x += (Math.random() - .5) * s; camera.position.y += (Math.random() - .5) * s; camera.position.z += (Math.random() - .5) * s; }
+  } else if (ride) {
+    const k = h.bike, yaw = h.face + (VIEW.lookYaw || 0), s = clamp(Math.abs(k.speed) / BIKE.top, 0, 1);
+    const cx = h.x - Math.cos(yaw) * 125, cy = h.y - Math.sin(yaw) * 125;
+    const cz = Math.max(h.z + 88 - VIEW.pitch * 60, heightAt(cx, cy) + 14);
+    camera.position.set(cx, cz, cy);
+    camera.lookAt(h.x + Math.cos(yaw) * 170, h.z + 30 + VIEW.pitch * 120, h.y + Math.sin(yaw) * 170);
+    if (!k.air && s > 0.5) camera.position.y += (Math.random() - .5) * (s - 0.5) * 2.4; // rattle at speed
+    camera.fov = (G.settings.fov || 75) + s * 14;
   } else if (rp) {
     camera.position.set(rp.x, rp.z, rp.y);
     camera.lookAt(rp.tx, rp.tz, rp.ty);
@@ -490,6 +533,7 @@ function render(dt) {
     }
   }, p.layer === L);
   for (const e of G.fx) sync(e, makeFx, updFx, e.layer === L);
+  syncBikes(L);
   sweep();
   syncFeast();
   syncDrops();
@@ -581,6 +625,13 @@ function renderMinimap() {
     mctx.strokeStyle = `rgba(255,210,74,${Math.max(0.15, 1 - age)})`; mctx.lineWidth = 2;
     mctx.beginPath(); mctx.arc(bs.x * S, bs.y * S, 7 + (1 - Math.min(1, age * 6)) * 10, 0, 7); mctx.stroke();
     mctx.fillStyle = '#ffd24a'; mctx.strokeStyle = '#3a2a08'; mctx.lineWidth = 1.5; star(bs.x * S, bs.y * S, 6);
+  }
+  // Motorcycles within about 60 blocks: parked ones in orange, ridden ones in white
+  if (h.layer === 0) for (const k of G.bikes || []) {
+    if (k.gone || k.rider === G.human.id || hyp(k.x - h.x, k.y - h.y) > 1500) continue;
+    mctx.save(); mctx.translate(k.x * S, k.y * S); mctx.rotate(k.face);
+    mctx.fillStyle = k.rider ? '#f2ead6' : '#ff9a3c'; mctx.strokeStyle = '#1a120a'; mctx.lineWidth = 1;
+    mctx.fillRect(-4, -2, 8, 4); mctx.strokeRect(-4, -2, 8, 4); mctx.restore();
   }
   // Players you've seen in the last few seconds (fading), on your layer
   if (G.human.alive && G.mode === 'play') for (const f of G.fighters) {

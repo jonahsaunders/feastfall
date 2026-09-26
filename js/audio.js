@@ -82,6 +82,8 @@ const Sfx = (() => {
     step_wood: d => { tone(150, 0.07, 'triangle', 0.22, 110, 0, d); noise(0.04, 900, 2, 0.12, 'bandpass', 0, d); },
     step_water: d => noise(0.14, 1300, 0.8, 0.22, 'lowpass', 500, d),
     step_big: d => { tone(60, 0.2, 'sine', 0.6, 32, 0, d); noise(0.14, 300, 1, 0.35, 'lowpass', 110, d); },
+    rev: d => { tone(45, 0.5, 'sawtooth', 0.14, 120, 0, d); tone(90, 0.45, 'square', 0.05, 200, 0.05, d); },
+    crash: d => { noise(0.4, 1200, 0.6, 0.6, 'lowpass', 200, d); tone(90, 0.3, 'sine', 0.5, 40, 0, d); noise(0.25, 3800, 4, 0.18, 'bandpass', 1500, d, 0.03); },
     streak: d => { tone(523, 0.1, 'square', 0.07, 0, 0, d); tone(784, 0.12, 'square', 0.07, 0, 0.09, d); tone(1047, 0.3, 'triangle', 0.08, 0, 0.18, d); },
   };
   // Positional: sounds fade with distance from whoever you're watching, and pan left or right
@@ -125,6 +127,31 @@ const Sfx = (() => {
       if (dripT <= 0) { dripT = 0.8 + Math.random() * 2.4; tone(1200 + Math.random() * 900, 0.09, 'sine', 0.05, 700, 0, out(1)); }
     }
   }
+  // Motorcycle engines: one voice per running bike nearby (a sawtooth and a sub an octave down), pitch by speed
+  const eng = new Map();
+  function engines(list) {
+    if (!ac) return;
+    const t = ac.currentTime, seen = new Set();
+    for (const e of list) {
+      let v = eng.get(e.id);
+      if (!v) {
+        const o1 = ac.createOscillator(), o2 = ac.createOscillator(), f = ac.createBiquadFilter(), g = ac.createGain();
+        o1.type = 'sawtooth'; o2.type = 'square'; f.type = 'lowpass'; f.Q.value = 2; g.gain.value = 0;
+        o1.connect(f); o2.connect(f); f.connect(g);
+        const p = ac.createStereoPanner ? ac.createStereoPanner() : null;
+        if (p) { g.connect(p); p.connect(master); } else g.connect(master);
+        o1.start(); o2.start();
+        eng.set(e.id, v = { o1, o2, f, g, p });
+      }
+      seen.add(e.id);
+      const [gain, pan] = place(e.x, e.y, e.z, 800), s = Math.min(1, Math.abs(e.speed) / 540);
+      v.o1.frequency.setTargetAtTime(36 + s * 115 + Math.random() * 3, t, 0.06); v.o2.frequency.setTargetAtTime(18 + s * 57, t, 0.06);
+      v.f.frequency.setTargetAtTime(420 + s * 1500, t, 0.08);
+      v.g.gain.setTargetAtTime(gain * (0.05 + s * 0.08) * (e.mine ? 0.7 : 1), t, 0.06);
+      if (v.p) v.p.pan.setTargetAtTime(pan, t, 0.06);
+    }
+    for (const [id, v] of eng) if (!seen.has(id)) { v.g.gain.setTargetAtTime(0, t, 0.08); v.o1.stop(t + 0.5); v.o2.stop(t + 0.5); eng.delete(id); }
+  }
   function setVolume(v) { vol = v; if (master) master.gain.setTargetAtTime(v, ac.currentTime, 0.05); }
-  return { start, play, step, update, setVolume };
+  return { start, play, step, engines, update, setVolume };
 })();
