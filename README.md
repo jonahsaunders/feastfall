@@ -1,28 +1,117 @@
+<div align="center">
+
+<img src="desktop/icon.png" alt="Feastfall icon" width="96">
+
 # Feastfall
 
-A first-person, low-poly battle royale that runs in the browser or as a Windows app. Drop into a freshly generated forest, desert, mountain and swamp map with up to 99 other fighters, gather and craft, build towers and traps, and be the last one standing. There's no mindless pointing: you win by reading the map, managing potions and using height.
+**A first-person, low-poly battle royale about towers, traps, feasts and long falls.**
 
-- **Towers and falls.** Craft planks and cobblestone, place blocks, pillar-jump up and shoot from above. Fall damage is real, so knockback, grappling hooks and lightning all bring towers down.
-- **Four ways to play.** Hunt people, mine rats in the tunnels for armour, set spike traps near the swamp, or tower up.
-- **28 kits** with 8 free each week:
-  - Fighters: Killer, Puncher, Leech, Blight, Shade, Duelist, Heavy, Bulwark
-  - Movement: Jumper, Runner, Faller, Mage, Fisherman, Trickster
-  - Builders and trappers: Tripwire, Snare, Updraft, Sapper, Cutter, Lightning
-  - Stealth and survival: Hidden, Faker, Jinx, Finder, Recluse, Yeti, Bogwalker, Thrower
-- **A 60-minute match from dawn to night.** Grace period, a feast at 25:00 with the best gear, dusk around 45:00, and at 60:00 everyone left is dropped into the pit under the stars.
+Runs in the browser or as a Windows app. Up to 99 other fighters. One survivor.
+
+[![Latest release](https://img.shields.io/github/v/release/jonahsaunders/feastfall?label=download&color=e0763a)](https://github.com/jonahsaunders/feastfall/releases/latest)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20browser-3d5a45)
+![Built with](https://img.shields.io/badge/built%20with-three.js%20r128%20%C2%B7%20Electron-2b2b2b)
+![No assets](https://img.shields.io/badge/asset%20files-0-c9a227)
+
+[**Download**](https://github.com/jonahsaunders/feastfall/releases/latest) · [Play in the browser](#in-the-browser-solo-no-install) · [Play online](#in-the-browser-online-with-friends) · [Controls](#controls) · [How it's built](#how-its-built)
+
+<img src="docs/screenshots/tower.jpg" alt="Looking down from a plank pillar over the forest edge and a desert ruin, with bots below" width="100%">
+
+</div>
+
+Drop into a freshly generated forest, desert, mountain and swamp map, gather and craft, build towers and traps, and be the last one standing. There's no mindless pointing: you win by reading the map, managing potions and using height.
+
+## Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/forest.jpg" alt="First-person view in the forest with a stone sword, facing three fighters">
+<p><b>Four ways to play.</b> Hunt people, mine rats in the tunnels for armour, set spike traps near the swamp, or tower up.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/pillar.jpg" alt="A fighter standing on top of a tall plank pillar, seen from the ground">
+<p><b>Towers and falls.</b> Craft planks and cobblestone, place blocks, pillar-jump up and shoot from above. Fall damage is real, so knockback, grappling hooks and lightning all bring towers down.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/inventory.jpg" alt="The inventory and crafting screen">
+<p><b>Gather and craft.</b> Chop trees, break rocks, cut reeds and mine iron, then turn them into swords, bows, armour, blocks, ladders and traps.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/crowsnest.jpg" alt="The Crow's Nest, a tall cobblestone spire with a beam of light">
+<p><b>Five legendary items</b>, one of each per match, each waiting at its own landmark under a beam of light. See <a href="#legendaries">Legendaries</a>.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/pit.jpg" alt="Night in the pit under the stars, surrounded by fighters">
+<p><b>A 60-minute match from dawn to night.</b> Grace period, a feast at 25:00 with the best gear, dusk around 45:00, and at 60:00 everyone left is dropped into the pit under the stars.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/spectate.jpg" alt="Third-person spectator camera following a bot through the forest">
+<p><b>After you die:</b> spectate whoever's left, and see your damage dealt, blocks placed, longest fall and potions drunk. The menu keeps your lifetime record.</p>
+</td>
+</tr>
+</table>
+
+- **28 kits** with 8 free each week (see [Kits](#kits)).
 - **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, and you climb a ladder to reach them.
-- **Five legendary items**, one of each per match, each waiting at its own landmark. See [Legendaries](#legendaries).
 - **Ladders.** Craft them, lean them against a wall and climb. No fall damage while you're on one.
-- **After you die:** spectate whoever's left, and see your damage dealt, blocks placed, longest fall and potions drunk. The menu keeps your lifetime record.
 - **A new map every match.** Mountain ranges, deserts, swamps, ruins, landmarks and feast sites are placed at random from the match seed, in three sizes: Standard, Large (default) and Huge.
 - **Online multiplayer** for up to 16 players plus bots, through a small relay server included here. The desktop app runs that server for you.
 - **Everything is generated in code:** the low-poly world, the item icons and the ambient music and sound effects. There are no asset files.
+
+### A match, minute by minute
+
+| Clock | What happens |
+| --- | --- |
+| 00:00 | Dawn. Everyone spawns away from landmarks and ruins. Chop wood, craft planks, find potions |
+| 02:00 | The grace period ends and PvP turns on |
+| 20:00 | The feast is announced and marked on your map |
+| 25:00 | The feast opens: Feast Blades, feast armour and potions |
+| ~45:00 | Dusk. Names get harder to read from a distance |
+| 60:00 | Night. Everyone left is dropped into the pit. Last one standing wins |
+
+### Kits
+
+28 kits, 8 of them free each week. The rest unlock with coins earned in matches (50 per kill, 200 for a win).
+
+| Style | Kits |
+| --- | --- |
+| Fighters | Killer, Puncher, Leech, Blight, Shade, Duelist, Heavy, Bulwark |
+| Movement | Jumper, Runner, Faller, Mage, Fisherman, Trickster |
+| Builders and trappers | Tripwire, Snare, Updraft, Sapper, Cutter, Lightning |
+| Stealth and survival | Hidden, Faker, Jinx, Finder, Recluse, Yeti, Bogwalker, Thrower |
+
+<p align="center"><img src="docs/screenshots/menu.jpg" alt="The main menu with the kit store, over a live bot match" width="80%"></p>
+
+## Legendaries
+
+Each match has exactly one of each legendary, sitting in a gold chest at a landmark. Landmarks are gold stars on the map, and a beam of light marks each one until its item is taken. When someone takes one, everyone is told who has it. Legendaries drop in the owner's death bag like anything else, so they change hands.
+
+<table>
+<tr>
+<td width="33%"><img src="docs/screenshots/forge.jpg" alt="The Sunken Forge: a walled ring in the desert with spike traps"><br><sub>The Sunken Forge</sub></td>
+<td width="33%"><img src="docs/screenshots/snow.jpg" alt="Frostpeak Shrine in a snowstorm"><br><sub>Frostpeak Shrine</sub></td>
+<td width="33%"><img src="docs/screenshots/tunnels.jpg" alt="The Rat King's Nest: a gold chest deep in the tunnels"><br><sub>The Rat King's Nest</sub></td>
+</tr>
+</table>
+
+| Item | Landmark | Effect |
+| --- | --- | --- |
+| Skyhook | The Crow's Nest: a 16-block cobblestone spire in the forest, climbed by ladder | Click to grapple to any block or the ground up to 22 blocks away. Recharges in 6 s |
+| Quake Maul | The Sunken Forge: a walled ring in the desert with spike traps in both gateways | Slow swings that launch people upward and knock them far. Breaks any block in one hit |
+| Everflask | The Drowned Altar: a platform in the middle of the swamp | Heals like a potion, then refills itself after 25 s instead of being used up |
+| Windwalker Boots | Frostpeak Shrine: the highest open ground in the mountains | No fall damage, ever. Hold Space while falling to glide |
+| Rat King's Crown | The Rat King's Nest: the biggest tunnel junction, guarded by rats that bite | Rats ignore you, your rat kills no longer ping your position, and underground your map shows everyone in the tunnels |
 
 ## Play
 
 ### Desktop app (Windows)
 
-Download `Feastfall-Setup-<version>.exe` (installer) or `Feastfall-<version>-portable.exe` (runs without installing) from the releases, or build them yourself:
+Download `Feastfall-Setup-<version>.exe` (installer) or `Feastfall-<version>-portable.exe` (runs without installing) from the [latest release](https://github.com/jonahsaunders/feastfall/releases/latest), or build them yourself:
 
 ```bash
 npm install
@@ -33,7 +122,8 @@ The files land in `dist/`. To run from source without building, use `npm run des
 
 The app runs its own game server. Your online panel shows your address on the local network (for example `192.168.1.160:47800`): friends on the same network type it under **Join a server**. The first time you open the app, Windows asks whether to let it through the firewall. Allow it on private networks if you want friends to join. F11 toggles fullscreen.
 
-The builds aren't code-signed, so Windows SmartScreen says "Windows protected your PC" the first time. Choose **More info → Run anyway**.
+> [!NOTE]
+> The builds aren't code-signed, so Windows SmartScreen says "Windows protected your PC" the first time. Choose **More info → Run anyway**.
 
 ### In the browser, solo (no install)
 
@@ -66,18 +156,6 @@ or add it to the link for one visit: `https://you.github.io/feastfall/?server=ws
 
 For a quick test without a server, open the page on `localhost` in two tabs of the same browser: they find each other through a local channel.
 
-## Legendaries
-
-Each match has exactly one of each legendary, sitting in a gold chest at a landmark. Landmarks are gold stars on the map, and a beam of light marks each one until its item is taken. When someone takes one, everyone is told who has it. Legendaries drop in the owner's death bag like anything else, so they change hands.
-
-| Item | Landmark | Effect |
-| --- | --- | --- |
-| Skyhook | The Crow's Nest: a 16-block cobblestone spire in the forest, climbed by ladder | Click to grapple to any block or the ground up to 22 blocks away. Recharges in 6 s |
-| Quake Maul | The Sunken Forge: a walled ring in the desert with spike traps in both gateways | Slow swings that launch people upward and knock them far. Breaks any block in one hit |
-| Everflask | The Drowned Altar: a platform in the middle of the swamp | Heals like a potion, then refills itself after 25 s instead of being used up |
-| Windwalker Boots | Frostpeak Shrine: the highest open ground in the mountains | No fall damage, ever. Hold Space while falling to glide |
-| Rat King's Crown | The Rat King's Nest: the biggest tunnel junction, guarded by rats that bite | Rats ignore you, your rat kills no longer ping your position, and underground your map shows everyone in the tunnels |
-
 ## Controls
 
 | Key | Action |
@@ -95,6 +173,11 @@ Each match has exactly one of each legendary, sitting in a gold chest at a landm
 | T | Chat (online) |
 | Esc | Release the mouse and pause |
 
+<details>
+<summary><b>Mouse capture, spectating, tips and the inventory</b></summary>
+
+<br>
+
 Mouse look works by capturing the mouse, like any first-person game. Some windows can't do that (embedded browsers inside other apps, for example). There the game switches to free-look: the cursor is hidden, moving the mouse turns the view, and resting it against the window edge keeps turning. Chrome, Edge, Firefox and the desktop app capture the mouse normally.
 
 After you die, the end screen offers **Spectate**: ← → or clicking switches between players, and Esc goes back.
@@ -102,6 +185,8 @@ After you die, the end screen offers **Spectate**: ← → or clicking switches 
 New players get short tips during their first match. Turn them off, or show them again, in Options.
 
 In the inventory: click or drag to move stacks, right-click to split a stack, shift-click to move items or put on armour, and hover over a slot and press 1–9 to swap it into the hotbar. To drop things, drag a stack outside the panel, click outside it while holding one, or hover over a slot and press G or Q (Ctrl drops the whole stack).
+
+</details>
 
 ## How it's built
 
