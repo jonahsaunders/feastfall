@@ -177,7 +177,7 @@ function startOnline(d) {
   VIEW.pitch = -0.05;
   Sfx.start(); Sfx.setVolume(G.settings.vol);
   setMode('play');
-  lockPointer();
+  lockPointer(true, false); // started by the host's message, not your click
   banner('Grace period', `Online · ${humans.length} players + ${d.bots} bots. PvP turns on at 02:00.`);
   NET.lobby && NET.lobby.presence({ st: 'play' }).catch(() => {});
 }

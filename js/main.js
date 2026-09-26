@@ -158,24 +158,42 @@ const mouse = { down: false, rdown: false, x: 0, y: 0 };
 const noLock = !('requestPointerLock' in HTMLElement.prototype); // only when the browser has no pointer lock at all
 let locked = false, wantLock = false;
 const SENS = 0.0022;
-function lockPointer() {
+// Some windows (embedded browsers, some app views) never allow capture. After a real click fails twice, the game
+// switches to free-look: the cursor is hidden, moving the mouse turns the view, and the window edges keep turning.
+let lockRetry = null, lastExit = -1e9, freeLook = false;
+function enableFreeLook() {
+  if (freeLook) return;
+  freeLook = true;
+  toast('This window can’t capture the mouse, so moving it turns the view directly. Push against the edge to keep turning. For full mouse control, play in Chrome, Edge or the desktop app.');
+  setTimeout(() => { const t = $('#toast'); if (t.textContent.startsWith('This window')) t.hidden = true; }, 7000);
+}
+function lockPointer(retry = true, gesture = true) {
   wantLock = true;
-  if (noLock || document.pointerLockElement === cv) return;
-  const plain = () => { try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} };
+  clearTimeout(lockRetry);
+  if (noLock || freeLook || document.pointerLockElement === cv) return;
+  // Chrome refuses a capture for about a second after Esc; try once more while the click still counts.
+  // If that fails too, and it wasn't just the Esc cooldown, this window can't capture at all.
+  const again = () => {
+    if (retry) lockRetry = setTimeout(() => { if (wantLock && G.mode === 'play' && !G.invOpen && !G.chatOpen) lockPointer(false, gesture); }, 1100);
+    else if (gesture && performance.now() - lastExit > 2500 && G.mode === 'play') enableFreeLook();
+  };
+  const plain = () => { try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(again); } catch (e) { again(); } };
   // Raw mouse input (no Windows acceleration) where supported, otherwise a normal capture
-  try { const p = cv.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(e => { if (e && e.name === 'NotSupportedError') plain(); }); else if (!p) plain(); }
+  try { const p = cv.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(e => { if (e && e.name === 'NotSupportedError') plain(); else again(); }); else if (!p) plain(); }
   catch (e) { plain(); }
 }
-function unlockPointer() { wantLock = false; if (document.pointerLockElement) document.exitPointerLock(); }
+function unlockPointer() { wantLock = false; clearTimeout(lockRetry); if (document.pointerLockElement) document.exitPointerLock(); }
+document.addEventListener('mouseout', e => { if (!e.relatedTarget) { mouse.x = innerWidth / 2; mouse.y = innerHeight / 2; } }); // left the window: stop edge turning
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === cv;
+  if (!locked) lastExit = performance.now();
   if (!locked && G.mode === 'play' && !G.invOpen && !G.chatOpen && !G.over && wantLock) pause();
 });
 document.addEventListener('pointerlockerror', () => {}); // a refused capture: "Click to play" shows, and a click retries
 document.addEventListener('mousemove', e => {
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (G.invOpen) { moveCursorStack(); return; }
-  if (G.mode !== 'play' || !G.human.alive || G.chatOpen || (!locked && !noLock)) return;
+  if (G.mode !== 'play' || !G.human.alive || G.chatOpen || (!locked && !noLock && !freeLook)) return;
   // Chrome sometimes reports one huge jump right after capture: ignore it
   if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
   const k = SENS * G.settings.sens;
@@ -227,7 +245,7 @@ cv.addEventListener('mousedown', e => {
   if (G.mode === 'spectate') { spectate(e.button === 2 ? -1 : 1); return; }
   if (G.mode !== 'play' || !G.human.alive) return;
   if (G.invOpen) { toggleInv(); return; }
-  if (!locked && !noLock) { lockPointer(); return; }
+  if (!locked && !noLock && !freeLook) { lockPointer(); return; }
   const h = G.human, item = heldId(h);
   if (e.button === 2) { mouse.rdown = true; if (!(item && ITEMS[item].block)) drink(h); return; }
   if (e.button !== 0) return;
@@ -272,6 +290,11 @@ function kitFail(h) {
 function humanInput(dt) {
   const h = G.human;
   if (!h.alive) { h.mx = h.my = 0; return; }
+  if (freeLook && !G.invOpen && !G.chatOpen && G.mode === 'play') {
+    const ex = innerWidth * 0.06, ey = innerHeight * 0.07;
+    if (mouse.x < ex) h.face -= dt * 2.2; else if (mouse.x > innerWidth - ex) h.face += dt * 2.2;
+    if (mouse.y < ey) VIEW.pitch = Math.min(1.3, VIEW.pitch + dt * 1.2); else if (mouse.y > innerHeight - ey) VIEW.pitch = Math.max(-1.45, VIEW.pitch - dt * 1.2);
+  }
   if (keys.has('arrowleft')) h.face -= dt * 2.4;
   if (keys.has('arrowright')) h.face += dt * 2.4;
   if (keys.has('arrowup')) VIEW.pitch = Math.min(1.3, VIEW.pitch + dt * 1.5);
@@ -431,7 +454,8 @@ function updateHud() {
   if (count(h, 'charm')) st.push(`Feather Charm ×${count(h, 'charm')}`);
   if (h.layer === 0 && h.biome === 2 && G.settings.snow && !G.pit) st.push('Snowstorm');
   $('#status').textContent = st.join(' · ');
-  $('#clickto').hidden = !(G.mode === 'play' && !locked && !noLock && !G.invOpen && !G.chatOpen && h.alive);
+  $('#clickto').hidden = !(G.mode === 'play' && !locked && !noLock && !freeLook && !G.invOpen && !G.chatOpen && h.alive);
+  cv.style.cursor = freeLook && G.mode === 'play' && !G.invOpen && !G.chatOpen ? 'none' : '';
   if (G.invOpen) renderInv();
   renderBoard();
   if (G.mode === 'spectate' && G.specTarget) {
@@ -696,6 +720,7 @@ function setMode(m) {
   $('#hud').hidden = !(m === 'play' || m === 'paused' || m === 'spectate');
   $('#hud').classList.toggle('spec', m === 'spectate');
   $('#spec').hidden = m !== 'spectate';
+  if (m !== 'play') $('#clickto').hidden = true; // never leave "Click to play" over a menu
   if (m !== 'play') { $('#board').hidden = true; $('#tipbox').hidden = true; }
   if (m !== 'play') { $('#inv').hidden = true; G.invOpen = false; $('#chat').hidden = true; G.chatOpen = false; }
   $('#opt-resume').hidden = m !== 'paused';

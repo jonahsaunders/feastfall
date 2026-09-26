@@ -95,6 +95,8 @@ Each match has exactly one of each legendary, sitting in a gold chest at a landm
 | T | Chat (online) |
 | Esc | Release the mouse and pause |
 
+Mouse look works by capturing the mouse, like any first-person game. Some windows can't do that (embedded browsers inside other apps, for example). There the game switches to free-look: the cursor is hidden, moving the mouse turns the view, and resting it against the window edge keeps turning. Chrome, Edge, Firefox and the desktop app capture the mouse normally.
+
 After you die, the end screen offers **Spectate**: ← → or clicking switches between players, and Esc goes back.
 
 New players get short tips during their first match. Turn them off, or show them again, in Options.
