@@ -8,12 +8,17 @@ const BLOCKS = {
   hay:    { name: 'Hay Bale',    solid: true,  hard: 0.2,  color: '#d6b248', soft: true },
   spike:  { name: 'Spike Trap',  solid: false, hard: 0.35, color: '#6b5a48', trap: true },
   ladder: { name: 'Ladder',      solid: false, hard: 0.3,  color: '#8a6a44', ladder: true },
+  // Kit blocks (keep this order: online games send block types by position in this list)
+  arena:  { name: 'Arena Glass', solid: true,  hard: 999,  color: '#bfe3ff', glass: true, unbreakable: true },
+  blast:  { name: 'Blast Trap',  solid: false, hard: 0.35, color: '#9a3a2c', trap: true },
+  turf:   { name: 'Snare Turf',  solid: false, hard: 0.2,  color: '#4a6b35', fake: true },
+  pad:    { name: 'Launch Pad',  solid: false, hard: 0.35, color: '#4fb3a9', trap: true },
 };
 const BL = { map: new Map(), ver: 0 };
 const bkey = (i, j, k) => i + ',' + j + ',' + k;
 const blockAt = (i, j, k) => BL.map.get(bkey(i, j, k));
 function solidAt(i, j, k) { const b = BL.map.get(bkey(i, j, k)); return !!b && BLOCKS[b.type].solid; }
-function resetBlocks() { BL.map.clear(); BL.ver++; }
+function resetBlocks() { BL.map.clear(); BL.ver++; if (typeof arenaSeen !== 'undefined') arenaSeen.clear(); }
 
 // Highest thing you can stand on under a footprint: terrain or a block top no higher than z + STEP.
 let SUP_TYPE = null;
@@ -92,7 +97,8 @@ function canPlace(type, i, j, k) {
   if (i < 1 || k < 1 || i >= WORLD / B - 1 || k >= WORLD / B - 1 || j > 60) return false;
   if (BL.map.has(bkey(i, j, k)) || BL.map.size >= MAX_BLOCKS) return false;
   if (BLOCKS[type].solid && cellBlockedByBody(i, j, k)) return false;
-  const g = heightAt((i + .5) * B, (k + .5) * B), grounded = solidAt(i, j - 1, k) || g >= j * B - 4;
+  const below = blockAt(i, j - 1, k), g = heightAt((i + .5) * B, (k + .5) * B);
+  const grounded = solidAt(i, j - 1, k) || g >= j * B - 4 || (type === 'turf' && below && BLOCKS[below.type].trap); // turf can hide a trap
   if (BLOCKS[type].ladder) { // ladders lean on a wall, sit on the ground, or continue a ladder below
     const b = blockAt(i, j - 1, k);
     if (!grounded && !(b && b.type === 'ladder') && !ladderWall(i, j, k)) return false;
@@ -128,7 +134,7 @@ function placeBlock(f, type, i, j, k) {
   BL.map.set(bkey(i, j, k), { type, owner: f.id });
   BL.ver++;
   if (f === G.human && G.stats) G.stats.blocks++;
-  NET.blk(type === 'spike' ? [i, j, k, BTYPES.indexOf(type), f.id] : [i, j, k, BTYPES.indexOf(type)]);
+  NET.blk(BLOCKS[type].trap || BLOCKS[type].fake ? [i, j, k, BTYPES.indexOf(type), f.id] : [i, j, k, BTYPES.indexOf(type)]);
   Sfx.play('place', (i + .5) * B, (k + .5) * B, j * B);
   return true;
 }
@@ -136,13 +142,14 @@ function placeBlock(f, type, i, j, k) {
 function applyBlockOps(ops) {
   for (const [i, j, k, t, owner] of ops) {
     if (t < 0) BL.map.delete(bkey(i, j, k));
-    else BL.map.set(bkey(i, j, k), { type: BTYPES[t], owner: owner || null });
+    else { BL.map.set(bkey(i, j, k), { type: BTYPES[t], owner: owner || null }); if (BTYPES[t] === 'arena') arenaSeen.set(bkey(i, j, k), G.t); }
   }
   BL.ver++;
 }
 function breakBlock(i, j, k, f) {
   const key = bkey(i, j, k), b = BL.map.get(key);
   if (!b) return;
+  if (BLOCKS[b.type].unbreakable && f) return; // players can't break arena glass; the duel ends it
   BL.map.delete(key); BL.ver++;
   NET.blk([i, j, k, -1]);
   if (f === G.human && G.stats) G.stats.broken++;
@@ -155,6 +162,7 @@ function strikeBlocks(x, y, rad) {
   let n = 0;
   for (const [key, b] of BL.map) {
     const [i, j, k] = key.split(',').map(Number);
+    if (BLOCKS[b.type].unbreakable) continue;
     if (hyp((i + .5) * B - x, (k + .5) * B - y) < rad) { BL.map.delete(key); NET.blk([i, j, k, -1]); n++; if (n % 3 === 0) addFx('chip', (i + .5) * B, (k + .5) * B, 0, { col: BLOCKS[b.type].color, z: j * B }); }
   }
   if (n) BL.ver++;
@@ -164,7 +172,43 @@ function trapAt(f) {
   if (f.layer || !BL.map.size) return null;
   const i = Math.floor(f.x / B), k = Math.floor(f.y / B), j = Math.floor((f.z + 1) / B);
   const b = blockAt(i, j, k);
-  return b && b.type === 'spike' ? b : null;
+  return b && BLOCKS[b.type].trap ? { b, i, j, k } : null;
+}
+// Snare Turf under or around someone other than its owner: returns the cell, which then gives way
+function turfUnder(f) {
+  if (f.layer || !BL.map.size) return null;
+  const hr = f.r * 0.7;
+  for (let j = Math.floor((f.z - 2) / B); j <= Math.floor((f.z + 30) / B); j++)
+    for (const [ox, oy] of [[0, 0], [-hr, -hr], [hr, -hr], [-hr, hr], [hr, hr]]) {
+      const i = Math.floor((f.x + ox) / B), k = Math.floor((f.y + oy) / B), b = blockAt(i, j, k);
+      if (b && b.type === 'turf' && b.owner !== f.id) return [i, j, k];
+    }
+  return null;
+}
+// Sapper: bring down every block in a column
+function sapColumn(i, k) {
+  let n = 0;
+  for (const key of [...BL.map.keys()]) {
+    const [bi, bj, bk] = key.split(',').map(Number);
+    if (bi !== i || bk !== k || BLOCKS[BL.map.get(key).type].unbreakable) continue;
+    breakBlock(bi, bj, bk, null); n++;
+  }
+  return n;
+}
+// Arena glass: placed by a duel; every machine clears any left behind after 55 s in case the duelist disconnects
+const arenaSeen = new Map();
+function setArena(i, j, k) {
+  BL.map.set(bkey(i, j, k), { type: 'arena', owner: null }); BL.ver++;
+  arenaSeen.set(bkey(i, j, k), G.t);
+  NET.blk([i, j, k, BTYPES.indexOf('arena')]);
+}
+function clearStaleArenas() {
+  for (const [key, t0] of arenaSeen) {
+    if (G.t - t0 < 55 && G.t >= t0) continue;
+    arenaSeen.delete(key);
+    const b = BL.map.get(key);
+    if (b && b.type === 'arena') { const [i, j, k] = key.split(',').map(Number); breakBlock(i, j, k, null); }
+  }
 }
 
 // ---- ruins: built from blocks at match start, the same on every player's machine ----

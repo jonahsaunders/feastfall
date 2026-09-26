@@ -15,7 +15,7 @@ function weeklyFree() {
   const wk = Math.floor((Date.now() / 864e5 + 3) / 7), r = mulberry32(wk * 7919);
   const ids = Object.keys(KITS).filter(k => !KITS[k].locked);
   for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
-  return ids.slice(0, 6);
+  return ids.slice(0, 8);
 }
 const FREE = weeklyFree();
 const kitAvailable = k => !KITS[k].locked && (FREE.includes(k) || STORE.owned.includes(k));
@@ -36,10 +36,20 @@ function spawnPoint(taken, inSwamp) {
   }
   return { x: rr(300, WORLD - 300), y: rr(300, WORLD - 300) };
 }
+// Recluse: of many valid spawn points, the one furthest from everyone already placed
+function loneliestPoint(taken) {
+  let best = null, bd = -1;
+  for (let i = 0; i < 60; i++) {
+    const p = spawnPoint([], false), d = Math.min(1e9, ...taken.map(q => hyp(q.x - p.x, q.y - p.y)));
+    if (d > bd) { bd = d; best = p; }
+  }
+  return best;
+}
 function makeBot(name, id) {
   const kits = Object.keys(KITS).filter(k => !KITS[k].locked);
   const b = new Fighter(name, pick(kits), true, id);
   Object.assign(b, { style: pick(STYLES), react: rr(0.3, 0.5), side: 1, side2: rng() < .5 ? -1 : 1 });
+  if (['tripwire', 'snare', 'updraft'].includes(b.kit)) b.style = 'trapper';
   return b;
 }
 // Deterministic from the seed, so every player in an online match builds the same world and bots.
@@ -49,13 +59,14 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
   buildRuins();
   buildLandmarks();
   Object.assign(G, { fighters: [], rats: [], proj: [], fx: [], items: [], pings: [], feed: [], itemSeq: 0, t: 0, clockMin: 0, graceDone: false, feast: null, pit: false, over: false, coinsEarned: 0, killedBy: null,
-    winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0 } });
+    winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, duels: [], stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0 } });
   const names = [...BOT_NAMES];
   for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
   const taken = [];
   const all = humans ? [...humans] : human ? [human] : [];
   for (let i = 0; i < nBots; i++) all.push(makeBot(names[i % names.length] + (i >= names.length ? String(Math.floor(i / names.length) + 1) : ''), 'b' + i));
-  for (const f of all) { const p = spawnPoint(taken, f.kit === 'finder'); Object.assign(f, { x: p.x, y: p.y, z: heightAt(p.x, p.y), onGround: true }); taken.push(p); G.fighters.push(f); }
+  all.sort((a, b) => (a.kit === 'recluse') - (b.kit === 'recluse')); // Recluses pick their spot after everyone else
+  for (const f of all) { const p = f.kit === 'recluse' ? loneliestPoint(taken) : spawnPoint(taken, f.kit === 'finder'); Object.assign(f, { x: p.x, y: p.y, z: heightAt(p.x, p.y), onGround: true }); taken.push(p); G.fighters.push(f); }
   if (!NET.on || NET.isHost()) {
     for (let i = 0; i < potCap(); i++) spawnPot();
     for (const r of world.ruins) addItem({ kind: 'chest', x: r.x, y: r.y, z: r.chestZ, layer: 0, stacks: ruinLoot(r) });
@@ -329,6 +340,7 @@ function step(dt) {
     }
   }
   G.fighters = G.fighters.filter(f => f.alive || !f.isClone);
+  updateDuels(dt); clearStaleArenas();
   pickups();
   updateRats(dt); updateProj(dt); updateFx(dt);
   potT += dt;
@@ -403,6 +415,7 @@ function updateHud() {
   if (h.hidden) st.push(`Disguised as a ${h.disguise === 'snowrock' ? 'rock' : h.disguise}`);
   if (h.sneak) st.push('Sneaking');
   if (h.slowT > 0) st.push('Slowed');
+  if (h.poisonT > 0) st.push('Poisoned');
   if (h.invuln > 0) st.push('Invincible');
   if (h.speedT > 0) st.push('Sprinting');
   if (h.punchT > 0) st.push('Punch charged');
@@ -576,7 +589,7 @@ function renderInv() {
   setHTML('#hot', Array.from({ length: HOTBAR }, (_, i) => slotBtn(h.slots[i], `data-slot="${i}"`, i + 1)).join(''));
   const cats = [...new Set(RECIPES.map(r => r.cat))];
   setHTML('#craft-tabs', cats.map(c => `<button class="ctab ${INV.tab === c ? 'on' : ''}" data-tab="${c}">${c}</button>`).join(''));
-  setHTML('#recipes', RECIPES.filter(r => r.cat === INV.tab).map(r => {
+  setHTML('#recipes', RECIPES.filter(r => r.cat === INV.tab && recipeFor(h, r)).map(r => {
     const ok = canCraft(h, r), have = count(h, r.out) + ARMOR_SLOTS.filter(k => h.equip[k] && h.equip[k].id === r.out).length;
     const cost = Object.entries(r.cost).map(([k, v]) => `<span class="cost ${count(h, k) >= v ? '' : 'short'}"><img src="${iconURL(k)}" alt="">${v}</span>`).join('');
     return `<button class="recipe ${ok ? '' : 'off'}" data-r="${r.out}"><img class="ri" src="${iconURL(r.out)}" alt=""><span class="rn">${ITEMS[r.out].name}${(r.n || 1) > 1 ? ` ×${r.n}` : ''}<small>Have ${have}</small></span><span class="rc">${cost}</span></button>`;

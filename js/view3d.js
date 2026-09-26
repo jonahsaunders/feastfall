@@ -166,6 +166,7 @@ function makeItem(it) {
 }
 function makeProj(p) {
   if (p.kind === 'arrow') return new T.Mesh(FG.arrow, FMAT.arrow);
+  if (p.kind === 'swap') { const m = new T.Mesh(FG.puff, lam('#f4f8ff', { emissive: 0x303a44 })); m.scale.setScalar(4.5); return m; }
   const g = new T.Group();
   g.add(new T.Mesh(FG.hook, FMAT.steel));
   const lg = new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
@@ -406,7 +407,7 @@ function render(dt) {
   syncFeast();
 
   // atmosphere: sky haze, snowstorm, or the dark of the tunnels
-  const inSnow = L === 0 && focus.biome === 2 && G.settings.snow && !G.pit;
+  const inSnow = L === 0 && focus.biome === 2 && G.settings.snow && !G.pit && focus.kit !== 'yeti';
   FOG.surf.f = DAY.far; FOG.snow.c.copy(SNOW_DAY).lerp(SNOW_NIGHT, DAY.night);
   const tgt = L ? FOG.under : inSnow ? FOG.snow : FOG.surf, k = 1 - Math.exp(-3 * dt);
   scene.fog.color.lerp(tgt.c, k); scene.fog.near += (tgt.n - scene.fog.near) * k; scene.fog.far += (tgt.f - scene.fog.far) * k;
@@ -468,6 +469,11 @@ function renderMinimap() {
     mctx.fillStyle = '#e0506a';
     for (const f of G.fighters) if (f.alive && f.layer === 1 && f !== G.human && !f.isClone) { mctx.beginPath(); mctx.arc(f.x * S, f.y * S, 3.5, 0, 7); mctx.fill(); }
   }
+  if (G.human.kit === 'recluse' && G.human.alive) { // Recluse: anyone within 36 blocks shows up
+    mctx.strokeStyle = 'rgba(230,184,74,.5)'; mctx.lineWidth = 1; mctx.beginPath(); mctx.arc(G.human.x * S, G.human.y * S, 900 * S, 0, 7); mctx.stroke();
+    mctx.fillStyle = '#ff6b5a';
+    for (const f of G.fighters) if (f.alive && f !== G.human && !f.isClone && f.layer === G.human.layer && hyp(f.x - G.human.x, f.y - G.human.y) < 900) { mctx.beginPath(); mctx.arc(f.x * S, f.y * S, 3.5, 0, 7); mctx.fill(); }
+  }
   for (const p of G.pings) {
     if (p.src === h) continue;
     mctx.strokeStyle = `rgba(214,90,90,${p.t / 12})`; mctx.lineWidth = 2;
@@ -490,15 +496,19 @@ function mergeGeos(geos) {
 }
 const LADDER_GEO = mergeGeos([new T.BoxGeometry(2.5, B, 2.5).translate(-8, B / 2, 0), new T.BoxGeometry(2.5, B, 2.5).translate(8, B / 2, 0),
   ...[4, 10.5, 17, 23.5].map(y => new T.BoxGeometry(16, 2, 2).translate(0, y, 0))]);
+const BLAST_CAP = new T.BoxGeometry(9, 7, 9).translate(0, 7.5, 0);
+const TURF_COL = ['#3d5a2e', '#c29c57', '#dbe3e8', '#3a5143'];
 const blockMeshes = {};
 let blockVer = -1;
 function syncBlocks() {
   if (!Object.keys(blockMeshes).length) {
     for (const [type, def] of Object.entries(BLOCKS)) {
-      if (def.trap) {
-        blockMeshes[type] = new T.InstancedMesh(SPIKE_BASE, lam('#5a4a3a'), 600);
-        blockMeshes.spikeTips = new T.InstancedMesh(SPIKE, lam('#b8bcbf'), 600 * 5);
-      } else if (def.ladder) blockMeshes[type] = new T.InstancedMesh(LADDER_GEO, lam(def.color), 2000);
+      if (def.trap) { // spike traps, blast traps and launch pads: a low slab, plus spikes or a charge on top
+        blockMeshes[type] = new T.InstancedMesh(SPIKE_BASE, lam(type === 'spike' ? '#5a4a3a' : def.color, type === 'pad' ? { emissive: 0x0f3a36 } : {}), 600);
+        if (type === 'spike') blockMeshes.spikeTips = new T.InstancedMesh(SPIKE, lam('#b8bcbf'), 600 * 5);
+        if (type === 'blast') blockMeshes.blastCaps = new T.InstancedMesh(BLAST_CAP, lam('#c63d3d', { emissive: 0x3a0a05 }), 600);
+      } else if (def.glass) { blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, lam(def.color, { transparent: true, opacity: 0.32, depthWrite: false }), 2000); }
+      else if (def.ladder) blockMeshes[type] = new T.InstancedMesh(LADDER_GEO, lam(def.color), 2000);
       else { blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, lam('#ffffff'), MAX_BLOCKS); blockMeshes[type].setColorAt(0, new T.Color(1, 1, 1)); }
     }
     for (const m of Object.values(blockMeshes)) { m.castShadow = true; m.receiveShadow = true; m.count = 0; m.frustumCulled = false; scene.add(m); }
@@ -510,12 +520,13 @@ function syncBlocks() {
   for (const k of Object.keys(blockMeshes)) n[k] = 0;
   for (const [key, b] of BL.map) {
     const [i, j, k] = key.split(',').map(Number), cx = (i + .5) * B, cz = (k + .5) * B;
-    if (b.type === 'spike') {
-      if (n.spike >= 600) continue;
+    if (BLOCKS[b.type].trap) {
+      if (n[b.type] >= 600) continue;
       const y = Math.max(j * B, heightAt(cx, cz) - 1);
       dummy.position.set(cx, y, cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
-      blockMeshes.spike.setMatrixAt(n.spike++, dummy.matrix);
-      for (const [ox, oz] of [[0, 0], [-7, -7], [7, -7], [-7, 7], [7, 7]]) {
+      blockMeshes[b.type].setMatrixAt(n[b.type]++, dummy.matrix);
+      if (b.type === 'blast') blockMeshes.blastCaps.setMatrixAt(n.blastCaps++, dummy.matrix);
+      if (b.type === 'spike') for (const [ox, oz] of [[0, 0], [-7, -7], [7, -7], [-7, 7], [7, 7]]) {
         dummy.position.set(cx + ox, y, cz + oz); dummy.updateMatrix();
         blockMeshes.spikeTips.setMatrixAt(n.spikeTips++, dummy.matrix);
       }
@@ -534,7 +545,8 @@ function syncBlocks() {
     m.setMatrixAt(n[b.type], dummy.matrix);
     // small per-block shade shift so individual blocks read in a wall
     const h = ((i * 73856093) ^ (j * 19349663) ^ (k * 83492791)) >>> 0;
-    col.set(BLOCKS[b.type].color).offsetHSL(0, 0, ((h % 100) / 100 - 0.5) * 0.08);
+    // Snare Turf takes the colour of the ground it sits on, so it passes for terrain
+    col.set(b.type === 'turf' ? TURF_COL[biomeAt(cx, cz)] : BLOCKS[b.type].color).offsetHSL(0, 0, ((h % 100) / 100 - 0.5) * (b.type === 'turf' ? 0.03 : 0.08));
     m.setColorAt(n[b.type]++, col);
   }
   for (const [k, m] of Object.entries(blockMeshes)) {

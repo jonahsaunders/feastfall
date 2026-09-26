@@ -4,7 +4,11 @@ A first-person, low-poly battle royale that runs in the browser or as a Windows 
 
 - **Towers and falls.** Craft planks and cobblestone, place blocks, pillar-jump up and shoot from above. Fall damage is real, so knockback, grappling hooks and lightning all bring towers down.
 - **Four ways to play.** Hunt people, mine rats in the tunnels for armour, set spike traps near the swamp, or tower up.
-- **14 kits** on a weekly free rotation: Killer, Mage, Jumper, Runner, Puncher, Thrower, Faller, Cutter, Hidden, Faker, Finder, Lightning, Heavy, Fisherman.
+- **28 kits** with 8 free each week:
+  - Fighters: Killer, Puncher, Leech, Blight, Shade, Duelist, Heavy, Bulwark
+  - Movement: Jumper, Runner, Faller, Mage, Fisherman, Trickster
+  - Builders and trappers: Tripwire, Snare, Updraft, Sapper, Cutter, Lightning
+  - Stealth and survival: Hidden, Faker, Jinx, Finder, Recluse, Yeti, Bogwalker, Thrower
 - **A 60-minute match from dawn to night.** Grace period, a feast at 25:00 with the best gear, dusk around 45:00, and at 60:00 everyone left is dropped into the pit under the stars.
 - **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, and you climb a ladder to reach them.
 - **Five legendary items**, one of each per match, each waiting at its own landmark. See [Legendaries](#legendaries).

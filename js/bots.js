@@ -6,7 +6,7 @@ const STYLES = ['hunter', 'miner', 'miner', 'trapper', 'tower', 'tower', 'hunter
 
 function sightRange(b) {
   if (b.layer === 1) return 300;
-  return b.biome === 2 && G.settings.snow ? 240 : 460;
+  return b.biome === 2 && G.settings.snow && b.kit !== 'yeti' ? 240 : 460;
 }
 function nearestEntrance(x, y) {
   let best = null, bd = 1e12;
@@ -85,11 +85,15 @@ function botThink(b) {
     }
     if (b.towerSpot) { b.plan = { type: 'tower', goal: rr(8, 13) * B }; return; }
   }
-  if (b.style === 'trapper' && count(b, 'spike') > 0 && b.layer === 0) {
+  const trapId = ['blast', 'pad', 'spike'].find(id => count(b, id) > 0);
+  if (b.style === 'trapper' && trapId && b.layer === 0) {
     const spots = [...SWAMPS, ...world.entrances];
     const s = spots.reduce((a, s) => hyp(s.x - b.x, s.y - b.y) < hyp(a.x - b.x, a.y - b.y) ? s : a);
     if (hyp(s.x - b.x, s.y - b.y) < 220) {
-      if (rng() < 0.6) placeBlock(b, 'spike', Math.floor(b.x / B), Math.floor((b.z + 1) / B), Math.floor(b.y / B));
+      if (rng() < 0.6) {
+        const i = Math.floor(b.x / B), j = Math.floor((b.z + 1) / B), k = Math.floor(b.y / B);
+        if (placeBlock(b, trapId, i, j, k) && trapId === 'spike' && count(b, 'turf')) placeBlock(b, 'turf', i, j + 1, k); // Snare hides its spikes
+      }
     } else { b.plan = { type: 'go', x: s.x + rr(-120, 120), y: s.y + rr(-120, 120), layer: 0 }; return; }
   }
   if (count(b, 'reed') < 3 && b.style === 'balanced' && !count(b, 'charm')) {
@@ -179,7 +183,7 @@ function steer(b, x, y, layer, dt) {
       const fx = b.x + Math.cos(a) * (b.r + 8), fy = b.y + Math.sin(a) * (b.r + 8);
       for (const dz of [10, 40]) {
         const i = Math.floor(fx / B), j = Math.floor((b.z + dz) / B), k = Math.floor(fy / B);
-        if (solidAt(i, j, k)) { b.face = a; b.swingT = 0.14; breakBlock(i, j, k, null); }
+        if (solidAt(i, j, k) && !BLOCKS[blockAt(i, j, k).type].unbreakable) { b.face = a; b.swingT = 0.14; breakBlock(i, j, k, null); }
       }
     }
     b.detourT = 0.8; b.side = rng() < 0.5 ? -1 : 1; b.stuck = 0; b.path = null;
@@ -264,6 +268,8 @@ function botUpdate(b, dt) {
       }
       if (b.kit === 'lightning') useKit(b, t.x, t.y);
       if (b.kit === 'fisherman' && d < 380) { b.pitch = aimPitch(b, t); useKit(b, t.x, t.y); }
+      if (b.kit === 'trickster' && d < 420) { b.pitch = aimPitch(b, t) + 0.12; useKit(b, t.x, t.y); }
+      if (b.kit === 'sapper' && d < 90 && t.z > b.z + 40) { b.sapTarget = { i: Math.floor(t.x / B), k: Math.floor(t.y / B) }; useKit(b, t.x, t.y); }
       return;
     }
     // Melee: close in, circle-strafe, swing when lined up
@@ -284,6 +290,10 @@ function botUpdate(b, dt) {
     if (K === 'mage' && d > 180) useKit(b, t.x, t.y);
     if (K === 'fisherman' && d > 110 && d < 380) useKit(b, t.x, t.y);
     if (K === 'puncher' && d < 110 && b.punchT <= 0) useKit(b, t.x, t.y);
+    if (K === 'duelist' && d < 100 && power(b) > power(t) * 1.1) useKit(b, t.x, t.y);
+    if (K === 'jinx' && d < 90) useKit(b, t.x, t.y);
+    if (K === 'shade' && d > 110 && G.t - (b.lastVictimT || -99) < 10) useKit(b, t.x, t.y);
+    if (K === 'trickster' && d > 160 && d < 420) { b.pitch = aimPitch(b, t) + 0.12; useKit(b, t.x, t.y); }
     return;
   }
   if (p.type === 'refill') { if (b.refillT <= 0 && hotbarEmpty(b) >= 0 && bagPots(b) > 0) b.refillT = 0.22; return; }

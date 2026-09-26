@@ -127,6 +127,7 @@ function wireMatch(m) {
       if (d.k === 'c' && o) for (const dd of [-0.7, 0.7]) spawnClone(o, d.f + dd);
       if (d.k === 'ping') G.pings.push({ x: d.x, y: d.y, layer: 1, t: 12, src: fighterById(msg.peer) });
       if (d.k === 'relic' && typeof d.i === 'string') announceRelic(o, d.i);
+      if (d.k === 'boom') { addFx('puff', d.x, d.y, 0, { col: '#e2733b', big: true, z: d.z + 20 }); addFx('bolt', d.x, d.y, 0, { t: 0.2 }); Sfx.play('bolt', d.x, d.y, d.z); }
       if (d.k === 'rope' && o && Array.isArray(d.a)) addFx('rope', d.a[0], d.a[1], 0, { owner: o, t: 1.4, az: d.a[2] });
     },
     item: d => {

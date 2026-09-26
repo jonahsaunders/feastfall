@@ -19,6 +19,9 @@ const ITEMS = {
   cobble: { name: 'Cobblestone', stack: 64, cat: 'block', block: 'cobble', desc: 'Slow to break. Good for walls and bunkers.' },
   hay:    { name: 'Hay Bale', stack: 64, cat: 'block', block: 'hay', desc: 'Land on it and you take no fall damage.' },
   spike:  { name: 'Spike Trap', stack: 16, cat: 'block', block: 'spike', desc: '4 damage and a slow to anyone who steps on it but you.' },
+  blast:  { name: 'Blast Trap', stack: 8, cat: 'block', block: 'blast', desc: 'Tripwire’s trap. Blows apart nearby blocks and launches whoever steps on it (not you).' },
+  turf:   { name: 'Snare Turf', stack: 32, cat: 'block', block: 'turf', desc: 'Snare’s fake ground. Looks like the terrain but gives way under anyone but you. Place it over a spike trap.' },
+  pad:    { name: 'Launch Pad', stack: 16, cat: 'block', block: 'pad', desc: 'Updraft’s pad. Flings whoever steps on it about 14 blocks up. Off your own pads you land safely.' },
   ladder: { name: 'Ladder', stack: 64, cat: 'block', block: 'ladder', desc: 'Place against a wall or on the ground. Walk into it (or hold Space) to climb; Shift to hold still. No fall damage while on a ladder.' },
   charm:  { name: 'Feather Charm', stack: 8, cat: 'use', desc: 'Keep it anywhere in your inventory: it is used up to block one fall of 7+ blocks.' },
   hide_head:  { name: 'Hide Cap', stack: 1, cat: 'armor', slot: 'head', def: 0.08 },
@@ -55,6 +58,9 @@ const RECIPES = [
   { out: 'hay', cost: { reed: 3 }, cat: 'Blocks' },
   { out: 'spike', cost: { wood: 1, stone: 2 }, cat: 'Blocks' },
   { out: 'ladder', n: 4, cost: { wood: 2 }, cat: 'Blocks' },
+  { out: 'blast', cost: { stone: 2, iron: 1 }, cat: 'Blocks', kit: 'tripwire' },
+  { out: 'turf', n: 4, cost: { wood: 1 }, cat: 'Blocks', kit: 'snare' },
+  { out: 'pad', n: 2, cost: { wood: 1, reed: 1 }, cat: 'Blocks', kit: 'updraft' },
   { out: 'charm', cost: { reed: 2, hide: 1 }, cat: 'Other' },
 ];
 const recipe = id => RECIPES.find(r => r.out === id);
@@ -144,7 +150,8 @@ const armorPieces = f => { const m = armorMask(f); return (m & 1) + (m >> 1 & 1)
 function allStacks(f) {
   return [...f.slots, ...ARMOR_SLOTS.map(k => f.equip[k])].filter(s => s && s.id !== 'kit').map(s => ({ id: s.id, n: s.n }));
 }
-function canCraft(f, r) { return Object.entries(r.cost).every(([k, v]) => count(f, k) >= v); }
+const recipeFor = (f, r) => !r.kit || r.kit === f.kit; // some recipes belong to one kit
+function canCraft(f, r) { return recipeFor(f, r) && Object.entries(r.cost).every(([k, v]) => count(f, k) >= v); }
 function craft(f, r, times = 1) {
   let made = 0;
   for (let t = 0; t < times && canCraft(f, r); t++) {
@@ -197,6 +204,11 @@ function paintIcon(id, kit) {
   } else if (id === 'crown') {
     P([[4, 18], [4, 8], [8, 12], [12, 5], [16, 12], [20, 8], [20, 18]], '#e6b84a', '#9a7420');
     g.fillStyle = '#c63d3d'; g.beginPath(); g.arc(12, 14, 1.8, 0, 7); g.fill(); L([[4, 18], [20, 18]], '#9a7420', 1.4);
+  } else if (id === 'blast') {
+    P([[3, 16], [21, 16], [21, 20], [3, 20]], '#5a4a3a'); P([[8, 9], [16, 9], [16, 16], [8, 16]], '#9a3a2c', '#5a1a12');
+    L([[12, 9], [14, 5]], '#e6dfcc', 1.2); g.fillStyle = '#ffd24a'; g.beginPath(); g.arc(14.5, 4.5, 1.6, 0, 7); g.fill();
+  } else if (id === 'pad') {
+    P([[3, 16], [21, 16], [21, 20], [3, 20]], '#2f7d75'); P([[12, 3], [18, 10], [14.5, 10], [14.5, 15], [9.5, 15], [9.5, 10], [6, 10]], '#dff7f3', '#2f7d75');
   } else if (it.block && it.block !== 'spike' && it.block !== 'ladder') cube(BLOCKS[it.block].color);
   else if (it.tier) {
     const col = WCOL[it.tier];
