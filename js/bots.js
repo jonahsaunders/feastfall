@@ -51,7 +51,7 @@ function botThink(b) {
 
   const f = G.feast;
   if (f && f.state === 'spawned' && b.weapon < 4 && (b.style !== 'miner' || b.armor >= 2)) {
-    const chest = G.items.find(i => i.kind === 'chest' && !i.gone);
+    const chest = G.items.find(i => i.kind === 'feast' && !i.gone);
     if (chest) { b.plan = { type: 'go', x: chest.x, y: chest.y, layer: 0 }; return; }
   }
   if (b.weapon < 1 || (b.style === 'hunter' && count(b, 'wood') < 3 && !b.bow)) {
@@ -117,6 +117,12 @@ function botThink(b) {
   if (b.weapon < 2) {
     const t = nearestResource(b, 'rock');
     if (t) { b.plan = { type: 'gather', obj: t, layer: 0 }; return; }
+  }
+  // Loot a ruin chest that can be reached from the ground (watchtower chests need climbing)
+  if (!G.pit && b.layer === 0 && (b.style !== 'tower' || b.towerDone)) {
+    let best = null, bd = 900;
+    for (const it of G.items) if (!it.gone && (it.kind === 'chest' || it.kind === 'relic') && it.layer === 0 && it.z < heightAt(it.x, it.y) + 30) { const d = hyp(it.x - b.x, it.y - b.y); if (d < bd) { bd = d; best = it; } }
+    if (best) { b.plan = { type: 'go', x: best.x, y: best.y, layer: 0 }; return; }
   }
   // Hunt: chase a fresh rat-kill ping, otherwise head toward someone
   const ping = G.pings.find(p => p.src !== b && hyp(p.x - b.x, p.y - b.y) < 1600);

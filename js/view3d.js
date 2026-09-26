@@ -96,7 +96,7 @@ function updFighter(m, f, dt) {
   u.walk = moving ? u.walk + dt * 11 : u.walk * 0.8;
   u.legL.rotation.z = Math.sin(u.walk) * 0.6; u.legR.rotation.z = -Math.sin(u.walk) * 0.6;
   u.arm.rotation.z = f.swingT > 0 ? 2.4 - (1 - f.swingT / 0.14) * 2.3 : f.gather ? 1.4 + Math.sin(G.t * 11) * 0.7 : 1.0 + Math.sin(u.walk) * 0.15;
-  if (u.w !== f.weapon) { u.w = f.weapon; u.mB.color.set(WCOL[f.weapon]); u.blade.visible = f.weapon > 0; u.fist.visible = f.weapon === 0; }
+  if (u.w !== f.weapon) { u.w = f.weapon; u.mB.color.set(WCOL[f.weapon]); u.blade.visible = f.weapon > 0; u.fist.visible = f.weapon === 0; const m5 = f.weapon === 5; u.blade.scale.set(m5 ? 2.6 : 1, m5 ? 0.75 : 1, m5 ? 2 : 1); }
   const am = armorMask(f);
   if (u.a !== am) {
     u.a = am; const iron = am & 16, ac = iron ? '#c9d0d4' : '#8a6446';
@@ -109,8 +109,8 @@ function updFighter(m, f, dt) {
   u.ring.visible = f.invuln > 0 || f.punchT > 0;
   if (u.ring.visible) u.ring.material.color.setHex(f.invuln > 0 ? 0x9d7cf0 : 0xf0b43c);
   const d = hyp(f.x - camera.position.x, f.y - camera.position.z);
-  const snowy = G.human.biome === 2 && G.settings.snow && !G.pit && !G.human.layer;
-  u.tag.visible = !f.hidden && d < (snowy ? 220 : G.human.layer ? 330 : 650);
+  const v = VIEW.focus || G.human, snowy = v.biome === 2 && G.settings.snow && !G.pit && !v.layer;
+  u.tag.visible = !f.hidden && d < (snowy ? 220 : v.layer ? 330 : 650 * (1 - 0.45 * DAY.night));
   if (u.tag.visible) drawTag(u.tag, f.name, f.hp, f.maxHp, f.isClone);
 }
 
@@ -127,6 +127,9 @@ function iconMaterial(id) {
   return ICON_MATS[id] || (ICON_MATS[id] = new T.SpriteMaterial({ map: new T.CanvasTexture(iconCanvas(id, G.human && G.human.kit)), fog: true, transparent: true }));
 }
 FG.miniBlock = new T.BoxGeometry(11, 11, 11);
+FG.beam = new T.CylinderGeometry(5, 10, 1240, 8, 1, true);
+const BEAM_MAT = new T.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.32, blending: T.AdditiveBlending, depthWrite: false, fog: false, side: T.DoubleSide });
+const RELIC_MAT = lam('#d9a93a', { emissive: 0x5a3c00 });
 FG.spikeItem = new T.BoxGeometry(12, 3, 12);
 function makeItem(it) {
   const g = new T.Group();
@@ -143,6 +146,13 @@ function makeItem(it) {
     const h = new T.Mesh(FG.hide, FMAT.hide); h.position.y = 2; g.add(h);
   } else if (one) {
     const s = new T.Sprite(iconMaterial(one)); s.scale.set(18, 18, 1); s.position.y = 12; g.add(s); g.userData.bob = true;
+  } else if (it.kind === 'relic') { // a legendary's chest: gold, glowing, with a beam of light you can see across the map
+    const c = new T.Mesh(FG.chest, RELIC_MAT); c.position.y = 9; c.castShadow = true;
+    const b = new T.Mesh(FG.band, FMAT.dark); b.position.y = 12;
+    const halo = new T.Mesh(FG.flatRing, new T.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.6 })); halo.scale.setScalar(26); halo.position.y = 1;
+    g.add(c, b, halo);
+    if (!it.layer) { const beam = new T.Mesh(FG.beam, BEAM_MAT); beam.position.y = 620; g.add(beam); g.userData.beam = beam; }
+    g.userData.halo = halo;
   } else if (it.kind === 'bag' || it.kind === 'drop') {
     const b = new T.Mesh(FG.bag, FMAT.bag); b.scale.set(1, 0.85, 1); b.position.y = 7; b.castShadow = true;
     const t = new T.Mesh(FG.neck, FMAT.glass); t.position.y = 15; g.add(b, t);
@@ -168,6 +178,10 @@ const tmpV = new T.Vector3();
 function makeFx(e) {
   if (e.kind === 'puff' || e.kind === 'chip') return new T.Mesh(FG.puff, new T.MeshBasicMaterial({ color: e.col, transparent: true }));
   if (e.kind === 'ring' || e.kind === 'strike') return new T.Mesh(FG.flatRing, new T.MeshBasicMaterial({ color: e.kind === 'strike' ? 0xbfe3ff : e.col, transparent: true, side: T.DoubleSide }));
+  if (e.kind === 'rope') {
+    const l = new T.Line(new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), new T.LineBasicMaterial({ color: 0xe8d9b0 }));
+    l.frustumCulled = false; return l;
+  }
   if (e.kind === 'num') { const s = tagSprite(); drawTag(s, e.txt, 1, 1, true); s.scale.set(40, 10, 1); return s; }
   // lightning bolt
   const pts = [];
@@ -184,6 +198,10 @@ function updFx(m, e) {
   else if (e.kind === 'ring') { m.position.set(e.x, base + (hz ? 0 : 2), e.y); m.scale.setScalar((e.big ? 50 : 26) * (0.3 + k)); m.material.opacity = 1 - k; }
   else if (e.kind === 'strike') { m.position.set(e.x, base + 2, e.y); m.scale.setScalar(75); m.material.opacity = 0.4 + 0.6 * Math.abs(Math.sin(G.t * 20)); }
   else if (e.kind === 'num') { m.position.set(e.x, base + (hz ? 0 : 70) + k * 25, e.y); m.material.opacity = 1 - k; }
+  else if (e.kind === 'rope') {
+    const o = e.owner, a = m.geometry.attributes.position, fp = o === G.human && VIEW.focus === G.human;
+    a.setXYZ(0, o.x, o.z + (fp ? 30 : 42), o.y); a.setXYZ(1, e.x, e.az, e.y); a.needsUpdate = true;
+  }
   else { m.position.set(e.x, base, e.y); m.children[1].material.opacity = 0.6 * (1 - k); }
 }
 
@@ -266,7 +284,7 @@ function updateViewmodel(dt) {
   VM.rotation.set(0, 0, 0);
   if (show === 'sword' || show === 'fist') {
     const p = vmParts[show];
-    if (show === 'sword') p.userData.blade.material.color.set(WCOL[h.weapon]);
+    if (show === 'sword') { const m5 = h.weapon === 5; p.userData.blade.material.color.set(WCOL[h.weapon]); p.userData.blade.scale.set(m5 ? 2.6 : 1, m5 ? 0.7 : 1, m5 ? 2 : 1); }
     p.position.set(0, 0, 0); p.rotation.set(-0.25, 0.3, -0.35);
     if (h.swingT > 0) {
       const t = 1 - h.swingT / 0.14;
@@ -305,12 +323,38 @@ function aimWorld() {
   return { x: h.x + Math.cos(h.face) * d, y: h.y + Math.sin(h.face) * d };
 }
 
-const FOG = { surf: { c: SKY, n: 450, f: 1900 }, snow: { c: new T.Color('#e1e8ec'), n: 10, f: 300 }, under: { c: new T.Color('#050403'), n: 40, f: 400 } };
+// ---- time of day: dawn at the start, midday, dusk around 45:00, night by the pit ----
+const TOD = [[0, '#d9c2a4', '#ffcf9a', 0.6, 0.62, 1700], [8, '#aebfc0', '#fff0d8', 0.8, 0.8, 1900], [36, '#aebfc0', '#fff0d8', 0.8, 0.8, 1900],
+  [46, '#cf946c', '#ff9a5c', 0.5, 0.52, 1500], [53, '#131b28', '#a9bcff', 0.22, 0.26, 950], [99, '#0e1520', '#a9bcff', 0.2, 0.24, 900]]
+  .map(([m, sky, sun, si, hi, far]) => ({ m, sky: new T.Color(sky), sun: new T.Color(sun), si, hi, far }));
+const DAY = { sky: new T.Color('#aebfc0'), sun: new T.Color('#fff0d8'), si: 0.8, hi: 0.8, far: 1900, night: 0, arc: 0.5 };
+function timeOfDay(min) {
+  let i = 0;
+  while (i < TOD.length - 2 && min > TOD[i + 1].m) i++;
+  const a = TOD[i], b = TOD[i + 1], k = clamp((min - a.m) / (b.m - a.m), 0, 1);
+  DAY.sky.copy(a.sky).lerp(b.sky, k); DAY.sun.copy(a.sun).lerp(b.sun, k);
+  DAY.si = a.si + (b.si - a.si) * k; DAY.hi = a.hi + (b.hi - a.hi) * k; DAY.far = a.far + (b.far - a.far) * k;
+  DAY.night = clamp((min - 45) / 8, 0, 1); DAY.arc = clamp(min / 52, 0, 1);
+}
+const STAR_N = 900, starGeo = new T.BufferGeometry(), starPos = new Float32Array(STAR_N * 3);
+for (let i = 0; i < STAR_N; i++) {
+  const a = Math.random() * Math.PI * 2, e = Math.asin(0.08 + Math.random() * 0.92);
+  starPos.set([Math.cos(a) * Math.cos(e) * 1500, Math.sin(e) * 1500, Math.sin(a) * Math.cos(e) * 1500], i * 3);
+}
+starGeo.setAttribute('position', new T.BufferAttribute(starPos, 3));
+const stars = new T.Points(starGeo, new T.PointsMaterial({ color: 0xdfe8ff, size: 2, sizeAttenuation: false, fog: false, transparent: true, opacity: 0 }));
+stars.frustumCulled = false; scene.add(stars);
+const SNOW_DAY = new T.Color('#e1e8ec'), SNOW_NIGHT = new T.Color('#3a4452');
+const FOG = { surf: { c: DAY.sky, n: 450, f: 1900 }, snow: { c: new T.Color('#e1e8ec'), n: 10, f: 300 }, under: { c: new T.Color('#050403'), n: 40, f: 400 } };
 let camYaw = 0, deathLift = 0;
 function render(dt) {
   if (world !== builtWorld) { build3D(); for (const [, m] of dyn) { scene.remove(m); if (m.userData.line) scene.remove(m.userData.line); } dyn.clear(); }
   frameNo++;
-  const h = G.human, L = h.layer, playing = G.mode !== 'menu' && G.mode !== 'options';
+  const h = G.human, playing = G.mode !== 'menu' && G.mode !== 'options';
+  const spec = G.mode === 'spectate' && G.specTarget && G.specTarget.alive ? G.specTarget : null;
+  const focus = spec || h, L = focus.layer, fp = playing && !spec; // fp: first person
+  VIEW.focus = focus;
+  timeOfDay(playing ? G.clockMin : 14);
   surfaceGroup.visible = L === 0; underGroup.visible = L === 1;
   if (frameNo % 6 === 0) {
     for (const o of world.objs) if (o.amt !== o._amt) syncObjParts(o);
@@ -318,17 +362,19 @@ function render(dt) {
   }
 
   // camera
-  if (playing) {
+  if (fp) {
     deathLift = h.alive ? 0 : Math.min(140, deathLift + dt * 60);
     const bob = hyp(h.mx, h.my) > 0.1 && h.alive && h.onGround ? Math.sin(G.t * 11) * 1.4 : 0;
     camera.position.set(h.x, h.z + EYE - (h.sneak ? 9 : 0) + bob + deathLift, h.y);
     camera.rotation.y = -h.face - Math.PI / 2;
     camera.rotation.x = h.alive ? VIEW.pitch : Math.max(-1.2, VIEW.pitch - deathLift / 200);
-    camera.fov = h.speedT > 0 ? 88 : 75;
+    camera.fov = (G.settings.fov || 75) + (h.speedT > 0 ? 13 : 0);
+    if (h.hurtT > 0 && h.alive) { const s = h.hurtT * 14; camera.position.x += (Math.random() - .5) * s; camera.position.y += (Math.random() - .5) * s; camera.position.z += (Math.random() - .5) * s; }
   } else {
-    camYaw += dt * 0.12;
-    const fx = h.x, fz = h.y, fy = h.z ?? groundY(h);
-    const d = L ? 110 : 230, up = L ? 50 : 130;
+    // Menu: slow orbit. Spectating: follow behind the player you're watching.
+    if (spec) camYaw += angDiff(camYaw, focus.face) * Math.min(1, dt * 3); else camYaw += dt * 0.12;
+    const fx = focus.x, fz = focus.y, fy = focus.z ?? groundY(focus);
+    const d = L ? 110 : spec ? 150 : 230, up = L ? 50 : spec ? 80 : 130;
     camera.position.set(fx - Math.cos(camYaw) * d, fy + up, fz - Math.sin(camYaw) * d);
     if (L === 0) camera.position.y = Math.max(camera.position.y, heightAt(camera.position.x, camera.position.z) + 30);
     camera.lookAt(fx, fy + 30, fz);
@@ -339,11 +385,12 @@ function render(dt) {
   syncBlocks();
   syncAim();
   // players, rats, items, projectiles, effects
-  for (const f of G.fighters) if (f.alive && !(playing && f === h)) sync(f, makeFighter, (m, f) => updFighter(m, f, dt), f.layer === L && hyp(f.x - camera.position.x, f.y - camera.position.z) < (L ? 500 : 1300));
+  for (const f of G.fighters) if (f.alive && !(fp && f === h)) sync(f, makeFighter, (m, f) => updFighter(m, f, dt), f.layer === L && hyp(f.x - camera.position.x, f.y - camera.position.z) < (L ? 500 : 1300));
   if (L === 1) for (const r of G.rats) if (!r.dead) sync(r, makeRat, (m, r) => { m.position.set(r.x, 0, r.y); m.rotation.y = -r.a; m.userData.tail.rotation.y = Math.sin(G.t * 14 + r.x) * 0.5; }, true);
   for (const it of G.items) if (!it.gone) sync(it, makeItem, (m, it) => {
     m.position.set(it.x, (it.z ?? (it.layer ? 0 : heightAt(it.x, it.y))) + (m.userData.bob ? Math.sin(G.t * 3 + it.x) * 2 : 0), it.y);
     if (m.userData.bob) m.rotation.y += dt;
+    if (m.userData.halo) { const on = it.kind === 'relic'; m.userData.halo.visible = on; if (m.userData.beam) m.userData.beam.visible = on; m.userData.halo.material.opacity = 0.4 + Math.sin(G.t * 3) * 0.2; }
   }, it.layer === L);
   for (const p of G.proj) sync(p, makeProj, (m, p) => {
     const y = p.z;
@@ -359,17 +406,19 @@ function render(dt) {
   syncFeast();
 
   // atmosphere: sky haze, snowstorm, or the dark of the tunnels
-  const inSnow = L === 0 && h.biome === 2 && G.settings.snow && !G.pit;
+  const inSnow = L === 0 && focus.biome === 2 && G.settings.snow && !G.pit;
+  FOG.surf.f = DAY.far; FOG.snow.c.copy(SNOW_DAY).lerp(SNOW_NIGHT, DAY.night);
   const tgt = L ? FOG.under : inSnow ? FOG.snow : FOG.surf, k = 1 - Math.exp(-3 * dt);
   scene.fog.color.lerp(tgt.c, k); scene.fog.near += (tgt.n - scene.fog.near) * k; scene.fog.far += (tgt.f - scene.fog.far) * k;
   scene.background.copy(scene.fog.color);
   G.flashT = Math.max(0, (G.flashT || 0) - dt);
-  hemi.intensity = (L ? 0.1 : 0.8) + G.flashT * 3;
-  sun.intensity = L ? 0 : 0.8;
+  hemi.intensity = (L ? 0.1 : DAY.hi) + G.flashT * 3;
+  sun.intensity = L ? 0 : DAY.si; sun.color.copy(DAY.sun);
+  stars.visible = !L && DAY.night > 0.02; stars.material.opacity = DAY.night * (inSnow ? 0.2 : 1); stars.position.copy(camera.position);
   sun.castShadow = !!G.settings.shadows;
   torch.intensity = L ? 1.5 : 0;
   torch.position.copy(camera.position);
-  sun.position.set(camera.position.x + 400, camera.position.y + 700, camera.position.z + 250);
+  sun.position.set(camera.position.x + 700 - 1400 * DAY.arc, camera.position.y + 250 + 650 * Math.sin(Math.max(0.15, DAY.arc) * Math.PI), camera.position.z + 250);
   sun.target.position.set(camera.position.x, camera.position.y - 40, camera.position.z);
   snow.visible = inSnow;
   if (inSnow) {
@@ -383,7 +432,7 @@ function render(dt) {
 
   renderer.clear();
   renderer.render(scene, camera);
-  if (playing && h.alive) {
+  if (fp && h.alive) {
     updateViewmodel(dt);
     renderer.clearDepth();
     renderer.render(vmScene, vmCam);
@@ -395,7 +444,7 @@ const mm = document.getElementById('minimap'), mctx = mm.getContext('2d');
 let mmTick = 0;
 function renderMinimap() {
   if (mmTick++ % 3) return;
-  const S = mm.width / WORLD, h = G.human;
+  const S = mm.width / WORLD, h = VIEW.focus || G.human;
   mctx.setTransform(1, 0, 0, 1, 0, 0);
   mctx.globalAlpha = h.layer ? 0.35 : 1;
   mctx.drawImage(world.ground, 0, 0, mm.width, mm.height);
@@ -404,11 +453,20 @@ function renderMinimap() {
     mctx.strokeStyle = '#8b6b48'; mctx.lineWidth = 3; mctx.lineCap = 'round';
     for (const line of world.tunnels) { mctx.beginPath(); line.forEach((p, i) => i ? mctx.lineTo(p.x * S, p.y * S) : mctx.moveTo(p.x * S, p.y * S)); mctx.stroke(); }
   }
+  mctx.fillStyle = '#e8c27a'; mctx.strokeStyle = '#3a2a14'; mctx.lineWidth = 1.5;
+  for (const r of world.ruins) { mctx.beginPath(); mctx.rect(r.x * S - 4, r.y * S - 4, 8, 8); mctx.fill(); mctx.stroke(); }
   mctx.fillStyle = '#e6dfcc';
   for (const e of world.entrances) mctx.fillRect(e.x * S - 2, e.y * S - 2, 4, 4);
   if (G.feast) {
     mctx.strokeStyle = '#e6b84a'; mctx.lineWidth = 2;
     mctx.beginPath(); mctx.arc(G.feast.site.x * S, G.feast.site.y * S, 7 + Math.sin(G.t * 5) * 2, 0, 7); mctx.stroke();
+  }
+  const star = (x, y, r) => { mctx.beginPath(); for (let i = 0; i < 10; i++) { const a = i / 10 * Math.PI * 2 - Math.PI / 2, rad = i % 2 ? r * 0.45 : r; mctx.lineTo(x + Math.cos(a) * rad, y + Math.sin(a) * rad); } mctx.closePath(); mctx.fill(); mctx.stroke(); };
+  mctx.fillStyle = '#ffd24a'; mctx.strokeStyle = '#3a2a08'; mctx.lineWidth = 1.5;
+  for (const it of G.items) if (it.kind === 'relic' && !it.gone) star(it.x * S, it.y * S, 8 + Math.sin(G.t * 4) * 1.2);
+  if (h.layer === 1 && G.human.equip && wears(G.human, 'crown')) {
+    mctx.fillStyle = '#e0506a';
+    for (const f of G.fighters) if (f.alive && f.layer === 1 && f !== G.human && !f.isClone) { mctx.beginPath(); mctx.arc(f.x * S, f.y * S, 3.5, 0, 7); mctx.fill(); }
   }
   for (const p of G.pings) {
     if (p.src === h) continue;
@@ -423,6 +481,15 @@ function renderMinimap() {
 // ---- placed blocks ----
 const BLOCK_GEO = new T.BoxGeometry(B, B, B).translate(0, B / 2, 0);
 const SPIKE_BASE = new T.BoxGeometry(B - 2, 4, B - 2).translate(0, 2, 0), SPIKE = new T.ConeGeometry(2.2, 12, 4).translate(0, 10, 0);
+function mergeGeos(geos) {
+  const pos = [], nor = [];
+  for (const g of geos) { const n = g.toNonIndexed(); pos.push(...n.attributes.position.array); nor.push(...n.attributes.normal.array); }
+  const out = new T.BufferGeometry();
+  out.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); out.setAttribute('normal', new T.Float32BufferAttribute(nor, 3));
+  return out;
+}
+const LADDER_GEO = mergeGeos([new T.BoxGeometry(2.5, B, 2.5).translate(-8, B / 2, 0), new T.BoxGeometry(2.5, B, 2.5).translate(8, B / 2, 0),
+  ...[4, 10.5, 17, 23.5].map(y => new T.BoxGeometry(16, 2, 2).translate(0, y, 0))]);
 const blockMeshes = {};
 let blockVer = -1;
 function syncBlocks() {
@@ -431,11 +498,12 @@ function syncBlocks() {
       if (def.trap) {
         blockMeshes[type] = new T.InstancedMesh(SPIKE_BASE, lam('#5a4a3a'), 600);
         blockMeshes.spikeTips = new T.InstancedMesh(SPIKE, lam('#b8bcbf'), 600 * 5);
-      } else { blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, lam('#ffffff'), MAX_BLOCKS); blockMeshes[type].setColorAt(0, new T.Color(1, 1, 1)); }
+      } else if (def.ladder) blockMeshes[type] = new T.InstancedMesh(LADDER_GEO, lam(def.color), 2000);
+      else { blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, lam('#ffffff'), MAX_BLOCKS); blockMeshes[type].setColorAt(0, new T.Color(1, 1, 1)); }
     }
     for (const m of Object.values(blockMeshes)) { m.castShadow = true; m.receiveShadow = true; m.count = 0; m.frustumCulled = false; scene.add(m); }
   }
-  for (const m of Object.values(blockMeshes)) m.visible = G.human.layer === 0;
+  for (const m of Object.values(blockMeshes)) m.visible = (VIEW.focus || G.human).layer === 0;
   if (BL.ver === blockVer) return;
   blockVer = BL.ver;
   const n = {}, col = new T.Color();
@@ -451,6 +519,14 @@ function syncBlocks() {
         dummy.position.set(cx + ox, y, cz + oz); dummy.updateMatrix();
         blockMeshes.spikeTips.setMatrixAt(n.spikeTips++, dummy.matrix);
       }
+      continue;
+    }
+    if (b.type === 'ladder') {
+      if (n.ladder >= 2000) continue;
+      const w = ladderWall(i, j, k), off = B / 2 - 2.5;
+      dummy.position.set(cx + (w === 0 ? off : w === 1 ? -off : 0), j * B, cz + (w === 2 ? off : w === 3 ? -off : 0));
+      dummy.rotation.set(0, w === 0 || w === 1 ? Math.PI / 2 : 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+      blockMeshes.ladder.setMatrixAt(n.ladder++, dummy.matrix);
       continue;
     }
     const m = blockMeshes[b.type];

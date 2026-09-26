@@ -143,6 +143,25 @@
   #chat { position: absolute; left: 16px; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); width: min(360px, calc(100% - 32px)); pointer-events: auto; background: rgba(12,17,14,.92); color: var(--bone); border: 1px solid var(--ember); padding: 7px 10px; font: 500 14px var(--ui); }
   #feed .chat { color: var(--bone); font-weight: 500; }
   #armor i.iron { background: #d6dde0; border-color: var(--gold); }
+  .slot.legend, .islot.legend { border-color: var(--gold); box-shadow: inset 0 0 10px rgba(230,184,74,.4); }
+  #feed .relic { color: var(--gold); border-left: 3px solid var(--gold); }
+  #cross.kill::before { width: 12px; height: 12px; margin: -6px 0 0 -6px; background: var(--gold); transform: rotate(45deg); border-radius: 0; }
+  #dmgdir { position: absolute; left: 50%; top: 50%; width: 170px; height: 170px; border-radius: 50%; border-top: 5px solid rgba(214,70,70,.9); opacity: 0; pointer-events: none; transform: translate(-50%, -50%); filter: drop-shadow(0 0 4px rgba(0,0,0,.6)); }
+  #hud.spec .bottom, #hud.spec #cross, #hud.spec #prompt, #hud.spec #held-name, #hud.spec #clickto, #hud.spec #dmgdir, #hud.spec #hurt { display: none; }
+  #spec { position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(12,17,14,.88); border: 1px solid var(--line); padding: 8px 14px; font: 600 14px var(--ui); white-space: pre; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
+  #board { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); width: min(460px, calc(100% - 32px)); background: rgba(12,17,14,.93); border: 1px solid var(--line); padding: 12px 14px; }
+  #board h3 { margin: 0 0 8px; display: flex; justify-content: space-between; align-items: baseline; font: 400 22px var(--display); }
+  #board h3 small { font: 500 12px var(--mono); color: var(--dim); }
+  #board-list div { display: grid; grid-template-columns: 1fr auto 36px; gap: 10px; padding: 2px 4px; font-size: 14px; }
+  #board-list div.dead { opacity: .45; text-decoration: line-through; }
+  #board-list div.me { background: rgba(226,115,59,.18); }
+  #board-list i { font: normal 600 10px var(--mono); color: var(--ember-2); text-transform: uppercase; }
+  #board-list small { color: var(--dim); }
+  #board-list b { font-family: var(--mono); text-align: right; }
+  #tipbox { position: absolute; left: 16px; top: calc(128px + env(safe-area-inset-top, 0px)); width: min(300px, calc(100% - 32px)); background: rgba(12,17,14,.9); border-left: 3px solid var(--gold); padding: 8px 12px; }
+  #tipbox b { font: 700 11px var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+  #tipbox p { margin: 3px 0 0; font-size: 14px; }
+  #record { margin: -6px 0 0; }
 
   /* ---------- Inventory screen ---------- */
   #inv { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(6,9,7,.55); padding-inline: 16px; }
@@ -221,13 +240,14 @@
 <section id="screen-play">
   <div class="menu">
     <h1 class="logo">Feast<span>fall</span></h1>
-    <p class="tag-line">First person. Last one standing wins. Mine, hunt, trap or tower: craft blocks and build up. Feast at 25:00, the pit at 60:00.</p>
+    <p class="tag-line">First person. Last one standing wins. Mine, hunt, trap or tower. Loot ruins by day; the feast opens at 25:00, and by nightfall everyone left goes to the pit.</p>
     <p class="desk-note">This prototype needs a keyboard and mouse.</p>
     <div class="row">
       <button class="btn" id="btn-play">Play vs bots</button>
       <button class="btn ghost" id="btn-options">Options</button>
       <span class="coins" id="coins" title="Coins">0</span>
     </div>
+    <p id="record" class="hint"></p>
     <div class="online">
       <div class="label">Play online</div>
       <p id="net-status" class="hint">Connecting…</p>
@@ -260,7 +280,7 @@
       <dl class="controls">
         <dt><kbd>WASD</kbd></dt><dd>Move</dd>
         <dt>Mouse</dt><dd>Look around. Click the game to capture the mouse; arrow keys also turn</dd>
-        <dt><kbd>Space</kbd> · <kbd>Shift</kbd></dt><dd>Jump · sneak (you won’t walk off edges, and it blocks Faller damage)</dd>
+        <dt><kbd>Space</kbd> · <kbd>Shift</kbd></dt><dd>Jump · sneak (you won’t walk off edges, and it blocks Faller damage). Walk into a ladder to climb it</dd>
         <dt>Left click</dt><dd>Swing (hold to keep swinging), hold on a block to break it, draw the bow, drink, or use your kit</dd>
         <dt>Right click</dt><dd>With blocks: place them (hold, jump and look down to tower up). Otherwise: drink</dd>
         <dt><kbd>1</kbd>–<kbd>9</kbd> · wheel</dt><dd>Select hotbar slot</dd>
@@ -268,6 +288,7 @@
         <dt><kbd>Q</kbd> · <kbd>F</kbd> · <kbd>R</kbd></dt><dd>Kit ability · drink · refill hotbar with potions from your backpack</dd>
         <dt><kbd>E</kbd></dt><dd>Enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron</dd>
         <dt><kbd>G</kbd> · <kbd>Ctrl</kbd>+<kbd>G</kbd></dt><dd>Drop one of the held item · drop the whole stack</dd>
+        <dt><kbd>P</kbd> (hold)</dt><dd>Scoreboard</dd>
         <dt><kbd>T</kbd></dt><dd>Chat (online)</dd>
         <dt><kbd>Esc</kbd></dt><dd>Release the mouse, pause and open options</dd>
       </dl>
@@ -295,6 +316,8 @@
     <div class="field"><label for="o-shadows">Shadows (turn off if it runs slowly)</label><input id="o-shadows" type="checkbox"></div>
     <div class="field"><label for="o-sens">Mouse sensitivity</label><input id="o-sens" type="range" min="0.3" max="2.5" step="0.1"></div>
     <div class="field"><label for="o-vol">Music and sound</label><input id="o-vol" type="range" min="0" max="1" step="0.05"></div>
+    <div class="field"><label for="o-fov">Field of view · <b id="o-fov-v">75</b>°</label><input id="o-fov" type="range" min="60" max="100" step="1"></div>
+    <div class="field"><label for="o-tips">Tips for new players</label><span class="row"><button class="btn ghost small" id="o-tips-reset" type="button">Show again</button><input id="o-tips" type="checkbox"></span></div>
     <p class="hint">Match length and bot count apply to the next solo match. 99 bots is the design doc’s 100-player lobby and needs a fast computer.</p>
     <div class="row">
       <button class="btn" id="opt-resume">Resume</button>
@@ -310,7 +333,7 @@
     <p id="end-sub"></p>
     <div class="stats" id="end-stats"></div>
     <p class="hint" id="end-online" hidden>The match carries on for the others. Leaving takes you back to the lobby.</p>
-    <div class="row"><button class="btn" id="btn-again">Back to Play</button></div>
+    <div class="row"><button class="btn" id="btn-again">Back to Play</button><button class="btn ghost" id="btn-spec" hidden>Spectate</button></div>
   </div>
 </section>
 
@@ -330,6 +353,10 @@
     <div id="feed"></div>
   </div>
   <div id="hurt"></div>
+  <div id="dmgdir"></div>
+  <div id="spec" hidden></div>
+  <div id="board" hidden><h3>Players <small id="board-count"></small></h3><div id="board-list"></div></div>
+  <div id="tipbox" hidden><b>Tip</b><p></p></div>
   <div id="cross"></div>
   <div id="clickto" hidden>Click to play</div>
   <div id="prompt" hidden></div>

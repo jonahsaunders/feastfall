@@ -19,6 +19,7 @@ const ITEMS = {
   cobble: { name: 'Cobblestone', stack: 64, cat: 'block', block: 'cobble', desc: 'Slow to break. Good for walls and bunkers.' },
   hay:    { name: 'Hay Bale', stack: 64, cat: 'block', block: 'hay', desc: 'Land on it and you take no fall damage.' },
   spike:  { name: 'Spike Trap', stack: 16, cat: 'block', block: 'spike', desc: '4 damage and a slow to anyone who steps on it but you.' },
+  ladder: { name: 'Ladder', stack: 64, cat: 'block', block: 'ladder', desc: 'Place against a wall or on the ground. Walk into it (or hold Space) to climb; Shift to hold still. No fall damage while on a ladder.' },
   charm:  { name: 'Feather Charm', stack: 8, cat: 'use', desc: 'Keep it anywhere in your inventory: it is used up to block one fall of 7+ blocks.' },
   hide_head:  { name: 'Hide Cap', stack: 1, cat: 'armor', slot: 'head', def: 0.08 },
   hide_chest: { name: 'Hide Tunic', stack: 1, cat: 'armor', slot: 'chest', def: 0.14 },
@@ -29,10 +30,16 @@ const ITEMS = {
   iron_legs:  { name: 'Feast Greaves', stack: 1, cat: 'armor', slot: 'legs', def: 0.15, desc: 'Only found in feast chests.' },
   iron_feet:  { name: 'Feast Boots', stack: 1, cat: 'armor', slot: 'feet', def: 0.09, desc: 'Only found in feast chests.' },
   kit:    { name: 'Kit item', stack: 1, cat: 'kit' },
+  // Legendaries: exactly one of each per match, each at its own landmark (see LANDMARKS in world.js)
+  skyhook:    { name: 'Skyhook', stack: 1, cat: 'weapon', legendary: true, desc: 'Click to fire a grapple at any block or the ground up to 22 blocks away and get pulled to it. Recharges in 6 seconds.' },
+  maul:       { name: 'Quake Maul', stack: 1, cat: 'weapon', tier: 5, legendary: true, desc: 'Slow, heavy swings that launch people into the air and knock them far. Breaks any block in one hit.' },
+  everflask:  { name: 'Everflask', stack: 1, cat: 'use', legendary: true, desc: 'Heals 3.5 hearts like a potion, then refills itself 25 seconds later instead of being used up.' },
+  boots_wind: { name: 'Windwalker Boots', stack: 1, cat: 'armor', slot: 'feet', def: 0.09, legendary: true, desc: 'You never take fall damage, and holding Space while falling lets you glide down slowly.' },
+  crown:      { name: 'Rat King’s Crown', stack: 1, cat: 'armor', slot: 'head', def: 0.12, legendary: true, desc: 'Rats stop running from you, your rat kills no longer give away your position, and underground your map shows everyone in the tunnels.' },
 };
-const WNAME = ['Fists', 'Wood Sword', 'Stone Sword', 'Iron Sword', 'Feast Blade'];
-const WDMG = [1, 2.5, 3.5, 4.5, 6.5];
-const WCOL = ['#d9c7a8', '#a4743f', '#9aa0a3', '#dfe5e8', '#f0b43c'];
+const WNAME = ['Fists', 'Wood Sword', 'Stone Sword', 'Iron Sword', 'Feast Blade', 'Quake Maul'];
+const WDMG = [1, 2.5, 3.5, 4.5, 6.5, 5];
+const WCOL = ['#d9c7a8', '#a4743f', '#9aa0a3', '#dfe5e8', '#f0b43c', '#8c6ad8'];
 const RECIPES = [
   { out: 'sword1', cost: { wood: 2 }, cat: 'Weapons' },
   { out: 'sword2', cost: { wood: 1, stone: 3 }, cat: 'Weapons' },
@@ -47,9 +54,11 @@ const RECIPES = [
   { out: 'cobble', n: 2, cost: { stone: 1 }, cat: 'Blocks' },
   { out: 'hay', cost: { reed: 3 }, cat: 'Blocks' },
   { out: 'spike', cost: { wood: 1, stone: 2 }, cat: 'Blocks' },
+  { out: 'ladder', n: 4, cost: { wood: 2 }, cat: 'Blocks' },
   { out: 'charm', cost: { reed: 2, hide: 1 }, cat: 'Other' },
 ];
 const recipe = id => RECIPES.find(r => r.out === id);
+const wears = (f, id) => !!(f.equip && ARMOR_SLOTS.some(k => f.equip[k] && f.equip[k].id === id));
 const itemName = (id, f) => id === 'kit' && f ? KITS[f.kit].item : ITEMS[id].name;
 
 // ---- inventory ----
@@ -173,7 +182,22 @@ function paintIcon(id, kit) {
     P([[12, 12], [21, 7.5], [21, 16.5], [12, 21]], shade(col, -0.12));
   };
   const it = ITEMS[id];
-  if (it.block && it.block !== 'spike') cube(BLOCKS[it.block].color);
+  if (it.legendary) { g.fillStyle = 'rgba(230,184,74,.22)'; g.beginPath(); g.arc(12, 12, 11.5, 0, 7); g.fill(); }
+  if (id === 'skyhook') {
+    g.strokeStyle = '#c9b48a'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(3, 21); g.quadraticCurveTo(4, 12, 12, 12); g.stroke();
+    L([[12, 12], [18, 6]], '#c9ccd0', 2.4); L([[18, 6], [21, 9.5]], '#c9ccd0', 1.8); L([[18, 6], [14.5, 3]], '#c9ccd0', 1.8); L([[18, 6], [21.5, 3.5]], '#c9ccd0', 1.8);
+  } else if (id === 'maul') {
+    L([[4, 21], [14, 11]], '#6b4a2e', 2.6); P([[11, 5], [19, 13], [15.5, 16.5], [7.5, 8.5]], '#8c6ad8', '#4a3580'); L([[10, 8], [16, 14]], '#b9a6ee', 1);
+  } else if (id === 'everflask') {
+    P([[10, 2.5], [14, 2.5], [14, 8], [10, 8]], '#e8e1cf'); g.fillStyle = '#35b8b0'; g.beginPath(); g.arc(12, 15, 6.8, 0, 7); g.fill();
+    g.strokeStyle = '#d9fffb'; g.lineWidth = 1.2; g.beginPath(); g.arc(12, 15, 3.4, 0.4, 5.2); g.stroke();
+  } else if (id === 'boots_wind') {
+    P([[3, 10], [8, 10], [8, 17], [11, 17], [11, 20], [3, 20]], '#dfe8ee', '#8aa0ad'); P([[13, 10], [18, 10], [18, 17], [21, 17], [21, 20], [13, 20]], '#dfe8ee', '#8aa0ad');
+    L([[2, 7], [7, 4]], '#9fd6ff', 1.2); L([[12, 7], [17, 4]], '#9fd6ff', 1.2); L([[5, 8], [9, 5.5]], '#9fd6ff', 1); L([[15, 8], [19, 5.5]], '#9fd6ff', 1);
+  } else if (id === 'crown') {
+    P([[4, 18], [4, 8], [8, 12], [12, 5], [16, 12], [20, 8], [20, 18]], '#e6b84a', '#9a7420');
+    g.fillStyle = '#c63d3d'; g.beginPath(); g.arc(12, 14, 1.8, 0, 7); g.fill(); L([[4, 18], [20, 18]], '#9a7420', 1.4);
+  } else if (it.block && it.block !== 'spike' && it.block !== 'ladder') cube(BLOCKS[it.block].color);
   else if (it.tier) {
     const col = WCOL[it.tier];
     P([[18.5, 3], [21, 5.5], [9, 17.5], [6.5, 15]], col, shade(col, -0.25), 0.8);
@@ -199,6 +223,8 @@ function paintIcon(id, kit) {
       g.fillStyle = '#ffc3cf'; g.beginPath(); g.arc(9.8, 13, 1.8, 0, 7); g.fill(); break;
     case 'bow': g.strokeStyle = '#8a5a2e'; g.lineWidth = 2; g.beginPath(); g.moveTo(7, 3); g.quadraticCurveTo(22, 12, 7, 21); g.stroke(); L([[7, 3], [7, 21]], '#e6dfcc', 0.7); break;
     case 'spike': P([[3, 17], [21, 17], [21, 20], [3, 20]], '#5a4a3a'); for (const x of [6, 12, 18]) P([[x - 2.2, 17], [x, x === 12 ? 5 : 8], [x + 2.2, 17]], '#b8bcbf'); break;
+    case 'ladder': L([[7, 3], [7, 21]], '#8a6a44', 2); L([[17, 3], [17, 21]], '#8a6a44', 2);
+      for (const y of [6, 10.5, 15, 19.5]) L([[7, y], [17, y]], '#b08a5a', 1.6); break;
     case 'charm': g.save(); g.translate(12, 12); g.rotate(-0.7); g.fillStyle = '#f2ead6'; g.beginPath(); g.ellipse(0, 0, 3.5, 9, 0, 0, 7); g.fill();
       g.strokeStyle = '#b89c6a'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(0, -9); g.lineTo(0, 10); g.stroke(); g.restore(); break;
     case 'kit': P([[12, 2], [21, 7], [21, 17], [12, 22], [3, 17], [3, 7]], '#e2733b', '#8a3a14');

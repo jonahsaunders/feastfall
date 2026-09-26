@@ -61,14 +61,18 @@ const srcId = s => s && s.isFighter ? (s.owner || s).id : null;
 const fighterById = id => G.fighters.find(f => f.id === id && !f.isClone);
 
 // ---- damage and death ----
-function hurt(t, amt, src, ang, kb) {
+function hurt(t, amt, src, ang, kb, up = 0) {
   if (!t.alive || t.invuln > 0) return false;
   if (t.isFighter && src && src.isFighter && !pvpOn()) return false;
   if (t.isClone) { t.alive = false; addFx('puff', t.x, t.y, t.layer, { col: t.color, z: t.z + 30 }); return true; }
-  if (t.remote) { NET.hit(t, { d: +amt.toFixed(2), a: +ang.toFixed(2), kb: Math.round(kb || 0), by: srcId(src) }); t.hurtT = 0.2; return true; }
+  const byMe = src && (src.owner || src) === G.human && t !== G.human && G.stats;
+  if (t.remote) { if (byMe) G.stats.dmg += amt; NET.hit(t, { d: +amt.toFixed(2), a: +ang.toFixed(2), kb: Math.round(kb || 0), up: up || undefined, by: srcId(src) }); t.hurtT = 0.2; return true; }
   amt *= 1 - armorDef(t);
+  if (byMe) G.stats.dmg += amt;
+  if (t === G.human && src && src.isFighter) G.dmgDir = { a: Math.atan2(src.y - t.y, src.x - t.x), t: 1 };
   t.hp -= amt; t.hurtT = 0.2; t.gather = null; t.refillT = 0; t.hidden = false;
   if (t.kit !== 'heavy' && kb) { t.kbx += Math.cos(ang) * kb; t.kby += Math.sin(ang) * kb; }
+  if (up && t.kit !== 'heavy') { if (t.onGround) jump(t, up); else t.vz = Math.max(t.vz, up * 0.6); }
   if (G.settings.dmgNums) addFx('num', t.x, t.y, t.layer, { txt: amt.toFixed(1), z: t.z + 70 });
   if (src && src.isFighter) { t.lastHitBy = src.owner || src; t.lastHitT = G.t; }
   Sfx.play(t === G.human ? 'hurt' : 'hit', t.x, t.y, t.z);
@@ -93,7 +97,7 @@ function applyHit(t, m) {
     t.kbx = Math.cos(m.pull[0]) * m.pull[1]; t.kby = Math.sin(m.pull[0]) * m.pull[1]; t.gather = null; t.hidden = false;
     if (m.pull[2]) jump(t, m.pull[2]);
   }
-  if (m.d) { if (m.raw) hurtRaw(t, m.d, src); else hurt(t, m.d, src, m.a || 0, m.kb || 0); }
+  if (m.d) { if (m.raw) hurtRaw(t, m.d, src); else hurt(t, m.d, src, m.a || 0, m.kb || 0, m.up || 0); }
 }
 function killFighter(t, src) {
   if (t.deadDone) return;
@@ -111,17 +115,19 @@ function announceKill(t, killer, fell) {
   t.alive = false;
   if (killer) {
     if (!killer.remote) killer.kills++;
-    if (killer === G.human) G.coinsEarned += 50;
+    if (killer === G.human) { G.coinsEarned += 50; Sfx.play('kill'); toast(`You eliminated ${t.name}`); G.killFlash = 0.6; }
   }
   G.feed.unshift({ txt: killer ? `${killer.name} ⟶ ${t.name}` : `${t.name} ${fell ? 'fell' : 'died'}`, t: 7, you: t === G.human || killer === G.human });
   if (t === G.human) { G.killedBy = killer ? killer.name : fell ? 'a long fall' : 'the pit'; endGame(false); }
   checkWin();
 }
 function checkWin() {
-  if (G.over && G.human && !G.human.alive) return;
   const alive = G.fighters.filter(f => f.alive && !f.isClone);
   if (alive.length !== 1) return;
-  if (!NET.on) { if (G.human.alive) endGame(true); }
+  if (!NET.on) {
+    if (G.human.alive) endGame(true);
+    else if (!G.winShown) { G.winShown = true; banner(`${alive[0].name} wins`, 'Last one standing.'); }
+  }
   else if (NET.isHost()) NET.end(alive[0]);
 }
 function hitRat(rat, dmg, src, ang) {
@@ -129,9 +135,11 @@ function hitRat(rat, dmg, src, ang) {
   if (rat.hp <= 0) {
     rat.dead = true;
     G.items.push({ id: 'l' + (++G.itemSeq), kind: 'drop', local: true, x: rat.x, y: rat.y, z: 0, layer: 1, stacks: [{ id: 'hide', n: 1 }] });
-    // The squeal gives you away: everyone gets a ping on this spot.
-    G.pings.push({ x: rat.x, y: rat.y, layer: 1, t: 12, src });
-    NET.fx({ k: 'ping', x: Math.round(rat.x), y: Math.round(rat.y) });
+    // The squeal gives you away: everyone gets a ping on this spot (unless you wear the Rat King's Crown)
+    if (!(src && wears(src.owner || src, 'crown'))) {
+      G.pings.push({ x: rat.x, y: rat.y, layer: 1, t: 12, src });
+      NET.fx({ k: 'ping', x: Math.round(rat.x), y: Math.round(rat.y) });
+    }
     addFx('puff', rat.x, rat.y, 1, { col: '#8a7a6a', z: 6 });
     Sfx.play('squeak', rat.x, rat.y, 0);
   }
@@ -140,8 +148,8 @@ function hitRat(rat, dmg, src, ang) {
 // ---- actions ----
 function swing(f, armed = true) {
   if (f.atkCd > 0) return false;
-  f.atkCd = 0.28; f.swingT = 0.14; f.swings++; f.hidden = false;
-  const tier = armed ? f.weapon : 0;
+  const tier = armed ? f.weapon : 0, maul = tier === 5;
+  f.atkCd = maul ? 0.62 : 0.28; f.swingT = 0.14; f.swings++; f.hidden = false;
   let dmg = WDMG[tier] + (f.kit === 'killer' ? 1 : 0);
   const punching = f.punchT > 0;
   if (punching) dmg += 8;
@@ -151,7 +159,7 @@ function swing(f, armed = true) {
     if (t === f || !t.alive || t.layer !== f.layer || t.owner === f) continue;
     if (Math.abs(t.z - f.z) > 50) continue;
     const a = Math.atan2(t.y - f.y, t.x - f.x);
-    if (hyp(t.x - f.x, t.y - f.y) - t.r < reach && Math.abs(angDiff(f.face, a)) < 1.0) hit = hurt(t, dmg, f, a, 300) || hit;
+    if (hyp(t.x - f.x, t.y - f.y) - t.r < reach && Math.abs(angDiff(f.face, a)) < 1.0) hit = hurt(t, dmg, f, a, maul ? 720 : 300, maul ? 400 : 0) || hit;
   }
   // Rats are small: you have to actually aim at them
   if (f.layer === 1) for (const rat of G.rats) {
@@ -163,11 +171,17 @@ function swing(f, armed = true) {
   f.gather = null;
   return hit;
 }
+const flaskReady = s => !!s && s.id === 'everflask' && !(s.ready > G.t);
 function drink(f) {
-  let i = heldId(f) === 'pot' ? f.sel : -1;
+  if (f.drinkCd > 0 || f.hp >= f.maxHp) return false;
+  let i = heldId(f) === 'pot' || flaskReady(f.slots[f.sel]) ? f.sel : -1;
   if (i < 0) for (let k = 0; k < HOTBAR; k++) if (f.slots[k] && f.slots[k].id === 'pot') { i = k; break; }
-  if (i < 0 || f.drinkCd > 0 || f.hp >= f.maxHp) return false;
-  f.slots[i] = null; bump(f); f.drinkCd = 0.2; f.hp = Math.min(f.maxHp, f.hp + 7);
+  if (i < 0) for (let k = 0; k < HOTBAR; k++) if (flaskReady(f.slots[k])) { i = k; break; }
+  if (i < 0) return false;
+  if (f.slots[i].id === 'everflask') f.slots[i].ready = G.t + 25; // refills instead of being used up
+  else f.slots[i] = null;
+  bump(f); f.drinkCd = 0.2; f.hp = Math.min(f.maxHp, f.hp + 7);
+  if (f === G.human && G.stats) G.stats.pots++;
   addFx('ring', f.x, f.y, f.layer, { col: '#e0506a', z: f.z + 2 });
   Sfx.play('drink', f.x, f.y, f.z);
   return true;
@@ -230,6 +244,32 @@ function useKit(f, ax, ay) {
   if (K.uses) f.kitCd = 0.5;
   return true;
 }
+// Skyhook: grapple to whatever the crosshair is on, up to 22 blocks away
+function fireSkyhook(f, pitch) {
+  if (f.skyCd > 0 || f.layer) return false;
+  const cp = Math.cos(pitch), eye = f.z + EYE, dx = Math.cos(f.face) * cp, dy = Math.sin(f.face) * cp, dz = Math.sin(pitch);
+  const a = rayPick(f.x, f.y, eye, dx, dy, dz, 550);
+  if (!a) return false;
+  const x = f.x + dx * a.t, y = f.y + dy * a.t, z = eye + dz * a.t;
+  f.hook = { x, y, z, t: 1.4, best: 1e9, stuck: 0 };
+  f.skyCd = 6; f.gather = null;
+  addFx('rope', x, y, 0, { owner: f, t: 1.4, az: z });
+  NET.fx({ k: 'rope', o: f.id, a: [x, y, z].map(Math.round) });
+  Sfx.play('shoot', f.x, f.y, f.z);
+  return true;
+}
+// Who took a legendary: everyone hears about it
+function relicTaken(f, it) {
+  const s = it.stacks.find(s => ITEMS[s.id].legendary);
+  if (!s) return;
+  announceRelic(f, s.id);
+  NET.fx({ k: 'relic', o: f.id, i: s.id });
+}
+function announceRelic(f, id) {
+  if (!f || !ITEMS[id]) return;
+  G.feed.unshift({ txt: `${f.name} took the ${ITEMS[id].name}`, t: 12, you: f === G.human, relic: true });
+  if (f === G.human) banner(ITEMS[id].name, ITEMS[id].desc); else toast(`${f.name} has the ${ITEMS[id].name}`);
+}
 function spawnClone(f, dir) {
   const c = new Fighter(f.name, 'killer', true, f.id + '~' + Math.random().toString(36).slice(2, 6));
   Object.assign(c, { isClone: true, owner: f, x: f.x, y: f.y, z: f.z, layer: f.layer, color: f.color, life: 9, cdir: dir, bot: true, remote: false });
@@ -259,9 +299,10 @@ function addFx(kind, x, y, layer, o = {}) { G.fx.push({ kind, x, y, layer, t: o.
 // Landing: fall damage, hay bales, feather charms and the Faller kit
 function land(f, fall, onType) {
   const blocks = fall / B;
+  if (f === G.human && G.stats) G.stats.fall = Math.max(G.stats.fall, blocks);
   if (blocks > 1.5) addFx('ring', f.x, f.y, f.layer, { col: '#d9c7a8', z: f.z + 1 });
   const dmg = Math.max(0, blocks - 3.5);
-  if (dmg <= 0) return;
+  if (dmg <= 0 || wears(f, 'boots_wind')) return;
   Sfx.play('fall', f.x, f.y, f.z);
   if (onType === 'hay' || f.noFallT > 0) { if (f === G.human) toast(onType === 'hay' ? 'The hay bale broke your fall' : 'Spring landing: no damage'); return; }
   if (f.kit === 'faller') {
@@ -285,7 +326,7 @@ function land(f, fall, onType) {
 
 // ---- per-frame physics for a fighter we simulate ----
 function updateFighter(f, dt) {
-  for (const k of ['atkCd', 'kitCd', 'invuln', 'speedT', 'hurtT', 'swingT', 'punchT', 'drinkCd', 'slowT', 'spikeCd', 'noFallT']) if (f[k] > 0) f[k] -= dt;
+  for (const k of ['atkCd', 'kitCd', 'invuln', 'speedT', 'hurtT', 'swingT', 'punchT', 'drinkCd', 'slowT', 'spikeCd', 'noFallT', 'skyCd']) if (f[k] > 0) f[k] -= dt;
   f.biome = f.layer ? -1 : biomeAt(f.x, f.y);
   let sp = f.layer ? 165 : [190, 185, 172, 150][f.biome];
   if (f.speedT > 0) sp *= 1.8;
@@ -296,6 +337,12 @@ function updateFighter(f, dt) {
   let mx = f.mx, my = f.my;
   const ml = hyp(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
   if (f.hidden && ml > 0.1) f.hidden = false;
+  if (f.hook) { // being reeled in by the Skyhook
+    const k = f.hook, dx = k.x - f.x, dy = k.y - f.y, dz = k.z - (f.z + 30), d = Math.hypot(dx, dy, dz);
+    k.t -= dt; k.stuck = d < k.best - 2 ? 0 : k.stuck + dt; k.best = Math.min(k.best, d);
+    if (d < 34 || k.t <= 0 || k.stuck > 0.25 || f.layer) f.hook = null;
+    else { f.kbx = dx / d * 760; f.kby = dy / d * 760; f.vz = dz / d * 760 + 40; f.onGround = false; f.peakZ = f.z; }
+  }
   const fr = Math.exp(-(f.onGround ? 7 : 1.5) * dt);
   f.kbx *= fr; f.kby *= fr;
   let nx = f.x + (mx * sp + f.kbx) * dt, ny = f.y + (my * sp + f.kby) * dt;
@@ -324,6 +371,12 @@ function updateFighter(f, dt) {
       if (d > m) { f.x = PIT.x + (f.x - PIT.x) / d * m; f.y = PIT.y + (f.y - PIT.y) / d * m; }
     }
     f.x = clamp(f.x, 20, WORLD - 20); f.y = clamp(f.y, 20, WORLD - 20);
+    // Ladders: climb while pushing into one (or holding jump); no fall damage builds up while on one
+    if (ladderAt(f)) {
+      f.peakZ = f.z;
+      if (f.climb) { f.vz = 150; f.onGround = false; }
+      else if (!f.onGround) f.vz = f.sneak ? GRAV * dt : Math.max(f.vz, -80);
+    }
     // Vertical: stand, step, fall, land
     const sup = supportAt(f.x, f.y, f.z, f.r, 0), supType = SUP_TYPE;
     if (f.onGround) {
@@ -331,7 +384,9 @@ function updateFighter(f, dt) {
       else f.z = sup;
     }
     if (!f.onGround) {
-      f.vz -= GRAV * dt; f.z += f.vz * dt;
+      f.vz -= GRAV * dt;
+      if ((f.bot || f.glide) && f.vz < -110 && wears(f, 'boots_wind')) f.vz = -110; // glide
+      f.z += f.vz * dt;
       if (f.vz > 0) { const c = headBlocked(f); if (c !== null && f.z > c) { f.z = c; f.vz = 0; } }
       f.peakZ = Math.max(f.peakZ, f.z);
       if (f.z <= sup) { f.z = sup; f.vz = 0; f.onGround = true; land(f, f.peakZ - sup, supType); }
@@ -392,11 +447,12 @@ function pickups() {
       if (it.local && f.remote) continue;
       if (it.noPick === f.id && G.t < it.noPickT) continue;
       if (hyp(it.x - f.x, it.y - f.y) > f.r + 16 || Math.abs(it.z - f.z) > 40) continue;
-      if (f.remote) { NET.got(f, it.stacks); removeItem(it, f); break; }
+      if (f.remote) { NET.got(f, it.stacks); removeItem(it, f); if (it.kind === 'relic') relicTaken(f, it); break; }
       const left = [];
       for (const s of it.stacks) { const l = give(f, s.id, s.n); if (l) left.push({ id: s.id, n: l }); }
       if (left.length === it.stacks.length && left.every((l, i) => l.n === it.stacks[i].n)) { if (f === G.human && !it.fullWarned) { toast('Inventory full'); it.fullWarned = true; } continue; }
       if (f === G.human) { Sfx.play('pickup'); pickupToast(it.stacks, left); }
+      if (it.kind === 'relic' && !left.some(l => ITEMS[l.id].legendary)) { relicTaken(f, it); it.kind = 'chest'; }
       if (left.length) { it.stacks = left; if (!it.local) NET.itemUpd(it); }
       else removeItem(it, f);
       break;
@@ -418,11 +474,27 @@ function updateRats(dt) {
     if (!under.some(f => hyp(f.x - n.x, f.y - n.y) < 300))
       G.rats.push({ x: n.x, y: n.y, hp: 3, kbx: 0, kby: 0, node: world.nodes.indexOf(n), a: 0 });
   }
+  const nest = world.landmarks.find(m => m.id === 'nest');
+  const nestLive = nest && G.items.some(i => i.kind === 'relic' && i.layer === 1 && !i.gone);
+  if (nestLive && G.rats.filter(r => r.guard).length < 5 && Math.random() < dt * 0.5)
+    G.rats.push({ x: nest.x + (Math.random() - .5) * 30, y: nest.y + (Math.random() - .5) * 30, hp: 4, kbx: 0, kby: 0, node: nest.node, a: 0, guard: true, biteT: 0 });
   for (const r of G.rats) {
+    if (r.guard) { // guards stay near the nest and bite anyone without the crown
+      r.biteT -= dt; r.kbx *= Math.exp(-8 * dt); r.kby *= Math.exp(-8 * dt);
+      let tgt = null, td = 170;
+      for (const f of under) if (!f.remote && !wears(f, 'crown') && hyp(f.x - nest.x, f.y - nest.y) < 220) { const d = hyp(f.x - r.x, f.y - r.y); if (d < td) { td = d; tgt = f; } }
+      let a, sp;
+      if (tgt) { a = Math.atan2(tgt.y - r.y, tgt.x - r.x); sp = 130; if (td < 20 && r.biteT <= 0 && !(tgt.biteCd > G.t)) { r.biteT = 1.1; tgt.biteCd = G.t + 0.3; hurt(tgt, 0.6, null, a, 80); } }
+      else { a = Math.atan2(nest.y - r.y, nest.x - r.x) + Math.sin(G.t * 4 + r.x) * 1.4; sp = hyp(nest.x - r.x, nest.y - r.y) > 60 ? 90 : 40; }
+      r.a = a;
+      const nx = r.x + (Math.cos(a) * sp + r.kbx) * dt, ny = r.y + (Math.sin(a) * sp + r.kby) * dt;
+      if (walkUnder(nx, ny, 7)) { r.x = nx; r.y = ny; }
+      continue;
+    }
     let tn = world.nodes[r.node];
     if (hyp(tn.x - r.x, tn.y - r.y) < 14) { r.node = pick(tn.adj); tn = world.nodes[r.node]; }
     let a = Math.atan2(tn.y - r.y, tn.x - r.x) + Math.sin(G.t * 9 + r.x) * 0.8, sp = 85;
-    for (const f of under) if (hyp(f.x - r.x, f.y - r.y) < 110) { a = Math.atan2(r.y - f.y, r.x - f.x) + Math.sin(G.t * 5) * 0.5; sp = 115; }
+    for (const f of under) if (!wears(f, 'crown') && hyp(f.x - r.x, f.y - r.y) < 110) { a = Math.atan2(r.y - f.y, r.x - f.x) + Math.sin(G.t * 5) * 0.5; sp = 115; }
     r.a = a;
     r.kbx *= Math.exp(-8 * dt); r.kby *= Math.exp(-8 * dt);
     const nx = r.x + (Math.cos(a) * sp + r.kbx) * dt, ny = r.y + (Math.sin(a) * sp + r.kby) * dt;
@@ -463,6 +535,7 @@ function updateProj(dt) {
 function updateFx(dt) {
   for (const e of G.fx) {
     e.t -= dt;
+    if (e.kind === 'rope' && e.owner && !e.owner.remote && !e.owner.hook) e.t = 0;
     if (e.kind === 'strike' && e.t <= 0 && !e.done) {
       e.done = true;
       if (!e.ghost) {

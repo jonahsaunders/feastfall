@@ -2,9 +2,9 @@
 // Match flow, input, HUD, inventory screen, screens (Play ↔ Options ↔ Game → Lose → Play), kit store.
 const $ = s => document.querySelector(s);
 function setHTML(sel, html) { const el = $(sel); if (el._h !== html) { el._h = html; el.innerHTML = html; } }
-G.settings = { len: 8, bots: 23, snow: true, dmgNums: true, shadows: true, sens: 1, vol: 0.6 };
+G.settings = { len: 8, bots: 23, snow: true, dmgNums: true, shadows: true, sens: 1, vol: 0.6, fov: 75, tips: true };
 G.mode = 'menu';
-const STORE = { coins: 150, owned: [], kit: 'killer' };
+const STORE = { coins: 150, owned: [], kit: 'killer', life: { matches: 0, wins: 0, kills: 0, best: 0, fall: 0 } };
 try { const s = JSON.parse(localStorage.getItem('ff_store')); if (s) Object.assign(STORE, s); } catch (e) {}
 try { const s = JSON.parse(localStorage.getItem('ff_settings')); if (s) Object.assign(G.settings, s); } catch (e) {}
 function save() {
@@ -44,14 +44,30 @@ function makeBot(name, id) {
 function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans = null) {
   genWorld(seed);
   resetBlocks();
-  Object.assign(G, { fighters: [], rats: [], proj: [], fx: [], items: [], pings: [], feed: [], itemSeq: 0, t: 0, clockMin: 0, graceDone: false, feast: null, pit: false, over: false, coinsEarned: 0, killedBy: null });
+  buildRuins();
+  buildLandmarks();
+  Object.assign(G, { fighters: [], rats: [], proj: [], fx: [], items: [], pings: [], feed: [], itemSeq: 0, t: 0, clockMin: 0, graceDone: false, feast: null, pit: false, over: false, coinsEarned: 0, killedBy: null,
+    winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0 } });
   const names = [...BOT_NAMES];
   for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
   const taken = [];
   const all = humans ? [...humans] : human ? [human] : [];
   for (let i = 0; i < nBots; i++) all.push(makeBot(names[i % names.length] + (i >= names.length ? String(Math.floor(i / names.length) + 1) : ''), 'b' + i));
   for (const f of all) { const p = spawnPoint(taken, f.kit === 'finder'); Object.assign(f, { x: p.x, y: p.y, z: heightAt(p.x, p.y), onGround: true }); taken.push(p); G.fighters.push(f); }
-  if (!NET.on || NET.isHost()) for (let i = 0; i < 18; i++) spawnPot();
+  if (!NET.on || NET.isHost()) {
+    for (let i = 0; i < 18; i++) spawnPot();
+    for (const r of world.ruins) addItem({ kind: 'chest', x: r.x, y: r.y, z: r.chestZ, layer: 0, stacks: ruinLoot(r) });
+    for (const m of world.landmarks) addItem({ kind: 'relic', x: m.x, y: m.y, z: m.chestZ, layer: m.layer, stacks: [{ id: LANDMARKS[m.id].item, n: 1 }, { id: 'pot', n: 2 }] });
+  }
+}
+// Watchtowers (you have to climb them) hold the best ruin loot
+function ruinLoot(r) {
+  const s = [], add = (id, n) => s.push({ id, n }), n = (a, b) => a + Math.floor(rng() * (b - a + 1));
+  add('pot', n(1, r.kind === 'tower' ? 3 : 2));
+  if (r.kind === 'tower') { add(pick(['sword3', 'sword2', 'bow']), 1); add(pick(['hide_chest', 'hide_legs', 'charm', 'charm']), 1); add('arrow', n(8, 16)); }
+  else if (r.kind === 'cabin') { add(pick(['sword2', 'sword1', 'bow', 'hide_head', 'hide_feet']), 1); add(pick(['plank', 'cobble']), n(12, 24)); add('ladder', 4); }
+  else { add(pick(['stone', 'wood', 'iron']), n(3, 6)); add(pick(['hay', 'spike', 'arrow']), pick([2, 3, 6])); }
+  return s;
 }
 function spawnPot() {
   for (let i = 0; i < 30; i++) {
@@ -102,11 +118,11 @@ function phases() {
     ];
     if (host) loot.forEach((stacks, i) => {
       const a = i / 4 * 6.28 + .4, x = s.x + Math.cos(a) * 70, y = s.y + Math.sin(a) * 70;
-      addItem({ kind: 'chest', x, y, z: heightAt(x, y), layer: 0, stacks });
+      addItem({ kind: 'feast', x, y, z: heightAt(x, y), layer: 0, stacks });
     });
     banner('The feast is open', 'Feast Blades, feast armour and potions.');
   }
-  if (G.feast && G.feast.state === 'spawned' && !G.items.some(i => i.kind === 'chest' && !i.gone)) G.feast.state = 'done';
+  if (G.feast && G.feast.state === 'spawned' && !G.items.some(i => i.kind === 'feast' && !i.gone)) G.feast.state = 'done';
   if (!G.pit && m >= 60) {
     G.pit = true;
     const alive = G.fighters.filter(f => f.alive && !f.isClone);
@@ -146,6 +162,13 @@ document.addEventListener('mousemove', e => {
 });
 addEventListener('keydown', e => {
   if (G.chatOpen) return;
+  if (G.mode === 'spectate') {
+    const k = e.key.toLowerCase();
+    if (['arrowright', 'd', ' '].includes(k)) { e.preventDefault(); spectate(1); }
+    else if (['arrowleft', 'a'].includes(k)) spectate(-1);
+    else if (k === 'escape') setMode('end');
+    return;
+  }
   if (G.mode !== 'play') { if (e.key === 'Escape' && G.mode === 'paused') resume(); return; }
   const k = e.key.toLowerCase(), h = G.human;
   if (['tab', ' ', 'arrowup', 'arrowdown', 'shift'].includes(k)) e.preventDefault();
@@ -178,6 +201,7 @@ addEventListener('keyup', e => {
 addEventListener('blur', () => { keys.clear(); mouse.down = mouse.rdown = false; if (G.human) G.human.sneak = false; if (G.mode === 'play' && !NET.on) pause(); });
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('mousedown', e => {
+  if (G.mode === 'spectate') { spectate(e.button === 2 ? -1 : 1); return; }
   if (G.mode !== 'play' || !G.human.alive) return;
   if (G.invOpen) { toggleInv(); return; }
   if (!locked && !noLock) { lockPointer(); return; }
@@ -188,6 +212,8 @@ cv.addEventListener('mousedown', e => {
   if (item === 'bow') { if (h.arrows > 0) h.charge = 0; else toast('No arrows. Craft them in the inventory (Tab).'); }
   else if (item === 'pot') drink(h);
   else if (item === 'kit') { const a = aimWorld(); if (!useKit(h, a.x, a.y)) kitFail(h); }
+  else if (item === 'skyhook' && !fireSkyhook(h, VIEW.pitch)) toast(h.skyCd > 0 ? `Skyhook recharging: ${Math.ceil(h.skyCd)}s` : h.layer ? 'The Skyhook doesn’t work underground' : 'Nothing to hook within 22 blocks');
+  else if (item === 'everflask' && !drink(h)) { const s = h.slots[h.sel]; toast(s.ready > G.t ? `Everflask refilling: ${Math.ceil(s.ready - G.t)}s` : 'You’re already at full health'); }
 });
 addEventListener('mouseup', e => {
   if (e.button === 2) mouse.rdown = false;
@@ -231,6 +257,8 @@ function humanInput(dt) {
   const fw = busy ? 0 : (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0), st = busy ? 0 : (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
   const c = Math.cos(h.face), sn = Math.sin(h.face);
   h.mx = c * fw - sn * st; h.my = sn * fw + c * st;
+  h.climb = !busy && (keys.has('w') || keys.has(' '));
+  h.glide = !busy && keys.has(' ');
   if ((fw || st) && h.gather) h.gather = null;
   h.pitch = VIEW.pitch;
   const cp = Math.cos(VIEW.pitch);
@@ -243,7 +271,7 @@ function humanInput(dt) {
     const key = bkey(a.i, a.j, a.k);
     if (h.breakKey !== key) { h.breakKey = key; h.breakT = 0; }
     h.breakT += dt;
-    h.breakNeed = BLOCKS[a.b.type].hard * (def && def.tier >= 2 ? 0.6 : 1);
+    h.breakNeed = BLOCKS[a.b.type].hard * (def && def.tier === 5 ? 0.02 : def && def.tier >= 2 ? 0.6 : 1); // the Quake Maul breaks anything in one swing
     if (h.breakT >= h.breakNeed) { breakBlock(a.i, a.j, a.k, h); h.breakKey = null; h.breakT = 0; }
   } else { h.breakKey = null; h.breakT = 0; }
   if (mouse.down && hand && swing(h, !!(def && def.tier))) hitMark();
@@ -255,8 +283,11 @@ function humanInput(dt) {
 }
 let hitT;
 function hitMark() { const c = $('#cross'); c.classList.add('hit'); clearTimeout(hitT); hitT = setTimeout(() => c.classList.remove('hit'), 140); }
-function updateCross() {
-  const h = G.human;
+function updateCross(dt) {
+  const h = G.human, dd = G.dmgDir, el = $('#dmgdir');
+  if (dd && dd.t > 0) { dd.t -= dt * 0.9; el.style.opacity = Math.max(0, dd.t); el.style.transform = `translate(-50%, -50%) rotate(${dd.a - h.face}rad)`; }
+  else el.style.opacity = 0;
+  if (G.killFlash > 0) { G.killFlash -= dt; $('#cross').classList.toggle('kill', G.killFlash > 0); }
   const p = h.breakKey ? h.breakT / h.breakNeed : h.gather ? h.gatherT / gatherTime(h, h.gather) : h.charge >= 0 ? h.charge : h.refillT > 0 ? 1 - h.refillT / 0.22 : 0;
   $('#cross').style.setProperty('--p', p.toFixed(3));
   $('#hurt').style.opacity = h.hurtT > 0 ? 1 : h.hp < 6 ? 0.45 : 0;
@@ -312,13 +343,14 @@ function frame(now) {
       if (!camFocus || !camFocus.alive) camFocus = G.fighters.find(f => f.alive && !f.isClone);
       if (!camFocus || G.fighters.filter(f => f.alive && !f.isClone).length <= 1 || G.t > 240) startAttract();
       else Object.assign(G.human, { x: camFocus.x, y: camFocus.y, z: camFocus.z, layer: camFocus.layer, biome: camFocus.biome });
-      render(dt); Sfx.update('menu', dt);
-    } else if (G.mode === 'play' || (NET.on && (G.mode === 'paused' || G.mode === 'end'))) {
-      // Online matches keep running while you pause or after you die
+      render(dt); Sfx.update('menu', dt, 0);
+    } else if (G.mode === 'play' || G.mode === 'spectate' || (NET.on && (G.mode === 'paused' || G.mode === 'end'))) {
+      // Online matches keep running while you pause or after you die; spectating always does
+      if (G.mode === 'spectate' && !(G.specTarget && G.specTarget.alive)) spectate(1);
       step(dt); render(dt); renderMinimap();
-      if (G.mode === 'play') updateCross();
-      const h = G.human;
-      Sfx.update(h.layer ? 'under' : h.biome === 2 && G.settings.snow && !G.pit ? 'snow' : 'surface', dt);
+      if (G.mode === 'play') { updateCross(dt); checkTips(dt); checkLandmarks(); }
+      const v = VIEW.focus || G.human;
+      Sfx.update(v.layer ? 'under' : v.biome === 2 && G.settings.snow && !G.pit ? 'snow' : 'surface', dt, DAY.night);
       hudT -= dt; if (hudT <= 0) { hudT = 0.1; updateHud(); }
     } else { render(0); renderMinimap(); }
   }
@@ -348,13 +380,15 @@ function updateHud() {
     let sub = '';
     if (s && s.id === 'kit') sub = K.uses ? `${h.uses} left` : h.kitCd > 0 ? `${Math.ceil(h.kitCd)}s` : '';
     if (s && s.id === 'bow') sub = `${h.arrows}`;
+    if (s && s.id === 'everflask' && s.ready > G.t) sub = `${Math.ceil(s.ready - G.t)}s`;
+    if (s && s.id === 'skyhook' && h.skyCd > 0) sub = `${Math.ceil(h.skyCd)}s`;
     const cd = s && s.id === 'kit' && K.cd && h.kitCd > 0 ? `<span class="cd" style="height:${h.kitCd / K.cd * 100}%"></span>` : '';
-    return `<div class="slot ${i === h.sel ? 'sel' : ''} ${s ? '' : 'empty'}"><span class="key">${i + 1}</span>${cd}${slotInner(s, h)}${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
+    return `<div class="slot ${i === h.sel ? 'sel' : ''} ${s ? '' : 'empty'} ${s && ITEMS[s.id].legendary ? 'legend' : ''}"><span class="key">${i + 1}</span>${cd}${slotInner(s, h)}${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
   }).join(''));
   const bp = bagPots(h);
   $('#bagpots').textContent = bp ? `${bp} potion${bp > 1 ? 's' : ''} in backpack${canRefill(h) ? ' · R to refill' : ''}` : 'No potions in backpack';
   $('#bagpots').classList.toggle('warn', canRefill(h));
-  setHTML('#feed', G.feed.map(k => `<div class="${k.you ? 'you' : ''}${k.chat ? ' chat' : ''}">${escapeHTML(k.txt)}</div>`).join(''));
+  setHTML('#feed', G.feed.map(k => `<div class="${k.you ? 'you' : ''}${k.chat ? ' chat' : ''}${k.relic ? ' relic' : ''}">${escapeHTML(k.txt)}</div>`).join(''));
   let p = '';
   if (h.refillT > 0) p = 'Refilling hotbar…';
   else if (world.entrances.some(e => hyp(e.x - h.x, e.y - h.y) < 46) && !G.pit) p = h.layer ? '<kbd>E</kbd> Climb out' : '<kbd>E</kbd> Go down into the tunnels';
@@ -374,6 +408,76 @@ function updateHud() {
   $('#status').textContent = st.join(' · ');
   $('#clickto').hidden = !(G.mode === 'play' && !locked && !noLock && !G.invOpen && !G.chatOpen && h.alive);
   if (G.invOpen) renderInv();
+  renderBoard();
+  if (G.mode === 'spectate' && G.specTarget) {
+    const t = G.specTarget;
+    $('#spec').textContent = `Watching ${t.name} · ${KITS[t.kit].name} · ${Math.ceil(t.hp)} health · ${t.kills} kills   ← → or click to switch · Esc to go back`;
+  }
+}
+// Hold P: everyone in the match, alive first, then by kills
+function renderBoard() {
+  const show = G.mode === 'play' && keys.has('p');
+  $('#board').hidden = !show;
+  if (!show) return;
+  const all = G.fighters.filter(f => !f.isClone).sort((a, b) => (b.alive - a.alive) || (b.kills - a.kills) || a.name.localeCompare(b.name));
+  const rows = all.slice(0, 24);
+  if (!rows.includes(G.human)) rows.push(G.human);
+  $('#board-count').textContent = `${all.filter(f => f.alive).length} of ${all.length} alive`;
+  setHTML('#board-list', rows.map(f => `<div class="${f.alive ? '' : 'dead'} ${f === G.human ? 'me' : ''}"><span>${escapeHTML(f.name)}${f.bot ? '' : ' <i>player</i>'}</span><small>${KITS[f.kit].name}</small><b>${f.kills}</b></div>`).join(''));
+}
+
+// ---------- spectating ----------
+function spectate(dir) {
+  const alive = G.fighters.filter(f => f.alive && !f.isClone && f !== G.human);
+  if (!alive.length) { if (G.mode === 'spectate') setMode('end'); return; }
+  const i = alive.indexOf(G.specTarget);
+  G.specTarget = alive[i < 0 ? 0 : (i + dir + alive.length) % alive.length];
+}
+function startSpectate() {
+  const k = G.human.lastHitBy;
+  G.specTarget = k && k.alive && !k.isClone ? k : null;
+  if (!G.specTarget) spectate(1);
+  if (G.specTarget) { setMode('spectate'); last = performance.now(); }
+}
+
+// ---------- landmarks: announce each one the first time you get close, while its legendary is still there ----------
+function checkLandmarks() {
+  const h = G.human;
+  if (!h.alive) return;
+  for (const m of world.landmarks) {
+    if (G.lmSeen[m.id] || m.layer !== h.layer || hyp(m.x - h.x, m.y - h.y) > 260) continue;
+    G.lmSeen[m.id] = true;
+    if (G.items.some(i => i.kind === 'relic' && !i.gone && hyp(i.x - m.x, i.y - m.y) < 5)) banner(LANDMARKS[m.id].name, LANDMARKS[m.id].hint);
+  }
+}
+
+// ---------- first-match tips (each shows once per browser) ----------
+const TIPS = [
+  { id: 'start', when: () => G.t > 2, text: 'Hold E next to a tree to chop wood, then press Tab to craft. A Wood Sword costs 2 wood.' },
+  { id: 'sword', when: h => ['sword1', 'sword2', 'sword3', 'sword4'].some(id => count(h, id)) && !(heldId(h) && ITEMS[heldId(h)].tier), text: 'Swords only count while you hold them. Select yours with 1–9 or the mouse wheel.' },
+  { id: 'swamp', when: h => h.biome === 3, text: 'Potions spawn in the swamp. They don’t stack: press R to refill empty hotbar slots from your backpack.' },
+  { id: 'tunnel', when: h => world.entrances.some(e => hyp(e.x - h.x, e.y - h.y) < 120), text: 'Press E at a tunnel entrance to go underground. Rats drop hide for armour, but every kill pings your position to everyone.' },
+  { id: 'planks', when: h => count(h, 'plank') > 0, text: 'Hold right-click with planks to place them. Look straight down and press Space to pillar up.' },
+  { id: 'ruin', when: h => world.ruins.some(r => hyp(r.x - h.x, r.y - h.y) < 220), text: 'Ruins (gold squares on the map) hide loot chests. Watchtower chests are at the top: walk into the ladder to climb.' },
+  { id: 'pvp', when: () => G.graceDone && G.clockMin > G.grace + 0.2, text: 'PvP is on. F or right-click drinks a potion mid-fight. Hold P to see who’s left.' },
+  { id: 'low', when: h => h.hp < 8 && hotPots(h) > 0, text: 'Low health: drink a potion with F or right-click.' },
+  { id: 'legend', when: () => G.t > 25, text: 'Gold stars on the map are landmarks, each holding one legendary item. Follow the light beams. Whoever takes one, everyone finds out.' },
+  { id: 'feast', when: () => !!G.feast, text: 'The feast has the best gear in the game. Everyone else is heading there too.' },
+  { id: 'night', when: () => DAY.night > 0.5, text: 'Night falls before the pit. Names are harder to read from a distance, and so is yours.' },
+];
+let tipsSeen = [];
+try { tipsSeen = JSON.parse(localStorage.getItem('ff_tips')) || []; } catch (e) {}
+let tipT = 0, tipHideT;
+function checkTips(dt) {
+  tipT -= dt;
+  if (tipT > 0 || !G.settings.tips || !G.human.alive || !$('#tipbox').hidden) return;
+  tipT = 0.5;
+  const t = TIPS.find(t => !tipsSeen.includes(t.id) && t.when(G.human));
+  if (!t) return;
+  tipsSeen.push(t.id);
+  try { localStorage.setItem('ff_tips', JSON.stringify(tipsSeen)); } catch (e) {}
+  const el = $('#tipbox'); el.querySelector('p').textContent = t.text; el.hidden = false;
+  clearTimeout(tipHideT); tipHideT = setTimeout(() => el.hidden = true, 9000);
 }
 const escapeHTML = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let toastT;
@@ -456,7 +560,7 @@ function moveCursorStack() {
   el.style.transform = `translate(${mouse.x - 22}px, ${mouse.y - 22}px)`;
 }
 function slotBtn(s, attr, label) {
-  return `<button class="islot ${s ? '' : 'empty'}" ${attr}>${slotInner(s, G.human)}${!s && label ? `<small>${label}</small>` : ''}</button>`;
+  return `<button class="islot ${s ? '' : 'empty'} ${s && ITEMS[s.id].legendary ? 'legend' : ''}" ${attr}>${slotInner(s, G.human)}${!s && label ? `<small>${label}</small>` : ''}</button>`;
 }
 function renderInv() {
   const h = G.human;
@@ -482,6 +586,7 @@ function showTip(el) {
   else if (el.dataset.slot !== undefined || el.dataset.eq) { const s = getS(refOf(el)); id = s && s.id; }
   if (!id) { tip.hidden = true; return; }
   const it = ITEMS[id], h = G.human, lines = [];
+  if (it.legendary) { const lm = Object.entries(LANDMARKS).find(([, l]) => l.item === id); lines.push(`Legendary · one per match${lm ? ` · from ${lm[1].name}` : ''}`); }
   if (it.tier) lines.push(`${WDMG[it.tier]} damage per hit`);
   if (it.def) lines.push(`Blocks ${Math.round(it.def * 100)}% of damage`);
   if (id === 'kit') lines.push(KITS[h.kit].desc);
@@ -508,6 +613,7 @@ $('#inv').addEventListener('click', e => {
     const r = recipe(el.dataset.r);
     if (!canCraft(h, r)) { toast('Missing materials for ' + ITEMS[r.out].name); return; }
     const n = craft(h, r, e.shiftKey ? 64 : 1);
+    G.stats.crafted += n;
     toast(`Crafted ${n * (r.n || 1)} × ${ITEMS[r.out].name}`); Sfx.play('craft'); renderInv(); showTip(el); return;
   }
   if (el.id === 'drop-zone') {
@@ -524,7 +630,10 @@ function setMode(m) {
   $('#screen-play').hidden = m !== 'menu';
   $('#screen-options').hidden = m !== 'options' && m !== 'paused';
   $('#screen-end').hidden = m !== 'end';
-  $('#hud').hidden = !(m === 'play' || m === 'paused');
+  $('#hud').hidden = !(m === 'play' || m === 'paused' || m === 'spectate');
+  $('#hud').classList.toggle('spec', m === 'spectate');
+  $('#spec').hidden = m !== 'spectate';
+  if (m !== 'play') { $('#board').hidden = true; $('#tipbox').hidden = true; }
   if (m !== 'play') { $('#inv').hidden = true; G.invOpen = false; $('#chat').hidden = true; G.chatOpen = false; }
   $('#opt-resume').hidden = m !== 'paused';
   $('#opt-leave').hidden = m !== 'paused';
@@ -538,13 +647,21 @@ function endGame(won) {
   G.over = true;
   const h = G.human, place = G.fighters.filter(f => f.alive && !f.isClone).length + (won ? 0 : 1);
   if (won) G.coinsEarned += 200;
-  STORE.coins += G.coinsEarned; save();
+  STORE.coins += G.coinsEarned;
+  const life = STORE.life = STORE.life || { matches: 0, wins: 0, kills: 0, best: 0, fall: 0 };
+  life.matches++; if (won) life.wins++; life.kills += h.kills;
+  if (!life.best || place < life.best) life.best = place;
+  life.fall = Math.max(life.fall, G.stats.fall);
+  save();
   setTimeout(() => {
     $('#end-title').textContent = won ? 'Last one standing' : 'You lost';
     $('#end-sub').textContent = won ? 'Everyone else is dead.' : G.killedBy ? `Killed by ${G.killedBy}.` : `${G.winnerName || 'Someone'} won the match.`;
-    $('#end-stats').innerHTML = [['Place', `#${place} of ${G.fighters.filter(f => !f.isClone).length}`], ['Kills', h.kills], ['Survived', fmt(G.clockMin)], ['Coins earned', `+${G.coinsEarned}`]]
+    const st = G.stats;
+    $('#end-stats').innerHTML = [['Place', `#${place} of ${G.fighters.filter(f => !f.isClone).length}`], ['Kills', h.kills], ['Survived', fmt(G.clockMin)], ['Coins earned', `+${G.coinsEarned}`],
+      ['Damage dealt', st.dmg.toFixed(0)], ['Blocks placed', st.blocks], ['Longest fall', `${st.fall.toFixed(1)} blocks`], ['Potions drunk', st.pots]]
       .map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     $('#end-online').hidden = !NET.on || won;
+    $('#btn-spec').hidden = won || !G.fighters.some(f => f.alive && !f.isClone && f !== G.human);
     unlockPointer();
     setMode('end');
   }, 1100);
@@ -555,6 +672,7 @@ function fillOptions() {
   $('#o-bots-v').textContent = G.settings.bots;
   $('#o-snow').checked = G.settings.snow; $('#o-dmg').checked = G.settings.dmgNums;
   $('#o-shadows').checked = G.settings.shadows; $('#o-sens').value = G.settings.sens; $('#o-vol').value = G.settings.vol;
+  $('#o-fov').value = G.settings.fov; $('#o-fov-v').textContent = G.settings.fov; $('#o-tips').checked = G.settings.tips;
 }
 $('#o-len').addEventListener('change', e => { G.settings.len = +e.target.value; save(); });
 $('#o-bots').addEventListener('input', e => { G.settings.bots = +e.target.value; $('#o-bots-v').textContent = e.target.value; save(); });
@@ -563,6 +681,10 @@ $('#o-dmg').addEventListener('change', e => { G.settings.dmgNums = e.target.chec
 $('#o-shadows').addEventListener('change', e => { G.settings.shadows = e.target.checked; save(); });
 $('#o-sens').addEventListener('input', e => { G.settings.sens = +e.target.value; save(); });
 $('#o-vol').addEventListener('input', e => { G.settings.vol = +e.target.value; Sfx.setVolume(G.settings.vol); save(); });
+$('#o-fov').addEventListener('input', e => { G.settings.fov = +e.target.value; $('#o-fov-v').textContent = e.target.value; save(); });
+$('#o-tips').addEventListener('change', e => { G.settings.tips = e.target.checked; save(); });
+$('#o-tips-reset').addEventListener('click', () => { tipsSeen = []; try { localStorage.removeItem('ff_tips'); } catch (e) {} toast('Tips will show again'); $('#o-tips-reset').textContent = 'Tips reset'; });
+$('#btn-spec').addEventListener('click', startSpectate);
 $('#btn-options').addEventListener('click', () => { fillOptions(); setMode('options'); });
 $('#opt-back').addEventListener('click', () => { setMode('menu'); renderKits(); });
 $('#opt-resume').addEventListener('click', resume);
@@ -578,6 +700,8 @@ $('#m-bots').addEventListener('input', e => { $('#m-bots-v').textContent = e.tar
 let buyOpen = null;
 function renderKits() {
   $('#coins').textContent = STORE.coins;
+  const L = STORE.life || {};
+  $('#record').textContent = L.matches ? `Your record: ${L.matches} match${L.matches > 1 ? 'es' : ''} · ${L.wins} win${L.wins === 1 ? '' : 's'} · ${L.kills} kills · best #${L.best} · longest fall ${Math.round(L.fall)} blocks` : '';
   $('#kits').innerHTML = Object.entries(KITS).map(([id, K]) => {
     const avail = kitAvailable(id), sel = STORE.kit === id;
     const tag = K.locked ? 'Not in this build' : FREE.includes(id) ? 'Free this week' : STORE.owned.includes(id) ? 'Owned' : `${KIT_PRICE} coins`;

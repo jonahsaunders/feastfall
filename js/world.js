@@ -188,8 +188,60 @@ function genWorld(seed) {
     const o = { kind: 'reed', style: 3, r: 6, amt: 2, x, y, seed: rng() };
     world.objs.push(o); gridAdd(o);
   }
+  // Ruins: cabins, broken walls and watchtowers with a loot chest (built from blocks in buildRuins)
+  world.ruins = [];
+  const kinds = ['tower', 'cabin', 'ruin', 'cabin', 'tower', 'ruin', 'cabin', 'ruin'];
+  for (let tries = 0; world.ruins.length < kinds.length && tries < 3000; tries++) {
+    const x = rr(300, WORLD - 300), y = rr(300, WORLD - 300);
+    if (biomeAt(x, y) === 3 || hyp(x - PIT.x, y - PIT.y) < PIT.r + 250) continue;
+    if (ents.some(e => hyp(e.x - x, e.y - y) < 260) || FEAST_SITES.some(f => hyp(f.x - x, f.y - y) < 320)) continue;
+    if (world.ruins.some(r => hyp(r.x - x, r.y - y) < 550)) continue;
+    if (nearObjs(x, y, 110).some(o => o.kind !== 'reed' && hyp(o.x - x, o.y - y) < 100)) continue;
+    const h0 = heightAt(x - 75, y - 75), h1 = heightAt(x + 75, y + 75), h2 = heightAt(x + 75, y - 75), h3 = heightAt(x - 75, y + 75);
+    if (Math.max(h0, h1, h2, h3) - Math.min(h0, h1, h2, h3) > 45) continue; // too steep to build on
+    world.ruins.push({ x, y, kind: kinds[world.ruins.length] });
+  }
+  // Landmarks: one legendary item each, once per match
+  world.landmarks = [];
+  const clear = (x, y, r) => !nearObjs(x, y, r + 20).some(o => o.kind !== 'reed' && o.amt > 0 && hyp(o.x - x, o.y - y) < r)
+    && !world.ruins.some(q => hyp(q.x - x, q.y - y) < 400) && !ents.some(e => hyp(e.x - x, e.y - y) < 200)
+    && !world.landmarks.some(q => q.layer === 0 && hyp(q.x - x, q.y - y) < 500) && !FEAST_SITES.some(f => hyp(f.x - x, f.y - y) < 300);
+  const flatness = (x, y, d) => { const hs = [[-d, -d], [d, -d], [-d, d], [d, d], [0, 0]].map(([a, b]) => heightAt(x + a, y + b)); return Math.max(...hs) - Math.min(...hs); };
+  let best = null;
+  for (let i = 0; i < 900; i++) { // Frostpeak Shrine: the highest open ground in the mountains
+    const x = rr(250, WORLD - 250), y = rr(150, WORLD * 0.3);
+    if (biomeAt(x, y) !== 2 || !clear(x, y, 60) || flatness(x, y, 40) > 40) continue;
+    const h = heightAt(x, y); if (!best || h > best.h) best = { x, y, h };
+  }
+  if (best) world.landmarks.push({ id: 'peak', x: best.x, y: best.y, layer: 0 });
+  world.landmarks.push({ id: 'altar', x: SWAMPS[0].x, y: SWAMPS[0].y, layer: 0 });
+  best = null;
+  for (let i = 0; i < 900; i++) { // Sunken Forge: flat desert, away from everything
+    const x = rr(WORLD * 0.72, WORLD - 250), y = rr(WORLD * 0.3, WORLD - 250);
+    if (biomeAt(x, y) !== 1 || !clear(x, y, 110)) continue;
+    const fl = flatness(x, y, 90); if (!best || fl < best.fl) best = { x, y, fl };
+  }
+  if (best) world.landmarks.push({ id: 'forge', x: best.x, y: best.y, layer: 0 });
+  best = null;
+  for (let i = 0; i < 900; i++) { // Crow's Nest: a clearing in the forest
+    const x = rr(300, WORLD * 0.66), y = rr(WORLD * 0.32, WORLD - 300);
+    if (biomeAt(x, y) !== 0 || hyp(x - PIT.x, y - PIT.y) < PIT.r + 250 || !clear(x, y, 55)) continue;
+    const fl = flatness(x, y, 40); if (!best || fl < best.fl) best = { x, y, fl };
+  }
+  if (best) world.landmarks.push({ id: 'crowsnest', x: best.x, y: best.y, layer: 0 });
+  // Rat King's Nest: the tunnel junction with the most branches, furthest from any entrance
+  const junction = world.nodes.map((n, i) => ({ i, n, score: n.adj.length * 1000 + Math.min(...ents.map(e => hyp(e.x - n.x, e.y - n.y))) }))
+    .filter(q => !q.n.ent).sort((a, b) => b.score - a.score)[0];
+  if (junction) world.landmarks.push({ id: 'nest', x: junction.n.x, y: junction.n.y, layer: 1, node: junction.i });
   world.ground = renderGround();
 }
+const LANDMARKS = {
+  crowsnest: { name: 'The Crow’s Nest', item: 'skyhook', hint: 'A spire in the forest. The Skyhook waits at the top.' },
+  forge: { name: 'The Sunken Forge', item: 'maul', hint: 'Walled ruins in the desert, ringed with spikes. The Quake Maul lies inside.' },
+  altar: { name: 'The Drowned Altar', item: 'everflask', hint: 'A platform in the heart of the swamp holds the Everflask.' },
+  peak: { name: 'Frostpeak Shrine', item: 'boots_wind', hint: 'The highest point in the mountains. The Windwalker Boots are in the shrine.' },
+  nest: { name: 'The Rat King’s Nest', item: 'crown', hint: 'The deepest tunnel junction, guarded by biting rats. The Rat King’s Crown is there.' },
+};
 
 // Low-poly ground: a jittered triangle mesh, each face coloured by biome.
 function renderGround() {

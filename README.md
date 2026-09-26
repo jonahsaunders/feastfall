@@ -5,7 +5,11 @@ A first-person, low-poly battle royale that runs in the browser. Drop into a for
 - **Towers and falls.** Craft planks and cobblestone, place blocks, pillar-jump up and shoot from above. Fall damage is real, so knockback, grappling hooks and lightning all bring towers down.
 - **Four ways to play.** Hunt people, mine rats in the tunnels for armour, set spike traps near the swamp, or tower up.
 - **14 kits** on a weekly free rotation: Killer, Mage, Jumper, Runner, Puncher, Thrower, Faller, Cutter, Hidden, Faker, Finder, Lightning, Heavy, Fisherman.
-- **A 60-minute match.** Grace period, a feast at 25:00 with the best gear, and at 60:00 everyone left is dropped into the pit.
+- **A 60-minute match from dawn to night.** Grace period, a feast at 25:00 with the best gear, dusk around 45:00, and at 60:00 everyone left is dropped into the pit under the stars.
+- **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, and you climb a ladder to reach them.
+- **Five legendary items**, one of each per match, each waiting at its own landmark. See [Legendaries](#legendaries).
+- **Ladders.** Craft them, lean them against a wall and climb. No fall damage while you're on one.
+- **After you die:** spectate whoever's left, and see your damage dealt, blocks placed, longest fall and potions drunk. The menu keeps your lifetime record.
 - **Online multiplayer** for up to 16 players plus bots, through a small relay server included here.
 - **Everything is generated in code:** the low-poly world, the item icons and the ambient music and sound effects. There are no asset files.
 
@@ -42,12 +46,24 @@ or add it to the link for one visit: `https://you.github.io/feastfall/?server=ws
 
 For a quick test without a server, open the page on `localhost` in two tabs of the same browser: they find each other through a local channel.
 
+## Legendaries
+
+Each match has exactly one of each legendary, sitting in a gold chest at a landmark. Landmarks are gold stars on the map, and a beam of light marks each one until its item is taken. When someone takes one, everyone is told who has it. Legendaries drop in the owner's death bag like anything else, so they change hands.
+
+| Item | Landmark | Effect |
+| --- | --- | --- |
+| Skyhook | The Crow's Nest: a 16-block cobblestone spire in the forest, climbed by ladder | Click to grapple to any block or the ground up to 22 blocks away. Recharges in 6 s |
+| Quake Maul | The Sunken Forge: a walled ring in the desert with spike traps in both gateways | Slow swings that launch people upward and knock them far. Breaks any block in one hit |
+| Everflask | The Drowned Altar: a platform in the middle of the swamp | Heals like a potion, then refills itself after 25 s instead of being used up |
+| Windwalker Boots | Frostpeak Shrine: the highest open ground in the mountains | No fall damage, ever. Hold Space while falling to glide |
+| Rat King's Crown | The Rat King's Nest: the biggest tunnel junction, guarded by rats that bite | Rats ignore you, your rat kills no longer ping your position, and underground your map shows everyone in the tunnels |
+
 ## Controls
 
 | Key | Action |
 | --- | --- |
 | WASD · mouse | Move · look (click the game to capture the mouse) |
-| Space · Shift | Jump · sneak (you won't walk off edges, and it blocks Faller damage) |
+| Space · Shift | Jump · sneak (you won't walk off edges, and it blocks Faller damage). Walk into a ladder, or hold Space, to climb |
 | Left click | Swing (hold to keep swinging), hold on a block to break it, draw the bow, use the held item |
 | Right click | Place the held block (hold, jump and look down to tower up), otherwise drink |
 | 1–9 · wheel | Select a hotbar slot |
@@ -55,8 +71,13 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 | Q · F · R | Kit ability · drink · refill the hotbar with potions from your backpack |
 | E | Enter or leave a tunnel; hold to chop, mine or cut reeds |
 | G · Ctrl+G | Drop one of the held item · drop the whole stack |
+| P (hold) | Scoreboard |
 | T | Chat (online) |
 | Esc | Release the mouse and pause |
+
+After you die, the end screen offers **Spectate**: ← → or clicking switches between players, and Esc goes back.
+
+New players get short tips during their first match. Turn them off, or show them again, in Options.
 
 In the inventory: click to pick up and put down, right-click to split a stack, shift-click to move items or put on armour, and hover over a slot and press 1–9 to swap it into the hotbar.
 

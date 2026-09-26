@@ -61,6 +61,7 @@ const Sfx = (() => {
     squeak: d => tone(2300, 0.12, 'sine', 0.08, 3100, 0, d),
     spike: d => { noise(0.1, 3200, 3, 0.3, 'bandpass', 0, d); tone(300, 0.12, 'sawtooth', 0.14, 110, 0, d); },
     craft: d => { tone(660, 0.05, 'square', 0.06, 0, 0, d); tone(990, 0.07, 'square', 0.06, 0, 0.06, d); },
+    kill: d => { tone(660, 0.09, 'square', 0.09, 0, 0, d); tone(990, 0.14, 'square', 0.09, 0, 0.08, d); tone(1320, 0.2, 'triangle', 0.07, 0, 0.16, d); },
     bell: d => { tone(523, 1.2, 'sine', 0.2, 0, 0, d); tone(784, 1.2, 'sine', 0.12, 0, 0.02, d); },
   };
   // Positional: sounds fade with distance from the listener and are skipped when far away
@@ -74,8 +75,14 @@ const Sfx = (() => {
     }
     SOUNDS[name](out(g));
   }
-  function update(env, dt) {
+  let cricketT = 0;
+  function update(env, dt, night = 0) {
     if (!ac) return;
+    // Crickets at night, above ground
+    if (night > 0.4 && (env === 'surface' || env === 'menu')) {
+      cricketT -= dt;
+      if (cricketT <= 0) { cricketT = 0.15 + Math.random() * 1.2; const f = 4200 + Math.random() * 900, o = out(0.5 * night); for (let i = 0; i < 3; i++) tone(f, 0.035, 'sine', 0.035, 0, i * 0.06, o); }
+    }
     const t = ac.currentTime;
     const [p, w, c] = env === 'under' ? [0.0, 0.0, 0.07] : env === 'snow' ? [0.018, 0.16, 0] : env === 'menu' ? [0.03, 0.03, 0] : [0.035, 0.025, 0];
     padGain.gain.setTargetAtTime(p, t, 1.2); windGain.gain.setTargetAtTime(w, t, 0.8); caveGain.gain.setTargetAtTime(c, t, 1.0);
