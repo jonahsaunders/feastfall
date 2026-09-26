@@ -153,23 +153,31 @@ function phases() {
 // ---------- input (first person, pointer lock) ----------
 const keys = new Set();
 const mouse = { down: false, rdown: false, x: 0, y: 0 };
-let locked = false, wantLock = false, noLock = false;
+// The camera only turns while the mouse is captured. If the browser refuses a capture (Chrome does for about a
+// second after Esc), the game shows "Click to play" and waits for a click instead of steering with the cursor.
+const noLock = !('requestPointerLock' in HTMLElement.prototype); // only when the browser has no pointer lock at all
+let locked = false, wantLock = false;
 const SENS = 0.0022;
 function lockPointer() {
   wantLock = true;
-  if (noLock) return;
-  try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => { noLock = true; }); } catch (e) { noLock = true; }
+  if (noLock || document.pointerLockElement === cv) return;
+  const plain = () => { try { const p = cv.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (e) {} };
+  // Raw mouse input (no Windows acceleration) where supported, otherwise a normal capture
+  try { const p = cv.requestPointerLock({ unadjustedMovement: true }); if (p && p.catch) p.catch(e => { if (e && e.name === 'NotSupportedError') plain(); }); else if (!p) plain(); }
+  catch (e) { plain(); }
 }
 function unlockPointer() { wantLock = false; if (document.pointerLockElement) document.exitPointerLock(); }
 document.addEventListener('pointerlockchange', () => {
   locked = document.pointerLockElement === cv;
   if (!locked && G.mode === 'play' && !G.invOpen && !G.chatOpen && !G.over && wantLock) pause();
 });
-document.addEventListener('pointerlockerror', () => { noLock = true; });
+document.addEventListener('pointerlockerror', () => {}); // a refused capture: "Click to play" shows, and a click retries
 document.addEventListener('mousemove', e => {
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (G.invOpen) { moveCursorStack(); return; }
   if (G.mode !== 'play' || !G.human.alive || G.chatOpen || (!locked && !noLock)) return;
+  // Chrome sometimes reports one huge jump right after capture: ignore it
+  if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
   const k = SENS * G.settings.sens;
   G.human.face += e.movementX * k;
   VIEW.pitch = clamp(VIEW.pitch - e.movementY * k, -1.45, 1.3);
@@ -189,6 +197,7 @@ addEventListener('keydown', e => {
   if (G.invOpen) {
     if (k === 'tab' || k === 'i' || k === 'e' || k === 'escape') toggleInv();
     else if (k >= '1' && k <= '9' && INV.hover !== null) swapWithHotbar(INV.hover, +k - 1);
+    else if ((k === 'g' || k === 'q') && INV.hover !== null) dropFromSlot(INV.hover, e.ctrlKey);
     return;
   }
   if (k === 'shift') h.sneak = true;
@@ -563,6 +572,23 @@ function quickMove(r) {
   }
   bump(h); renderInv();
 }
+// Drop straight from a slot (G or Q over it; Ctrl drops the whole stack)
+function dropFromSlot(r, all) {
+  const h = G.human, s = getS(r);
+  if (!s) return;
+  if (s.id === 'kit') { toast('Kit items can’t be dropped'); return; }
+  const n = all ? s.n : 1;
+  if (r.eq) setS(r, null); else take(h, s.id, n, r.i);
+  dropStacks(h, [{ id: s.id, n }]);
+  Sfx.play('pickup'); renderInv();
+}
+function dropCursor() {
+  const h = G.human;
+  if (!INV.cursor) return;
+  if (INV.cursor.id === 'kit') { toast('Kit items can’t be dropped'); return; }
+  dropStacks(h, [INV.cursor]); INV.cursor = null;
+  Sfx.play('pickup'); moveCursorStack(); renderInv();
+}
 function swapWithHotbar(r, k) {
   if (r.eq) return;
   const h = G.human; [h.slots[r.i], h.slots[k]] = [h.slots[k], h.slots[r.i]]; bump(h); renderInv();
@@ -619,11 +645,33 @@ $('#inv').addEventListener('mouseover', e => {
   INV.hover = el && (el.dataset.slot !== undefined || el.dataset.eq) ? refOf(el) : null;
   if (el) showTip(el); else $('#tip').hidden = true;
 });
+let drag = null;
+$('#inv').addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  const el = e.target.closest('.islot');
+  if (!el) return;
+  e.preventDefault();
+  const had = !!INV.cursor;
+  clickSlot(refOf(el), false, e.shiftKey);
+  drag = !had && INV.cursor ? { x: e.clientX, y: e.clientY, from: refOf(el) } : null;
+  showTip(el);
+});
+addEventListener('mouseup', e => {
+  if (!drag || e.button !== 0 || !G.invOpen) { drag = null; return; }
+  const { x, y, from } = drag;
+  drag = null;
+  if (hyp(e.clientX - x, e.clientY - y) < 8 || !INV.cursor) return; // a plain click keeps the stack on the cursor
+  const el = document.elementFromPoint(e.clientX, e.clientY), slot = el && el.closest('.islot');
+  if (slot) clickSlot(refOf(slot), false, false);                                  // dragged onto a slot
+  else if (!el || !el.closest('.inv-card') || el.closest('#drop-zone')) dropCursor(); // dragged out of the panel
+  else clickSlot(from, false, false);                                               // let go on the panel: put it back
+});
 $('#inv').addEventListener('contextmenu', e => { e.preventDefault(); const el = e.target.closest('.islot'); if (el) clickSlot(refOf(el), true, e.shiftKey); });
 $('#inv').addEventListener('click', e => {
   const h = G.human, el = e.target.closest('button, #drop-zone');
+  if (!e.target.closest('.inv-card')) { dropCursor(); return; } // clicked outside the panel while holding a stack
   if (!el) return;
-  if (el.classList.contains('islot')) { clickSlot(refOf(el), false, e.shiftKey); showTip(el); return; }
+  if (el.classList.contains('islot')) return; // handled on mousedown / mouseup below
   if (el.dataset.tab) { INV.tab = el.dataset.tab; renderInv(); return; }
   if (el.dataset.r) {
     const r = recipe(el.dataset.r);
@@ -633,9 +681,8 @@ $('#inv').addEventListener('click', e => {
     toast(`Crafted ${n * (r.n || 1)} × ${ITEMS[r.out].name}`); Sfx.play('craft'); renderInv(); showTip(el); return;
   }
   if (el.id === 'drop-zone') {
-    if (!INV.cursor) { toast('Pick up a stack first, then click here to drop it'); return; }
-    if (INV.cursor.id === 'kit') { toast('Kit items can’t be dropped'); return; }
-    dropStacks(h, [INV.cursor]); INV.cursor = null; moveCursorStack(); renderInv(); return;
+    if (!INV.cursor) { toast('Drag a stack here (or anywhere outside this panel) to drop it'); return; }
+    dropCursor(); return;
   }
   if (el.id === 'inv-close') toggleInv();
 });

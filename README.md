@@ -99,7 +99,7 @@ After you die, the end screen offers **Spectate**: ← → or clicking switches 
 
 New players get short tips during their first match. Turn them off, or show them again, in Options.
 
-In the inventory: click to pick up and put down, right-click to split a stack, shift-click to move items or put on armour, and hover over a slot and press 1–9 to swap it into the hotbar.
+In the inventory: click or drag to move stacks, right-click to split a stack, shift-click to move items or put on armour, and hover over a slot and press 1–9 to swap it into the hotbar. To drop things, drag a stack outside the panel, click outside it while holding one, or hover over a slot and press G or Q (Ctrl drops the whole stack).
 
 ## How it's built
 
