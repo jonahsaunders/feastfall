@@ -63,6 +63,11 @@ const Sfx = (() => {
     craft: d => { tone(660, 0.05, 'square', 0.06, 0, 0, d); tone(990, 0.07, 'square', 0.06, 0, 0.06, d); },
     kill: d => { tone(660, 0.09, 'square', 0.09, 0, 0, d); tone(990, 0.14, 'square', 0.09, 0, 0.08, d); tone(1320, 0.2, 'triangle', 0.07, 0, 0.16, d); },
     bell: d => { tone(523, 1.2, 'sine', 0.2, 0, 0, d); tone(784, 1.2, 'sine', 0.12, 0, 0.02, d); },
+    splash: d => { noise(0.35, 1800, 0.7, 0.35, 'lowpass', 400, d); noise(0.12, 3500, 2, 0.12, 'bandpass', 0, d, 0.04); },
+    sizzle: d => { noise(0.6, 5200, 1.5, 0.22, 'highpass', 2600, d); tone(90, 0.25, 'sine', 0.2, 50, 0, d); },
+    grow: d => { tone(70, 0.7, 'sawtooth', 0.16, 180, 0, d); tone(140, 0.7, 'triangle', 0.14, 360, 0.05, d); },
+    stomp: d => { tone(55, 0.5, 'sine', 0.7, 28, 0, d); noise(0.35, 400, 0.8, 0.5, 'lowpass', 90, d); },
+    thud: d => { tone(70, 0.35, 'sine', 0.55, 35, 0, d); noise(0.2, 700, 1, 0.35, 'lowpass', 150, d); },
   };
   // Positional: sounds fade with distance from the listener and are skipped when far away
   function play(name, x, y, z) {

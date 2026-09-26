@@ -38,6 +38,7 @@ const hsl = (h, s, l) => new T.Color().setHSL(h / 360, s / 100, l / 100);
 const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
 
 const groundY = f => f.layer ? 0 : heightAt(f.x, f.y);
+const LAVA_MAT = lam('#ff6a1a', { emissive: 0xb83a00 }); // lava pools and poured lava, glowing (view3d pulses it)
 
 // Shared geometry, pivot at the base where it matters
 const GEO = {
@@ -89,7 +90,7 @@ function syncObjParts(o) {
 function disposeGroup(g) {
   g.traverse(o => {
     if (o.geometry && !SHARED.has(o.geometry)) o.geometry.dispose();
-    if (o.material && o.material !== WHITE) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
+    if (o.material && o.material !== WHITE && o.material !== LAVA_MAT) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
   });
 }
 
@@ -141,6 +142,17 @@ function build3D() {
   for (const s of SWAMPS) {
     const w = new T.Mesh(new T.CircleGeometry(s.r * 1.15, 28).rotateX(-Math.PI / 2), lam('#2c4a45', { transparent: true, opacity: 0.78 }));
     w.position.set(s.x, -3, s.y); surfaceGroup.add(w);
+  }
+
+  // lava pools: a glowing disc in a ring of dark rock
+  for (const p of world.lavas || []) {
+    const disc = new T.Mesh(new T.CircleGeometry(p.r, 14).rotateX(-Math.PI / 2), LAVA_MAT);
+    disc.position.set(p.x, p.z, p.y); surfaceGroup.add(disc);
+    for (let k = 0; k < 11; k++) {
+      const a = k / 11 * 6.28 + p.r, rx = p.x + Math.cos(a) * (p.r + 6), ry = p.y + Math.sin(a) * (p.r + 6);
+      const r = new T.Mesh(GEO.rock, lam('#2e2622')); r.scale.set(13, 9 + (k % 3) * 3, 11); r.position.set(rx, Math.max(p.z - 2, heightAt(rx, ry)), ry); r.rotation.y = a;
+      r.castShadow = true; surfaceGroup.add(r);
+    }
   }
 
   // --- trees, cacti, rocks ---

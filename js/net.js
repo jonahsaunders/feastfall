@@ -51,7 +51,8 @@ function netTick(dt) {
 }
 // x, y, z, face, hp, flags, weapon tier, armour mask, swing count, kills
 function packFighter(f) {
-  const flags = (f.alive ? 1 : 0) | (f.layer ? 2 : 0) | (f.hidden ? 4 : 0) | (f.sneak ? 8 : 0) | (f.charge >= 0 ? 16 : 0) | (['bush', 'rock', 'snowrock', 'cactus'].indexOf(f.disguise) << 5);
+  const flags = (f.alive ? 1 : 0) | (f.layer ? 2 : 0) | (f.hidden ? 4 : 0) | (f.sneak ? 8 : 0) | (f.charge >= 0 ? 16 : 0) | (['bush', 'rock', 'snowrock', 'cactus'].indexOf(f.disguise) << 5)
+    | (f.titanT > 0 ? 128 : 0) | (f.burnT > 0 ? 256 : 0);
   return [Math.round(f.x), Math.round(f.y), Math.round(f.z), Math.round(f.face * 100), Math.round(f.hp * 10), flags, f.weapon, armorMask(f), f.swings % 100, f.kills];
 }
 function applyPacked(f, a, o) {
@@ -61,6 +62,7 @@ function applyPacked(f, a, o) {
   if (!(fl & 1) && f.alive) { f.alive = false; }
   f.layer = fl & 2 ? 1 : 0; f.hidden = !!(fl & 4); f.sneak = f.net.sn = !!(fl & 8); f.charge = fl & 16 ? 0.5 : -1;
   f.disguise = ['bush', 'rock', 'snowrock', 'cactus'][(fl >> 5) & 3];
+  f.net.titan = !!(fl & 128); f.burnNet = !!(fl & 256);
   f.net.w = a[o + 6]; f.net.am = a[o + 7];
   f.net.ad = [1, 2, 4, 8].reduce((d, bit, i) => d + (f.net.am & bit ? [0.08, 0.14, 0.11, 0.07][i] * (f.net.am & 16 ? 1.45 : 1) : 0), 0);
   if (f.net.sw !== undefined && f.net.sw !== a[o + 8]) f.swingT = 0.14;
@@ -76,6 +78,8 @@ function netInterp(dt) {
     f.x += (f.net.tx - f.x) * k; f.y += (f.net.ty - f.y) * k; f.z += (f.net.tz - f.z) * k;
     f.face += angDiff(f.face, f.net.tf) * k;
     f.mx = (f.net.tx - f.x) * 0.05; f.my = (f.net.ty - f.y) * 0.05;
+    const size = f.net.titan ? TITAN_SIZE : 1;
+    if (f.size !== size) { f.size += (size - f.size) * k * 0.5; if (Math.abs(f.size - size) < 0.02) f.size = size; f.r = 13 * f.size; }
     if (f.swingT > 0) f.swingT -= dt;
     if (f.hurtT > 0) f.hurtT -= dt;
   }
@@ -127,6 +131,7 @@ function wireMatch(m) {
       if (d.k === 'c' && o) for (const dd of [-0.7, 0.7]) spawnClone(o, d.f + dd);
       if (d.k === 'ping') G.pings.push({ x: d.x, y: d.y, layer: 1, t: 12, src: fighterById(msg.peer) });
       if (d.k === 'relic' && typeof d.i === 'string') announceRelic(o, d.i);
+      if (d.k === 'stomp') { addFx('ring', d.x, d.y, 0, { col: '#c9a26a', big: true, z: d.z + 1 }); addFx('puff', d.x, d.y, 0, { col: '#b8a488', big: true, z: d.z + 6 }); Sfx.play('stomp', d.x, d.y, d.z); }
       if (d.k === 'boom') { addFx('puff', d.x, d.y, 0, { col: '#e2733b', big: true, z: d.z + 20 }); addFx('bolt', d.x, d.y, 0, { t: 0.2 }); Sfx.play('bolt', d.x, d.y, d.z); }
       if (d.k === 'rope' && o && Array.isArray(d.a)) addFx('rope', d.a[0], d.a[1], 0, { owner: o, t: 1.4, az: d.a[2] });
     },

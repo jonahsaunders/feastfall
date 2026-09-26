@@ -13,12 +13,17 @@ const BLOCKS = {
   blast:  { name: 'Blast Trap',  solid: false, hard: 0.35, color: '#9a3a2c', trap: true },
   turf:   { name: 'Snare Turf',  solid: false, hard: 0.2,  color: '#4a6b35', fake: true },
   pad:    { name: 'Launch Pad',  solid: false, hard: 0.35, color: '#4fb3a9', trap: true },
+  // Poured from buckets: you fall through them; water breaks falls, lava burns
+  water:  { name: 'Water',       solid: false, hard: 999,  color: '#3f8fd0', liquid: true, unbreakable: true },
+  lava:   { name: 'Lava',        solid: false, hard: 999,  color: '#ff6a1a', liquid: true, unbreakable: true },
 };
 const BL = { map: new Map(), ver: 0 };
 const bkey = (i, j, k) => i + ',' + j + ',' + k;
 const blockAt = (i, j, k) => BL.map.get(bkey(i, j, k));
 function solidAt(i, j, k) { const b = BL.map.get(bkey(i, j, k)); return !!b && BLOCKS[b.type].solid; }
-function resetBlocks() { BL.map.clear(); BL.ver++; if (typeof arenaSeen !== 'undefined') arenaSeen.clear(); }
+function resetBlocks() { BL.map.clear(); BL.ver++; if (typeof arenaSeen !== 'undefined') { arenaSeen.clear(); lavaSeen.clear(); } }
+// A fighter's height: Titans grow
+const fh = f => FH * (f.size || 1);
 
 // Highest thing you can stand on under a footprint: terrain or a block top no higher than z + STEP.
 let SUP_TYPE = null;
@@ -44,7 +49,7 @@ function collideBlocks(f) {
   if (!BL.map.size) return;
   const i0 = Math.floor((f.x - f.r) / B), i1 = Math.floor((f.x + f.r) / B);
   const k0 = Math.floor((f.y - f.r) / B), k1 = Math.floor((f.y + f.r) / B);
-  const j0 = Math.floor((f.z + STEP) / B), j1 = Math.floor((f.z + FH - 1) / B);
+  const j0 = Math.floor((f.z + STEP) / B), j1 = Math.floor((f.z + fh(f) - 1) / B);
   for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
     if (!solidAt(i, j, k)) continue;
     const qx = clamp(f.x, i * B, (i + 1) * B), qy = clamp(f.y, k * B, (k + 1) * B);
@@ -60,20 +65,21 @@ function collideBlocks(f) {
   }
 }
 function headBlocked(f) {
-  const j = Math.floor((f.z + FH) / B), hr = f.r * 0.7;
+  const j = Math.floor((f.z + fh(f)) / B), hr = f.r * 0.7;
   for (const [ox, oy] of [[-hr, -hr], [hr, -hr], [-hr, hr], [hr, hr]])
-    if (solidAt(Math.floor((f.x + ox) / B), j, Math.floor((f.y + oy) / B))) return j * B - FH;
+    if (solidAt(Math.floor((f.x + ox) / B), j, Math.floor((f.y + oy) / B))) return j * B - fh(f);
   return null;
 }
 
 // March a ray from the eye; returns the first block or ground it hits within reach.
-function rayPick(ox, oy, oz, dx, dy, dz, reach) {
+// Water and lava are looked through unless `liquids` is set (buckets aim at them).
+function rayPick(ox, oy, oz, dx, dy, dz, reach, liquids = false) {
   let pi = null, pj = null, pk = null;
   for (let t = 0; t <= reach; t += 2) {
     const x = ox + dx * t, y = oy + dy * t, z = oz + dz * t;
     const i = Math.floor(x / B), j = Math.floor(z / B), k = Math.floor(y / B);
     const b = blockAt(i, j, k);
-    if (b) return { hit: 'block', i, j, k, b, pi, pj, pk, t };
+    if (b && (liquids || !BLOCKS[b.type].liquid)) return { hit: 'block', i, j, k, b, pi, pj, pk, t };
     if (z <= heightAt(x, y)) {
       const cj = Math.floor(heightAt((i + .5) * B, (k + .5) * B) / B);
       return { hit: 'ground', i, j: cj, k, pi: i, pj: cj, pk: k, t };
@@ -88,14 +94,15 @@ function cellBlockedByBody(i, j, k) {
     if (!f.alive || f.layer !== 0) continue;
     const qx = clamp(f.x, i * B, (i + 1) * B), qy = clamp(f.y, k * B, (k + 1) * B);
     if (hyp(f.x - qx, f.y - qy) >= f.r - 1) continue;
-    if (f.z >= (j + 1) * B - 0.5 || f.z + FH <= j * B) continue;
+    if (f.z >= (j + 1) * B - 0.5 || f.z + fh(f) <= j * B) continue;
     return true;
   }
   return false;
 }
 function canPlace(type, i, j, k) {
   if (i < 1 || k < 1 || i >= WORLD / B - 1 || k >= WORLD / B - 1 || j > 60) return false;
-  if (BL.map.has(bkey(i, j, k)) || BL.map.size >= MAX_BLOCKS) return false;
+  const ex = blockAt(i, j, k); // a block can go into water or lava, replacing it
+  if ((ex && !(BLOCKS[ex.type].liquid && !BLOCKS[type].liquid)) || BL.map.size >= MAX_BLOCKS) return false;
   if (BLOCKS[type].solid && cellBlockedByBody(i, j, k)) return false;
   const below = blockAt(i, j - 1, k), g = heightAt((i + .5) * B, (k + .5) * B);
   const grounded = solidAt(i, j - 1, k) || g >= j * B - 4 || (type === 'turf' && below && BLOCKS[below.type].trap); // turf can hide a trap
@@ -140,9 +147,16 @@ function placeBlock(f, type, i, j, k) {
 }
 // Block changes made on another player's machine
 function applyBlockOps(ops) {
-  for (const [i, j, k, t, owner] of ops) {
-    if (t < 0) BL.map.delete(bkey(i, j, k));
-    else { BL.map.set(bkey(i, j, k), { type: BTYPES[t], owner: owner || null }); if (BTYPES[t] === 'arena') arenaSeen.set(bkey(i, j, k), G.t); }
+  for (const [i, j, k, t, owner, src, lvl] of ops) {
+    if (t < 0) { BL.map.delete(bkey(i, j, k)); continue; }
+    const type = BTYPES[t];
+    if (!type) continue;
+    if (BLOCKS[type].liquid) {
+      const s = typeof src === 'string' ? src : bkey(i, j, k);
+      BL.map.set(bkey(i, j, k), { type, owner: owner || null, src: s, lvl: lvl ? 1 : 0 });
+      if (type === 'lava' && !lavaSeen.has(s)) lavaSeen.set(s, G.t);
+    } else BL.map.set(bkey(i, j, k), { type, owner: owner || null });
+    if (type === 'arena') arenaSeen.set(bkey(i, j, k), G.t);
   }
   BL.ver++;
 }
@@ -209,6 +223,95 @@ function clearStaleArenas() {
     const b = BL.map.get(key);
     if (b && b.type === 'arena') { const [i, j, k] = key.split(',').map(Number); breakBlock(i, j, k, null); }
   }
+}
+
+// ---- water and lava, poured from buckets ----
+// A pour fills the target cell, runs straight down to the floor, then spreads one cell each way.
+// Every cell remembers the pour it came from (`src`), so a bucket scoops the whole puddle back up.
+// Where water meets lava, the lava hardens into cobblestone. Poured lava cools away after 30 seconds.
+const LAVA_LIFE = 30;
+const lavaSeen = new Map(); // lava pour -> when it was poured; every machine cools its own copy
+const onFloor = (i, j, k) => solidAt(i, j - 1, k) || heightAt((i + .5) * B, (k + .5) * B) >= j * B - 4;
+function hardenLava(i, j, k) {
+  BL.map.set(bkey(i, j, k), { type: 'cobble', owner: null });
+  NET.blk([i, j, k, BTYPES.indexOf('cobble')]);
+  addFx('puff', (i + .5) * B, (k + .5) * B, 0, { col: '#9aa0a3', z: j * B + 12 });
+  Sfx.play('sizzle', (i + .5) * B, (k + .5) * B, j * B);
+}
+function pourLiquid(f, type, i, j, k) {
+  if (f.layer || i < 1 || k < 1 || i >= WORLD / B - 1 || k >= WORLD / B - 1 || j > 60 || BL.map.size >= MAX_BLOCKS - 30) return false;
+  const other = type === 'water' ? 'lava' : 'water', ex = blockAt(i, j, k);
+  if (ex) {
+    if (ex.type !== other) return false;
+    hardenLava(i, j, k); BL.ver++;
+    return true;
+  }
+  const cells = [[i, j, k, 0]];
+  let jj = j;
+  while (!onFloor(i, jj, k) && cells.length < 24) {
+    const below = blockAt(i, jj - 1, k);
+    if (below) { if (below.type === other) hardenLava(i, jj - 1, k); break; }
+    jj--; cells.push([i, jj, k, 0]);
+  }
+  if (onFloor(i, jj, k)) for (const [di, dk] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const a = i + di, c = k + dk, n = blockAt(a, jj, c);
+    if (n) { if (n.type === other) hardenLava(a, jj, c); continue; }
+    if (onFloor(a, jj, c) && heightAt((a + .5) * B, (c + .5) * B) < (jj + 1) * B - 6) cells.push([a, jj, c, 1]);
+  }
+  const src = bkey(i, j, k), t = BTYPES.indexOf(type);
+  for (const [a, b, c, lvl] of cells) {
+    BL.map.set(bkey(a, b, c), { type, owner: f.id, src, lvl });
+    NET.blk([a, b, c, t, f.id, src, lvl]);
+  }
+  if (type === 'lava') lavaSeen.set(src, G.t);
+  BL.ver++;
+  Sfx.play(type === 'lava' ? 'sizzle' : 'splash', (i + .5) * B, (k + .5) * B, j * B);
+  return true;
+}
+// Remove a whole puddle. `send` is off when every machine does it on its own (lava cooling).
+function removeLiquid(src, send = true) {
+  let n = 0;
+  for (const [key, b] of BL.map) {
+    if (!BLOCKS[b.type].liquid || b.src !== src) continue;
+    BL.map.delete(key); n++;
+    const [i, j, k] = key.split(',').map(Number);
+    if (send) NET.blk([i, j, k, -1]);
+    if (n % 2) addFx('puff', (i + .5) * B, (k + .5) * B, 0, { col: b.type === 'lava' ? '#5a4a44' : '#cfe8ff', z: j * B + 10 });
+  }
+  lavaSeen.delete(src);
+  if (n) BL.ver++;
+  return n;
+}
+function coolLava() {
+  for (const [src, t0] of lavaSeen) if (G.t - t0 > LAVA_LIFE || G.t < t0 - 5) removeLiquid(src, false);
+}
+// Lava pools in the world burn too, and fill buckets forever
+const POOL_LAVA = { type: 'lava', owner: null };
+function lavaPoolAt(x, y, pad = 0) { return (world.lavas || []).find(p => hyp(x - p.x, y - p.y) < p.r + pad) || null; }
+// The water or lava a fighter is standing in, from the feet to the chest (lava wins)
+function liquidAt(f) {
+  if (f.layer) return null;
+  const pool = lavaPoolAt(f.x, f.y, -4);
+  if (pool && f.z < pool.z + 10) return POOL_LAVA;
+  if (!BL.map.size) return null;
+  const hr = f.r * 0.5;
+  let out = null;
+  for (let j = Math.floor((f.z + 1) / B); j <= Math.floor((f.z + fh(f) * 0.5) / B); j++)
+    for (const [ox, oy] of [[0, 0], [-hr, -hr], [hr, -hr], [-hr, hr], [hr, hr]]) {
+      const b = blockAt(Math.floor((f.x + ox) / B), j, Math.floor((f.y + oy) / B));
+      if (b && BLOCKS[b.type].liquid) { if (b.type === 'lava') return b; out = b; }
+    }
+  return out;
+}
+// What a bucket would scoop up along a ray: a poured puddle, swamp water or a lava pool
+function scoopTarget(ox, oy, oz, dx, dy, dz, reach) {
+  const a = rayPick(ox, oy, oz, dx, dy, dz, reach, true);
+  if (!a) return null;
+  if (a.hit === 'block') return BLOCKS[a.b.type].liquid ? { type: a.b.type, src: a.b.src } : null;
+  const x = ox + dx * a.t, y = oy + dy * a.t;
+  if (lavaPoolAt(x, y)) return { type: 'lava' };
+  if (biomeAt(x, y) === 3 && heightAt(x, y) < -1) return { type: 'water' };
+  return null;
 }
 
 // ---- ruins: built from blocks at match start, the same on every player's machine ----

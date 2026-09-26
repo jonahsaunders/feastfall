@@ -32,6 +32,7 @@ function spawnPoint(taken, inSwamp) {
     if (!inSwamp && taken.some(p => hyp(p.x - x, p.y - y) < (taken.length > 40 ? 180 : 320))) continue;
     // Nobody starts next to a landmark or a ruin: legendaries and loot have to be reached
     if (world.landmarks.some(m => m.layer === 0 && hyp(m.x - x, m.y - y) < 450) || world.ruins.some(r => hyp(r.x - x, r.y - y) < 220)) continue;
+    if (lavaPoolAt(x, y, 120)) continue;
     return { x, y };
   }
   return { x: rr(300, WORLD - 300), y: rr(300, WORLD - 300) };
@@ -59,7 +60,8 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
   buildRuins();
   buildLandmarks();
   Object.assign(G, { fighters: [], rats: [], proj: [], fx: [], items: [], pings: [], feed: [], itemSeq: 0, t: 0, clockMin: 0, graceDone: false, feast: null, pit: false, over: false, coinsEarned: 0, killedBy: null,
-    winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, duels: [], stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0 } });
+    winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, duels: [], killer: null, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0 } });
+  replayReset();
   const names = [...BOT_NAMES];
   for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
   const taken = [];
@@ -81,6 +83,47 @@ function ruinLoot(r) {
   else if (r.kind === 'cabin') { add(pick(['sword2', 'sword1', 'bow', 'hide_head', 'hide_feet']), 1); add(pick(['plank', 'cobble']), n(12, 24)); add('ladder', 4); }
   else { add(pick(['stone', 'wood', 'iron']), n(3, 6)); add(pick(['hay', 'spike', 'arrow']), pick([2, 3, 6])); }
   return s;
+}
+// Supply drops: announced three in-game minutes ahead, then a crate parachutes down for the last few seconds
+const DROP_FALL = 6; // real seconds the crate is visible falling
+const SUPPLY_LOOT = [
+  [['sword3', 1], ['pot', 2], ['bucket_water', 1]],
+  [['bow', 1], ['arrow', 20], ['bucket_lava', 1], ['pot', 1]],
+  [['iron_chest', 1], ['pot', 2], ['charm', 1], ['bucket', 1]],
+  [['bucket_lava', 1], ['bucket_water', 1], ['cobble', 32], ['pot', 1]],
+  [['sword3', 1], ['hay', 4], ['pot', 2], ['bucket', 1]],
+  [['iron_head', 1], ['iron_feet', 1], ['bucket_water', 1], ['pot', 2]],
+];
+const supplyLoot = () => pick(SUPPLY_LOOT).map(([id, n]) => ({ id, n }));
+const dropCrate = d => G.items.find(i => i.kind === 'supply' && !i.gone && hyp(i.x - d.x, i.y - d.y) < 60);
+const dropLive = d => d.st === 'announced' || d.st === 'falling' || (d.st === 'landed' && !!dropCrate(d));
+function updateDrops() {
+  const m = G.clockMin, host = !NET.on || NET.isHost();
+  for (const d of world.drops || []) {
+    const land = d.min * G.settings.len; // G.t when it touches down
+    if (!d.st && m >= d.min - 3 && !G.pit) {
+      d.st = 'announced';
+      const a = Math.atan2(d.y - PIT.y, d.x - PIT.x), dir = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'][((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+      banner('Supply drop incoming', `Lands in 3:00 in the ${dir} · marked in blue on your map`);
+    }
+    if (d.st === 'announced' && G.t >= land - DROP_FALL) d.st = 'falling';
+    if (d.st === 'falling' && G.t >= land) {
+      d.st = 'landed';
+      if (host) addItem({ kind: 'supply', x: d.x, y: d.y, z: heightAt(d.x, d.y), layer: 0, stacks: supplyLoot() });
+      Sfx.play('thud', d.x, d.y, heightAt(d.x, d.y));
+      addFx('puff', d.x, d.y, 0, { col: '#cfc3a8', big: true });
+      G.feed.unshift({ txt: 'The supply drop has landed', t: 8, relic: true });
+    }
+  }
+}
+// Top-left line while a drop is on: time or status, distance and which way to turn
+function dropLine() {
+  const d = (world.drops || []).find(dropLive);
+  if (!d) return '';
+  const h = G.human, dist = Math.round(hyp(d.x - h.x, d.y - h.y) / B), a = angDiff(h.face, Math.atan2(d.y - h.y, d.x - h.x));
+  const arrow = '↑↗→↘↓↙←↖'[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+  const when = d.st === 'landed' ? 'Supply drop landed' : `Supply drop in ${fmt((d.min * G.settings.len - G.t) / G.settings.len)}`;
+  return `${when} · ${dist} blocks ${arrow}`;
 }
 const potCap = () => Math.round(18 * WORLD / 3200);
 function spawnPot() {
@@ -148,6 +191,7 @@ function phases() {
     });
     banner('The pit', 'Time is up. Everyone left is in the arena. Last one standing wins.');
   }
+  updateDrops();
 }
 
 // ---------- input (first person, pointer lock) ----------
@@ -202,6 +246,10 @@ document.addEventListener('mousemove', e => {
 });
 addEventListener('keydown', e => {
   if (G.chatOpen) return;
+  if (G.mode === 'replay') {
+    if ([' ', 'escape', 'enter'].includes(e.key.toLowerCase())) { e.preventDefault(); replayFinish(); }
+    return;
+  }
   if (G.mode === 'spectate') {
     const k = e.key.toLowerCase();
     if (['arrowright', 'd', ' '].includes(k)) { e.preventDefault(); spectate(1); }
@@ -242,15 +290,17 @@ addEventListener('keyup', e => {
 addEventListener('blur', () => { keys.clear(); mouse.down = mouse.rdown = false; if (G.human) G.human.sneak = false; if (G.mode === 'play' && !NET.on) pause(); });
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('mousedown', e => {
+  if (G.mode === 'replay') { replayFinish(); return; }
   if (G.mode === 'spectate') { spectate(e.button === 2 ? -1 : 1); return; }
   if (G.mode !== 'play' || !G.human.alive) return;
   if (G.invOpen) { toggleInv(); return; }
   if (!locked && !noLock && !freeLook) { lockPointer(); return; }
-  const h = G.human, item = heldId(h);
-  if (e.button === 2) { mouse.rdown = true; if (!(item && ITEMS[item].block)) drink(h); return; }
+  const h = G.human, item = heldId(h), bucket = item === 'bucket' || !!(item && ITEMS[item].bucket);
+  if (e.button === 2) { mouse.rdown = true; if (bucket) useBucket(h); else if (!(item && ITEMS[item].block)) drink(h); return; }
   if (e.button !== 0) return;
   mouse.down = true;
-  if (item === 'bow') { if (h.arrows > 0) h.charge = 0; else toast('No arrows. Craft them in the inventory (Tab).'); }
+  if (bucket) useBucket(h);
+  else if (item === 'bow') { if (h.arrows > 0) h.charge = 0; else toast('No arrows. Craft them in the inventory (Tab).'); }
   else if (item === 'pot') drink(h);
   else if (item === 'kit') { const a = aimWorld(); if (!useKit(h, a.x, a.y)) kitFail(h); }
   else if (item === 'skyhook' && !fireSkyhook(h, VIEW.pitch)) toast(h.skyCd > 0 ? `Skyhook recharging: ${Math.ceil(h.skyCd)}s` : h.layer ? 'The Skyhook doesn’t work underground' : 'Nothing to hook within 22 blocks');
@@ -280,6 +330,24 @@ function dropHeld(h, all) {
   take(h, s.id, n, h.sel);
   dropStacks(h, [{ id: s.id, n }]);
 }
+// Buckets: an empty one scoops up what you aim at; a full one pours where a block would go
+function useBucket(h) {
+  if (!h.alive || h.bucketCd > G.t) return;
+  if (h.layer) { toast('Buckets don’t work in the tunnels'); return; }
+  h.bucketCd = G.t + 0.25;
+  const id = heldId(h);
+  if (id === 'bucket') {
+    const cp = Math.cos(VIEW.pitch), s = h.size || 1;
+    const t = scoopTarget(h.x, h.y, h.z + EYE * s, Math.cos(h.face) * cp, Math.sin(h.face) * cp, Math.sin(VIEW.pitch), REACH * (s > 1.5 ? 1.6 : 1));
+    if (!t) { toast('Aim at swamp water, a lava pool, or poured water or lava to fill the bucket'); return; }
+    if (t.src) removeLiquid(t.src);
+    fillBucket(h, t.type, h.sel);
+    toast(t.type === 'lava' ? 'Lava Bucket: right click to pour it on someone' : 'Water Bucket: pour it under you before you land');
+    return;
+  }
+  const a = G.aim;
+  if (!a || a.pi === null || !pourBucket(h, h.sel, a.pi, a.pj, a.pk)) toast('You can’t pour there');
+}
 function kitFail(h) {
   const K = KITS[h.kit];
   if (!K.item) toast(`${K.name} is a passive kit.`);
@@ -308,7 +376,8 @@ function humanInput(dt) {
   if ((fw || st) && h.gather) h.gather = null;
   h.pitch = VIEW.pitch;
   const cp = Math.cos(VIEW.pitch);
-  G.aim = h.layer ? null : rayPick(h.x, h.y, h.z + EYE - (h.sneak ? 9 : 0), Math.cos(h.face) * cp, Math.sin(h.face) * cp, Math.sin(VIEW.pitch), REACH);
+  const big = h.size || 1;
+  G.aim = h.layer ? null : rayPick(h.x, h.y, h.z + EYE * big - (h.sneak ? 9 : 0), Math.cos(h.face) * cp, Math.sin(h.face) * cp, Math.sin(VIEW.pitch), REACH * (big > 1.5 ? 1.6 : 1));
   if (busy) return;
   const item = heldId(h), def = item ? ITEMS[item] : null, hand = !def || def.tier || def.block || def.cat === 'mat' || def.cat === 'armor';
   // Hold left click on a block to break it (it goes back into your inventory)
@@ -337,6 +406,28 @@ function updateCross(dt) {
   const p = h.breakKey ? h.breakT / h.breakNeed : h.gather ? h.gatherT / gatherTime(h, h.gather) : h.charge >= 0 ? h.charge : h.refillT > 0 ? 1 - h.refillT / 0.22 : 0;
   $('#cross').style.setProperty('--p', p.toFixed(3));
   $('#hurt').style.opacity = h.hurtT > 0 ? 1 : h.hp < 6 ? 0.45 : 0;
+}
+
+// Arrows around the crosshair for anyone close by but out of view (you'd hear them), nearest first.
+// Disguised Hidden players don't show; snowstorms shorten the range.
+const NEAR_ELS = [...document.querySelectorAll('#near i')];
+function updateNear() {
+  const h = G.human, hf = Math.atan(Math.tan(camera.fov * Math.PI / 360) * camera.aspect) * 0.92;
+  const R = h.layer ? 260 : h.biome === 2 && G.settings.snow && h.kit !== 'yeti' && !G.pit ? 170 : 320;
+  const near = [];
+  if (h.alive) for (const f of G.fighters) {
+    if (f === h || !f.alive || f.hidden || f.layer !== h.layer) continue;
+    const d = hyp(f.x - h.x, f.y - h.y);
+    if (d > R) continue;
+    const a = angDiff(h.face, Math.atan2(f.y - h.y, f.x - h.x));
+    if (Math.abs(a) > hf) near.push([d, a]);
+  }
+  near.sort((p, q) => p[0] - q[0]);
+  NEAR_ELS.forEach((el, i) => {
+    const n = near[i];
+    el.style.opacity = n ? (0.35 + 0.65 * (1 - n[0] / R)).toFixed(2) : 0;
+    if (n) el.style.transform = `translate(-50%, -50%) rotate(${n[1].toFixed(3)}rad) translateY(-118px)`;
+  });
 }
 
 // ---------- chat (online) ----------
@@ -374,7 +465,7 @@ function step(dt) {
   G.fighters = G.fighters.filter(f => f.alive || !f.isClone);
   updateDuels(dt); clearStaleArenas();
   pickups();
-  updateRats(dt); updateProj(dt); updateFx(dt);
+  updateRats(dt); updateProj(dt); updateFx(dt); coolLava();
   potT += dt;
   if (potT > 3) {
     potT = 0; G.items = G.items.filter(i => !i.gone);
@@ -391,11 +482,15 @@ function frame(now) {
       if (!camFocus || G.fighters.filter(f => f.alive && !f.isClone).length <= 1 || G.t > 240) startAttract();
       else Object.assign(G.human, { x: camFocus.x, y: camFocus.y, z: camFocus.z, layer: camFocus.layer, biome: camFocus.biome });
       render(dt); Sfx.update('menu', dt, 0);
+    } else if (G.mode === 'replay') {
+      if (NET.on) step(dt); // online, the match carries on while you watch
+      replayStep(dt);
+      if (G.mode === 'replay') { replayApply(dt); render(dt); replayRestore(); } else render(0);
     } else if (G.mode === 'play' || G.mode === 'spectate' || (NET.on && (G.mode === 'paused' || G.mode === 'end'))) {
       // Online matches keep running while you pause or after you die; spectating always does
       if (G.mode === 'spectate' && !(G.specTarget && G.specTarget.alive)) spectate(1);
       step(dt); render(dt); renderMinimap();
-      if (G.mode === 'play') { updateCross(dt); checkTips(dt); checkLandmarks(); }
+      if (G.mode === 'play') { updateCross(dt); updateNear(); checkTips(dt); checkLandmarks(); replayRecord(dt); }
       const v = VIEW.focus || G.human;
       Sfx.update(v.layer ? 'under' : v.biome === 2 && G.settings.snow && !G.pit ? 'snow' : 'surface', dt, DAY.night);
       hudT -= dt; if (hudT <= 0) { hudT = 0.1; updateHud(); }
@@ -420,6 +515,8 @@ function updateHud() {
   $('#alive').textContent = G.fighters.filter(f => f.alive && !f.isClone).length;
   $('#kills').textContent = h.kills;
   $('#where').textContent = h.layer ? 'Tunnels' : G.pit ? 'The Pit' : BIOME_NAME[h.biome];
+  const dl = dropLine();
+  $('#droptag').hidden = !dl; if (dl) $('#droptag').textContent = dl;
   $('#online-tag').hidden = !NET.on;
   $('#online-tag').textContent = NET.on ? `Online · ${G.fighters.filter(f => !f.bot && !f.isClone).length} players${NET.isHost() ? ' · hosting' : ''}` : '';
   setHTML('#hotbar', Array.from({ length: HOTBAR }, (_, i) => {
@@ -442,6 +539,10 @@ function updateHud() {
   else { const o = gatherTarget(h); if (o) p = `Hold <kbd>E</kbd> ${{ tree: 'Chop tree for wood', rock: 'Break rock for stone', reed: 'Cut reeds', ore: 'Mine iron ore (slow)' }[o.kind]}`; }
   const held = heldId(h);
   if (!p && held && ITEMS[held].block && !h.layer) p = `<kbd>Right click</kbd> Place · hold to keep placing · <kbd>Space</kbd> + look down to tower`;
+  if (!p && held === 'bucket' && !h.layer) p = `<kbd>Right click</kbd> Fill from swamp water, a lava pool, or poured water or lava`;
+  if (!p && held === 'bucket_water' && !h.layer) p = `<kbd>Right click</kbd> Pour · pour it under you just before you land: no fall damage`;
+  if (!p && held === 'bucket_lava' && !h.layer) p = `<kbd>Right click</kbd> Pour lava · it burns whoever’s in it`;
+  if (!p && h.inLiq === 'water' && !h.onGround) p = `Hold <kbd>Space</kbd> to swim up`;
   $('#prompt').innerHTML = p; $('#prompt').hidden = !p;
   const st = [];
   if (h.hidden) st.push(`Disguised as a ${h.disguise === 'snowrock' ? 'rock' : h.disguise}`);
@@ -450,6 +551,9 @@ function updateHud() {
   if (h.poisonT > 0) st.push('Poisoned');
   if (h.invuln > 0) st.push('Invincible');
   if (h.speedT > 0) st.push('Sprinting');
+  if (h.titanT > 0) st.push(`Titan · ${Math.ceil(h.titanT)}s`);
+  if (h.burnT > 0) st.push('On fire');
+  else if (h.inLiq === 'water') st.push('In water');
   if (h.punchT > 0) st.push('Punch charged');
   if (count(h, 'charm')) st.push(`Feather Charm ×${count(h, 'charm')}`);
   if (h.layer === 0 && h.biome === 2 && G.settings.snow && !G.pit) st.push('Snowstorm');
@@ -512,6 +616,9 @@ const TIPS = [
   { id: 'low', when: h => h.hp < 8 && hotPots(h) > 0, text: 'Low health: drink a potion with F or right-click.' },
   { id: 'legend', when: () => G.t > 25, text: 'Gold stars on the map are landmarks, each holding one legendary item. Follow the light beams. Whoever takes one, everyone finds out.' },
   { id: 'feast', when: () => !!G.feast, text: 'The feast has the best gear in the game. Everyone else is heading there too.' },
+  { id: 'drop', when: () => (world.drops || []).some(d => d.st === 'announced'), text: 'Supply drops land at the blue square on your map. They hold iron swords, feast armour and buckets, and everyone can see the beam.' },
+  { id: 'bucket', when: h => ['bucket', 'bucket_water', 'bucket_lava'].some(id => count(h, id)), text: 'Fill a bucket from swamp water or a lava pool (orange on the map). Pour water under you just before you land and you take no fall damage.' },
+  { id: 'near', when: () => NEAR_ELS.some(el => +el.style.opacity > 0), text: 'The red arrows around your crosshair point at people close by but out of view. Turn to face them.' },
   { id: 'night', when: () => DAY.night > 0.5, text: 'Night falls before the pit. Names are harder to read from a distance, and so is yours.' },
 ];
 let tipsSeen = [];
@@ -720,6 +827,7 @@ function setMode(m) {
   $('#hud').hidden = !(m === 'play' || m === 'paused' || m === 'spectate');
   $('#hud').classList.toggle('spec', m === 'spectate');
   $('#spec').hidden = m !== 'spectate';
+  $('#replay').hidden = m !== 'replay';
   if (m !== 'play') $('#clickto').hidden = true; // never leave "Click to play" over a menu
   if (m !== 'play') { $('#board').hidden = true; $('#tipbox').hidden = true; }
   if (m !== 'play') { $('#inv').hidden = true; G.invOpen = false; $('#chat').hidden = true; G.chatOpen = false; }
@@ -741,7 +849,12 @@ function endGame(won) {
   if (!life.best || place < life.best) life.best = place;
   life.fall = Math.max(life.fall, G.stats.fall);
   save();
+  // Dying plays the last few seconds back first (skip with Space, Esc or a click)
   setTimeout(() => {
+    if (!won && !h.alive && G.mode === 'play' && playReplay(showEnd)) return;
+    showEnd();
+  }, 900);
+  function showEnd() {
     $('#end-title').textContent = won ? 'Last one standing' : 'You lost';
     $('#end-sub').textContent = won ? 'Everyone else is dead.' : G.killedBy ? `Killed by ${G.killedBy}.` : `${G.winnerName || 'Someone'} won the match.`;
     const st = G.stats;
@@ -750,9 +863,18 @@ function endGame(won) {
       .map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     $('#end-online').hidden = !NET.on || won;
     $('#btn-spec').hidden = won || !G.fighters.some(f => f.alive && !f.isClone && f !== G.human);
+    $('#btn-replay').hidden = won || !replayReady();
     unlockPointer();
     setMode('end');
-  }, 1100);
+  }
+}
+function playReplay(done) {
+  const k = G.killer;
+  if (!replayStart(k, done)) return false;
+  $('#rp-sub').textContent = k ? `Killed by ${k.name} · ${KITS[k.kit].name}` : G.killedBy === 'a long fall' ? 'You fell' : `Killed by ${G.killedBy}`;
+  unlockPointer();
+  setMode('replay');
+  return true;
 }
 function backToMenu() { if (NET.match) leaveMatch(); startAttract(); setMode('menu'); renderKits(); }
 function fillOptions() {
@@ -774,6 +896,7 @@ $('#o-map').addEventListener('change', e => { G.settings.mapSize = +e.target.val
 $('#o-tips').addEventListener('change', e => { G.settings.tips = e.target.checked; save(); });
 $('#o-tips-reset').addEventListener('click', () => { tipsSeen = []; try { localStorage.removeItem('ff_tips'); } catch (e) {} toast('Tips will show again'); $('#o-tips-reset').textContent = 'Tips reset'; });
 $('#btn-spec').addEventListener('click', startSpectate);
+$('#btn-replay').addEventListener('click', () => playReplay(() => setMode('end')));
 $('#btn-options').addEventListener('click', () => { fillOptions(); setMode('options'); });
 $('#opt-back').addEventListener('click', () => { setMode('menu'); renderKits(); });
 $('#opt-resume').addEventListener('click', resume);

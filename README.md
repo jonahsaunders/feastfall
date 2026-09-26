@@ -54,9 +54,31 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 <p><b>After you die:</b> spectate whoever's left, and see your damage dealt, blocks placed, longest fall and potions drunk. The menu keeps your lifetime record.</p>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/titan.jpg" alt="A Titan, more than twice normal size, towering over two other fighters">
+<p><b>Titan kit.</b> Grow to more than twice your size for 8 seconds: longer reach, heavier hits, no knockback or fall damage, and landing from a jump throws everyone near you. You're also much easier to hit.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/lava.jpg" alt="A fighter burning in poured lava next to a lava pool, with lava and water buckets on the hotbar">
+<p><b>Water and lava buckets.</b> Fill a bucket from swamp water or a lava pool. Pour lava on people to set them on fire. Pour water under you just before you land and you take no fall damage. Where water meets lava, it hardens into stone.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/supply.jpg" alt="A supply crate drifting down on an orange parachute along a blue beam">
+<p><b>Supply drops.</b> Three per match, each announced three minutes ahead and marked in blue on the map. The crate parachutes down with iron swords, feast armour and buckets, and everyone can see the beam.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/replay.jpg" alt="Death replay: the killer's sword swing, seen from over their shoulder">
+<p><b>Death replay.</b> When you die, the last few seconds play back over your killer's shoulder, slowing down for the final blow. Skip it with Space, or watch it again from the end screen.</p>
+</td>
+</tr>
 </table>
 
-- **28 kits** with 8 free each week (see [Kits](#kits)).
+- **See who's around.** Red markers float over anyone within about 50 blocks, even when they're too far away to make out. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and the Hidden kit's disguises still keep you hidden.
+- **29 kits** with 8 free each week (see [Kits](#kits)).
+- **Lava pools** glow in the mountains and deserts (orange on the map). They burn anyone who walks in, and they fill buckets forever.
 - **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, and you climb a ladder to reach them.
 - **Ladders.** Craft them, lean them against a wall and climb. No fall damage while you're on one.
 - **A new map every match.** Mountain ranges, deserts, swamps, ruins, landmarks and feast sites are placed at random from the match seed, in three sizes: Standard, Large (default) and Huge.
@@ -69,18 +91,21 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 | --- | --- |
 | 00:00 | Dawn. Everyone spawns away from landmarks and ruins. Chop wood, craft planks, find potions |
 | 02:00 | The grace period ends and PvP turns on |
+| ~11:00 | The first supply drop lands (announced at ~08:00) |
 | 20:00 | The feast is announced and marked on your map |
 | 25:00 | The feast opens: Feast Blades, feast armour and potions |
+| ~31:00 | The second supply drop |
 | ~45:00 | Dusk. Names get harder to read from a distance |
+| ~47:00 | The last supply drop |
 | 60:00 | Night. Everyone left is dropped into the pit. Last one standing wins |
 
 ### Kits
 
-28 kits, 8 of them free each week. The rest unlock with coins earned in matches (50 per kill, 200 for a win).
+29 kits, 8 of them free each week. The rest unlock with coins earned in matches (50 per kill, 200 for a win).
 
 | Style | Kits |
 | --- | --- |
-| Fighters | Killer, Puncher, Leech, Blight, Shade, Duelist, Heavy, Bulwark |
+| Fighters | Killer, Puncher, Leech, Blight, Shade, Duelist, Heavy, Bulwark, Titan |
 | Movement | Jumper, Runner, Faller, Mage, Fisherman, Trickster |
 | Builders and trappers | Tripwire, Snare, Updraft, Sapper, Cutter, Lightning |
 | Stealth and survival | Hidden, Faker, Jinx, Finder, Recluse, Yeti, Bogwalker, Thrower |
@@ -163,7 +188,7 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 | WASD · mouse | Move · look (click the game to capture the mouse) |
 | Space · Shift | Jump · sneak (you won't walk off edges, and it blocks Faller damage). Walk into a ladder, or hold Space, to climb |
 | Left click | Swing (hold to keep swinging), hold on a block to break it, draw the bow, use the held item |
-| Right click | Place the held block (hold, jump and look down to tower up), otherwise drink |
+| Right click | Place the held block (hold, jump and look down to tower up), fill or pour a bucket, otherwise drink |
 | 1–9 · wheel | Select a hotbar slot |
 | Tab | Inventory and crafting |
 | Q · F · R | Kit ability · drink · refill the hotbar with potions from your backpack |
@@ -180,7 +205,9 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 
 Mouse look works by capturing the mouse, like any first-person game. Some windows can't do that (embedded browsers inside other apps, for example). There the game switches to free-look: the cursor is hidden, moving the mouse turns the view, and resting it against the window edge keeps turning. Chrome, Edge, Firefox and the desktop app capture the mouse normally.
 
-After you die, the end screen offers **Spectate**: ← → or clicking switches between players, and Esc goes back.
+When you die, a short replay plays first (Space, Esc or a click skips it). The end screen then offers **Spectate**, where ← → or clicking switches between players and Esc goes back, and **Watch replay**.
+
+In water, hold Space to swim up. Water puts out fires.
 
 New players get short tips during their first match. Turn them off, or show them again, in Options.
 
@@ -196,14 +223,15 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | --- | --- |
 | `index.html` | Page, HUD, menus and styles |
 | `config.js` | Where online play connects |
-| `js/world.js` | Seeded map: biomes, trees, rocks, reeds, tunnels |
-| `js/blocks.js` | Placeable blocks, collision, fall support, raycasting |
+| `js/world.js` | Seeded map: biomes, trees, rocks, reeds, tunnels, lava pools, supply drop sites |
+| `js/blocks.js` | Placeable blocks, collision, fall support, raycasting, poured water and lava |
 | `js/items.js` | Item registry, drawn icons, inventory, armour, recipes |
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
 | `js/bots.js` | Bot playstyles: hunter, miner, trapper, tower, balanced |
 | `js/net.js` | Online play: lobby, matches, state sync, host migration |
 | `js/scene3d.js` | Renderer, lights, terrain mesh, instanced scenery, tunnels |
-| `js/view3d.js` | Per-frame 3D: players, items, effects, first-person held item, minimap |
+| `js/view3d.js` | Per-frame 3D: players, markers, items, effects, supply drops, first-person held item, minimap |
+| `js/replay.js` | Records the last few seconds and plays them back when you die |
 | `js/audio.js` | Generated ambient music and positional sound effects |
 | `js/main.js` | Game loop, input, HUD, inventory screen, menus, kit store |
 | `server.js` | Static file server plus a WebSocket relay for multiplayer |

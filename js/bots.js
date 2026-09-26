@@ -49,6 +49,14 @@ function botThink(b) {
   if (hotPots(b) < 4 && bagPots(b) > 0 && hotbarEmpty(b) >= 0) { b.plan = { type: 'refill' }; return; }
   if (G.pit) { b.plan = { type: 'go', x: PIT.x + rr(-120, 120), y: PIT.y + rr(-120, 120), layer: 0 }; return; }
 
+  // Water left under a bot after a clutch landing goes back in the bucket
+  if (b.inLiq === 'water' && b.onGround && count(b, 'bucket')) {
+    const w = liquidAt(b);
+    if (w && w.owner === b.id) { removeLiquid(w.src); fillBucket(b, 'water'); }
+  }
+  // A landed supply crate nearby: worth the trip for most bots
+  const sup = G.items.find(i => i.kind === 'supply' && !i.gone && hyp(i.x - b.x, i.y - b.y) < 1500);
+  if (sup && b.layer === 0 && (b.style !== 'miner' || b.armor >= 2)) { b.plan = { type: 'go', x: sup.x, y: sup.y, layer: 0 }; return; }
   const f = G.feast;
   if (f && f.state === 'spawned' && b.weapon < 4 && (b.style !== 'miner' || b.armor >= 2)) {
     const chest = G.items.find(i => i.kind === 'feast' && !i.gone);
@@ -125,7 +133,7 @@ function botThink(b) {
   // Loot a ruin chest that can be reached from the ground (watchtower chests need climbing)
   if (!G.pit && b.layer === 0 && (b.style !== 'tower' || b.towerDone)) {
     let best = null, bd = 900;
-    for (const it of G.items) if (!it.gone && (it.kind === 'chest' || it.kind === 'relic') && it.layer === 0 && it.z < heightAt(it.x, it.y) + 30) { const d = hyp(it.x - b.x, it.y - b.y); if (d < bd) { bd = d; best = it; } }
+    for (const it of G.items) if (!it.gone && (it.kind === 'chest' || it.kind === 'relic' || it.kind === 'supply') && it.layer === 0 && it.z < heightAt(it.x, it.y) + 30) { const d = hyp(it.x - b.x, it.y - b.y); if (d < bd) { bd = d; best = it; } }
     if (best) { b.plan = { type: 'go', x: best.x, y: best.y, layer: 0 }; return; }
   }
   // Hunt: chase a fresh rat-kill ping, otherwise head toward someone
@@ -171,6 +179,11 @@ function steer(b, x, y, layer, dt) {
     if (b.path.length > 1 || hyp(x - b.x, y - b.y) > 200) { const n = world.nodes[b.path[0]]; x = n.x; y = n.y; }
   }
   let a = Math.atan2(y - b.y, x - b.x);
+  // Walk around lava pools and poured lava
+  if (b.layer === 0) {
+    const ax = b.x + Math.cos(a) * 60, ay = b.y + Math.sin(a) * 60, lv = blockAt(Math.floor(ax / B), Math.floor((b.z + 1) / B), Math.floor(ay / B));
+    if ((lavaPoolAt(ax, ay, 24) || (lv && lv.type === 'lava')) && !(b.detourT > 0)) { b.detourT = 0.9; b.side = b.side || 1; }
+  }
   if (b.detourT > 0) { b.detourT -= dt; a += b.side * 1.3; }
   b.mx = Math.cos(a); b.my = Math.sin(a);
   // Unstick: hop, break a block in the way, or walk sideways for a moment
@@ -212,6 +225,11 @@ function botUpdate(b, dt) {
     b.face = b.cdir; b.mx = Math.cos(b.cdir); b.my = Math.sin(b.cdir);
     if (rng() < dt * 0.8) b.cdir += rr(-1, 1);
     return;
+  }
+  // Falling fast with a water bucket: pour it just before hitting the ground
+  if (b.layer === 0 && !b.onGround && b.vz < -420) {
+    const ws = b.slots.findIndex(s => s && s.id === 'bucket_water'), sup = supportAt(b.x, b.y, b.z, b.r, 0);
+    if (ws >= 0 && b.z - sup < 70) pourBucket(b, ws, Math.floor(b.x / B), Math.floor((sup + 1) / B), Math.floor(b.y / B));
   }
   b.thinkT = (b.thinkT || 0) - dt;
   if (b.thinkT <= 0) { b.thinkT = rr(0.3, 0.45); botThink(b); }
@@ -294,6 +312,11 @@ function botUpdate(b, dt) {
     if (K === 'jinx' && d < 90) useKit(b, t.x, t.y);
     if (K === 'shade' && d > 110 && G.t - (b.lastVictimT || -99) < 10) useKit(b, t.x, t.y);
     if (K === 'trickster' && d > 160 && d < 420) { b.pitch = aimPitch(b, t) + 0.12; useKit(b, t.x, t.y); }
+    if (K === 'titan' && d < 240 && !isTitan(b)) useKit(b, t.x, t.y);
+    // Pour lava at someone's feet
+    const lavaSlot = b.slots.findIndex(s => s && s.id === 'bucket_lava');
+    if (lavaSlot >= 0 && d < 90 && pvpOn() && t.layer === 0 && rng() < dt * 2)
+      pourBucket(b, lavaSlot, Math.floor(t.x / B), Math.floor((t.z + 1) / B), Math.floor(t.y / B));
     return;
   }
   if (p.type === 'refill') { if (b.refillT <= 0 && hotbarEmpty(b) >= 0 && bagPots(b) > 0) b.refillT = 0.22; return; }

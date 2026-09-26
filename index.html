@@ -147,6 +147,21 @@
   #dmgdir { position: absolute; left: 50%; top: 50%; width: 170px; height: 170px; border-radius: 50%; border-top: 5px solid rgba(214,70,70,.9); opacity: 0; pointer-events: none; transform: translate(-50%, -50%); filter: drop-shadow(0 0 4px rgba(0,0,0,.6)); }
   #hud.spec .bottom, #hud.spec #cross, #hud.spec #prompt, #hud.spec #held-name, #hud.spec #clickto, #hud.spec #dmgdir, #hud.spec #hurt { display: none; }
   #spec { position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(12,17,14,.88); border: 1px solid var(--line); padding: 8px 14px; font: 600 14px var(--ui); white-space: pre; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
+  #droptag { font: 600 13px var(--ui); color: #8fcaff; margin-top: 4px; }
+  #near i { position: absolute; left: 50%; top: 50%; width: 22px; height: 13px; opacity: 0; background: #ff5a48; clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%); filter: drop-shadow(0 0 2px rgba(0,0,0,.8)); transition: opacity .12s; }
+  #hud.spec #near { display: none; }
+  /* Death replay: letterbox bars and a caption */
+  #replay { position: fixed; inset: 0; pointer-events: none; }
+  #replay::before, #replay::after { content: ""; position: absolute; left: 0; right: 0; height: 9vh; background: #050706; }
+  #replay::before { top: 0; } #replay::after { bottom: 0; }
+  .rp-box { position: absolute; left: 50%; bottom: calc(9vh + 18px); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; background: rgba(12,17,14,.8); padding: 10px 18px; min-width: min(360px, calc(100% - 32px)); box-sizing: border-box; }
+  .rp-tag { font: 700 13px var(--mono); letter-spacing: .2em; color: var(--blood); display: flex; align-items: center; gap: 7px; }
+  .rp-tag::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--blood); animation: blink 1s infinite; }
+  #rp-sub { margin: 0; font: 400 26px/1.05 var(--display); text-align: center; }
+  .rp-bar { width: 100%; height: 3px; background: rgba(255,255,255,.12); }
+  #rp-prog { display: block; height: 100%; width: 0; background: var(--ember); }
+  .rp-hint { margin: 0; font-size: 12.5px; color: var(--dim); }
+  @media (prefers-reduced-motion: reduce) { .rp-tag::before { animation: none; } }
   #board { position: absolute; left: 50%; top: 12%; transform: translateX(-50%); width: min(460px, calc(100% - 32px)); background: rgba(12,17,14,.93); border: 1px solid var(--line); padding: 12px 14px; }
   #board h3 { margin: 0 0 8px; display: flex; justify-content: space-between; align-items: baseline; font: 400 22px var(--display); }
   #board h3 small { font: 500 12px var(--mono); color: var(--dim); }
@@ -293,7 +308,7 @@
         <dt>Mouse</dt><dd>Look around. Click the game to capture the mouse; arrow keys also turn</dd>
         <dt><kbd>Space</kbd> · <kbd>Shift</kbd></dt><dd>Jump · sneak (you won’t walk off edges, and it blocks Faller damage). Walk into a ladder to climb it</dd>
         <dt>Left click</dt><dd>Swing (hold to keep swinging), hold on a block to break it, draw the bow, drink, or use your kit</dd>
-        <dt>Right click</dt><dd>With blocks: place them (hold, jump and look down to tower up). Otherwise: drink</dd>
+        <dt>Right click</dt><dd>With blocks: place them (hold, jump and look down to tower up). With a bucket: fill it or pour it. Otherwise: drink</dd>
         <dt><kbd>1</kbd>–<kbd>9</kbd> · wheel</dt><dd>Select hotbar slot</dd>
         <dt><kbd>Tab</kbd></dt><dd>Inventory and crafting</dd>
         <dt><kbd>Q</kbd> · <kbd>F</kbd> · <kbd>R</kbd></dt><dd>Kit ability · drink · refill hotbar with potions from your backpack</dd>
@@ -346,7 +361,7 @@
     <p id="end-sub"></p>
     <div class="stats" id="end-stats"></div>
     <p class="hint" id="end-online" hidden>The match carries on for the others. Leaving takes you back to the lobby.</p>
-    <div class="row"><button class="btn" id="btn-again">Back to Play</button><button class="btn ghost" id="btn-spec" hidden>Spectate</button></div>
+    <div class="row"><button class="btn" id="btn-again">Back to Play</button><button class="btn ghost" id="btn-spec" hidden>Spectate</button><button class="btn ghost" id="btn-replay" hidden>Watch replay</button></div>
   </div>
 </section>
 
@@ -359,6 +374,7 @@
       <span>Kills <b id="kills">0</b></span>
       <span id="where"></span>
     </div>
+    <div id="droptag" hidden></div>
     <div id="online-tag" hidden></div>
   </div>
   <div class="tr">
@@ -367,6 +383,7 @@
   </div>
   <div id="hurt"></div>
   <div id="dmgdir"></div>
+  <div id="near" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <div id="spec" hidden></div>
   <div id="board" hidden><h3>Players <small id="board-count"></small></h3><div id="board-list"></div></div>
   <div id="tipbox" hidden><b>Tip</b><p></p></div>
@@ -385,6 +402,15 @@
 </section>
 
 <div id="banner" hidden><h2></h2><p></p></div>
+
+<section id="replay" hidden>
+  <div class="rp-box">
+    <div class="rp-tag">Replay</div>
+    <p id="rp-sub"></p>
+    <div class="rp-bar"><i id="rp-prog"></i></div>
+    <p class="rp-hint">Space, Esc or click to skip</p>
+  </div>
+</section>
 
 <section id="inv" hidden>
   <div class="inv-card">
@@ -414,6 +440,7 @@
 <script src="js/net.js"></script>
 <script src="js/scene3d.js"></script>
 <script src="js/view3d.js"></script>
+<script src="js/replay.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

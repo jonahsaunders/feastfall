@@ -24,6 +24,9 @@ const ITEMS = {
   pad:    { name: 'Launch Pad', stack: 16, cat: 'block', block: 'pad', desc: 'Updraft’s pad. Flings whoever steps on it about 14 blocks up. Off your own pads you land safely.' },
   ladder: { name: 'Ladder', stack: 64, cat: 'block', block: 'ladder', desc: 'Place against a wall or on the ground. Walk into it (or hold Space) to climb; Shift to hold still. No fall damage while on a ladder.' },
   charm:  { name: 'Feather Charm', stack: 8, cat: 'use', desc: 'Keep it anywhere in your inventory: it is used up to block one fall of 7+ blocks.' },
+  bucket: { name: 'Bucket', stack: 16, cat: 'use', desc: 'Right click on swamp water, a lava pool, or poured water or lava to fill it.' },
+  bucket_water: { name: 'Water Bucket', stack: 1, cat: 'use', bucket: 'water', desc: 'Right click to pour. Landing in water cancels fall damage: pour it under you just before you hit the ground. Hold Space in water to swim up. Put out fires.' },
+  bucket_lava:  { name: 'Lava Bucket', stack: 1, cat: 'use', bucket: 'lava', desc: 'Right click to pour. Lava burns anyone in it, including whoever you pour it on. Water turns it to stone, and it cools away after 30 seconds.' },
   hide_head:  { name: 'Hide Cap', stack: 1, cat: 'armor', slot: 'head', def: 0.08 },
   hide_chest: { name: 'Hide Tunic', stack: 1, cat: 'armor', slot: 'chest', def: 0.14 },
   hide_legs:  { name: 'Hide Leggings', stack: 1, cat: 'armor', slot: 'legs', def: 0.11 },
@@ -62,6 +65,7 @@ const RECIPES = [
   { out: 'turf', n: 4, cost: { wood: 1 }, cat: 'Blocks', kit: 'snare' },
   { out: 'pad', n: 2, cost: { wood: 1, reed: 1 }, cat: 'Blocks', kit: 'updraft' },
   { out: 'charm', cost: { reed: 2, hide: 1 }, cat: 'Other' },
+  { out: 'bucket', cost: { iron: 1, stone: 2 }, cat: 'Other' },
 ];
 const recipe = id => RECIPES.find(r => r.out === id);
 const wears = (f, id) => !!(f.equip && ARMOR_SLOTS.some(k => f.equip[k] && f.equip[k].id === id));
@@ -239,6 +243,14 @@ function paintIcon(id, kit) {
       for (const y of [6, 10.5, 15, 19.5]) L([[7, y], [17, y]], '#b08a5a', 1.6); break;
     case 'charm': g.save(); g.translate(12, 12); g.rotate(-0.7); g.fillStyle = '#f2ead6'; g.beginPath(); g.ellipse(0, 0, 3.5, 9, 0, 0, 7); g.fill();
       g.strokeStyle = '#b89c6a'; g.lineWidth = 0.8; g.beginPath(); g.moveTo(0, -9); g.lineTo(0, 10); g.stroke(); g.restore(); break;
+    case 'bucket': case 'bucket_water': case 'bucket_lava': {
+      g.strokeStyle = '#6d7479'; g.lineWidth = 1.3; g.beginPath(); g.arc(12, 9, 7.5, Math.PI, 0); g.stroke();
+      P([[4, 8], [20, 8], [17.5, 21], [6.5, 21]], '#aeb5ba', '#5d6469');
+      const fill = { bucket_water: '#3f8fd0', bucket_lava: '#ff7a1f' }[id];
+      g.fillStyle = fill || '#3b4146'; g.beginPath(); g.ellipse(12, 8, 8, 2.4, 0, 0, 7); g.fill();
+      if (id === 'bucket_lava') { g.fillStyle = '#ffd24a'; g.beginPath(); g.ellipse(10, 7.6, 3, 0.9, 0, 0, 7); g.fill(); }
+      L([[7, 13], [17, 13]], '#8a9196', 0.8); break;
+    }
     case 'kit': P([[12, 2], [21, 7], [21, 17], [12, 22], [3, 17], [3, 7]], '#e2733b', '#8a3a14');
       g.fillStyle = '#fff'; g.font = '700 10px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText((KITS[kit] || { name: '?' }).name[0], 12, 12.5); break;
   }

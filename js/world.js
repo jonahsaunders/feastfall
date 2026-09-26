@@ -283,6 +283,23 @@ function genWorld(seed, size = 4800) {
   const junction = world.nodes.map((n, i) => ({ i, n, score: n.adj.length * 1000 + Math.min(...ents.map(e => hyp(e.x - n.x, e.y - n.y))) }))
     .filter(q => !q.n.ent).sort((a, b) => b.score - a.score)[0];
   if (junction) world.landmarks.push({ id: 'nest', x: junction.n.x, y: junction.n.y, layer: 1, node: junction.i });
+  // Lava pools: glowing vents on flat ground in the mountains and deserts. They burn, and fill buckets.
+  world.lavas = [];
+  const hot = [...world.mts, ...world.deserts];
+  for (let t = 0; world.lavas.length < Math.round(2 * A) + 1 && t < 2000; t++) {
+    const [x, y] = inRegion(hot), r = rr(34, 46), bi = biomeAt(x, y);
+    if ((bi !== 1 && bi !== 2) || flatness(x, y, r) > 10 || !clear(x, y, r + 30) || world.lavas.some(p => hyp(p.x - x, p.y - y) < 700)) continue;
+    const hs = [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]].map(([a, b]) => heightAt(x + a, y + b));
+    world.lavas.push({ x, y, r, z: Math.max(...hs) + 1 });
+  }
+  // Supply drops: three crates parachute in during the match, each announced three minutes ahead
+  world.drops = [];
+  for (const min of [11, 31, 47]) for (let t = 0; t < 400; t++) {
+    const x = rr(400, WORLD - 400), y = rr(400, WORLD - 400);
+    if ([[0, 0], [250, 0], [-250, 0], [0, 250], [0, -250]].some(([a, b]) => biomeAt(x + a, y + b) >= 2) || hyp(x - PIT.x, y - PIT.y) < PIT.r + 200 || !clear(x, y, 50) || world.lavas.some(p => hyp(p.x - x, p.y - y) < p.r + 150)) continue;
+    world.drops.push({ x, y, min: min + rr(-1, 1), st: '' });
+    break;
+  }
   world.ground = renderGround();
 }
 const LANDMARKS = {
@@ -335,5 +352,9 @@ function renderGround() {
   g.strokeStyle = 'hsl(30 10% 20%)'; g.lineWidth = 7;
   g.beginPath(); g.arc(0, 0, PIT.r * S, 0, Math.PI * 2); g.stroke();
   g.restore();
+  for (const p of world.lavas) {
+    g.fillStyle = 'hsl(20 20% 18%)'; g.beginPath(); g.arc(p.x * S, p.y * S, (p.r + 16) * S, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'hsl(22 100% 55%)'; g.beginPath(); g.arc(p.x * S, p.y * S, p.r * S, 0, Math.PI * 2); g.fill();
+  }
   return c;
 }

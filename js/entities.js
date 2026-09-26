@@ -32,7 +32,10 @@ const KITS = {
   bogwalker: { name: 'Bogwalker', desc: 'In the swamp you move fast instead of slow, and slowly regenerate health.', passive: true },
   recluse:   { name: 'Recluse',   desc: 'Spawn in the loneliest spot on the map, and your minimap shows anyone within 36 blocks.', passive: true },
   updraft:   { name: 'Updraft',   desc: 'Start with 6 launch pads (and a recipe for more). They fling anyone into the sky; off your own, you land safely.', passive: true, start: [['pad', 6]] },
+  titan:     { name: 'Titan',     desc: 'Grow to more than twice your size for 8 seconds: longer reach, heavier hits, no knockback or fall damage, and landing from a jump knocks everyone near you flying. You’re also a much bigger target.', cd: 40, item: 'Growth Tonic' },
 };
+const TITAN_SIZE = 2.2, TITAN_TIME = 8;
+const isTitan = f => (f.size || 1) > 1.5;
 // Bulwark shrugs off tricks that move or hex you
 const resists = t => !!t && t.kit === 'bulwark';
 const BOT_NAMES = ['Brenno', 'kaiquezin', 'Rafa_BR', 'moss_boss', 'TheFeastGuy', 'lowpoly', 'sopa', 'Vitor77', 'ratcatcher',
@@ -50,7 +53,7 @@ class Fighter {
       mx: 0, my: 0, kbx: 0, kby: 0, face: 0, sel: 0,
       atkCd: 0, kitCd: 0, uses: KITS[kit].uses || 0, invuln: 0, speedT: 0, hurtT: 0, swingT: 0, swings: 0, punchT: 0,
       drinkCd: 0, charge: -1, gather: null, gatherT: 0, refillT: 0, hidden: false, disguise: 'bush', kills: 0, biome: 0,
-      sneak: false, slowT: 0, spikeCd: 0, noFallT: 0, lastHitT: -99, net: {},
+      sneak: false, slowT: 0, spikeCd: 0, noFallT: 0, lastHitT: -99, net: {}, size: 1, titanT: 0, burnT: 0, inLiq: null,
       color: bot ? pick(COLORS) : '#f2ead6',
     });
     newInv(this);
@@ -71,6 +74,7 @@ function power(f) {
 function pvpOn() { return G.clockMin >= G.grace; }
 function jump(f, v = JUMP_V) {
   if (!f.onGround) return false;
+  if (isTitan(f)) v *= 1.3;
   f.vz = v; f.onGround = false; f.peakZ = f.z;
   return true;
 }
@@ -88,8 +92,9 @@ function hurt(t, amt, src, ang, kb, up = 0) {
   if (byMe) G.stats.dmg += amt;
   if (t === G.human && src && src.isFighter) G.dmgDir = { a: Math.atan2(src.y - t.y, src.x - t.x), t: 1 };
   t.hp -= amt; t.hurtT = 0.2; t.gather = null; t.refillT = 0; t.hidden = false;
-  if (t.kit !== 'heavy' && kb) { t.kbx += Math.cos(ang) * kb; t.kby += Math.sin(ang) * kb; }
-  if (up && t.kit !== 'heavy') { if (t.onGround) jump(t, up); else t.vz = Math.max(t.vz, up * 0.6); }
+  const steady = t.kit === 'heavy' || isTitan(t);
+  if (!steady && kb) { t.kbx += Math.cos(ang) * kb; t.kby += Math.sin(ang) * kb; }
+  if (up && !steady) { if (t.onGround) jump(t, up); else t.vz = Math.max(t.vz, up * 0.6); }
   if (G.settings.dmgNums) addFx('num', t.x, t.y, t.layer, { txt: amt.toFixed(1), z: t.z + 70 });
   if (src && src.isFighter) { t.lastHitBy = src.owner || src; t.lastHitT = G.t; }
   Sfx.play(t === G.human ? 'hurt' : 'hit', t.x, t.y, t.z);
@@ -139,8 +144,8 @@ function announceKill(t, killer, fell) {
     if (!killer.remote && killer.kit === 'leech' && killer.alive) killer.hp = Math.min(killer.maxHp, killer.hp + 8);
     if (killer === G.human) { G.coinsEarned += 50; Sfx.play('kill'); toast(`You eliminated ${t.name}`); G.killFlash = 0.6; }
   }
-  G.feed.unshift({ txt: killer ? `${killer.name} ⟶ ${t.name}` : `${t.name} ${fell ? 'fell' : 'died'}`, t: 7, you: t === G.human || killer === G.human });
-  if (t === G.human) { G.killedBy = killer ? killer.name : fell ? 'a long fall' : 'the pit'; endGame(false); }
+  G.feed.unshift({ txt: killer ? `${killer.name} ⟶ ${t.name}` : `${t.name} ${fell ? 'fell' : t.diedTo === 'lava' ? 'burned' : 'died'}`, t: 7, you: t === G.human || killer === G.human });
+  if (t === G.human) { G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : t.diedTo || 'the pit'; endGame(false); }
   checkWin();
 }
 function checkWin() {
@@ -170,18 +175,18 @@ function hitRat(rat, dmg, src, ang) {
 // ---- actions ----
 function swing(f, armed = true) {
   if (f.atkCd > 0) return false;
-  const tier = armed ? f.weapon : 0, maul = tier === 5;
+  const tier = armed ? f.weapon : 0, maul = tier === 5, big = f.size || 1, titan = isTitan(f);
   f.atkCd = maul ? 0.62 : 0.28; f.swingT = 0.14; f.swings++; f.hidden = false;
-  let dmg = WDMG[tier] + (f.kit === 'killer' ? 1 : 0);
+  let dmg = WDMG[tier] + (f.kit === 'killer' ? 1 : 0) + (titan ? 1.5 : 0);
   const punching = f.punchT > 0;
   if (punching) dmg += 8;
-  const reach = f.r + 44;
+  const reach = f.r + 44 * big, kb = (maul ? 720 : 300) * (titan ? 1.8 : 1);
   let hit = false;
   for (const t of G.fighters) {
     if (t === f || !t.alive || t.layer !== f.layer || t.owner === f) continue;
-    if (Math.abs(t.z - f.z) > 50) continue;
+    if (t.z - f.z > 50 * big || f.z - t.z > 50 * (t.size || 1)) continue;
     const a = Math.atan2(t.y - f.y, t.x - f.x);
-    if (hyp(t.x - f.x, t.y - f.y) - t.r < reach && Math.abs(angDiff(f.face, a)) < 1.0 && hurt(t, dmg, f, a, maul ? 720 : 300, maul ? 400 : 0)) {
+    if (hyp(t.x - f.x, t.y - f.y) - t.r < reach && Math.abs(angDiff(f.face, a)) < 1.0 && hurt(t, dmg, f, a, kb, maul ? 400 : 0)) {
       hit = true;
       if (!t.isClone) { f.lastVictim = t; f.lastVictimT = G.t; }
       if (f.kit === 'leech') f.hp = Math.min(f.maxHp, f.hp + dmg * 0.15);
@@ -299,6 +304,12 @@ function useKit(f, ax, ay) {
       f.uses--;
       break;
     }
+    case 'titan':
+      if (f.layer) { if (f === G.human) toast('There’s no room to grow down here'); return false; }
+      f.titanT = TITAN_TIME;
+      addFx('ring', f.x, f.y, f.layer, { col: '#e2733b', big: true, z: f.z + 2 });
+      Sfx.play('grow', f.x, f.y, f.z);
+      break;
     case 'shade': {
       const v = f.lastVictim;
       if (!v || !v.alive || G.t - f.lastVictimT > 10 || v.layer !== f.layer) { if (f === G.human) toast('Hit someone first, then blink behind them within 10 seconds'); return false; }
@@ -315,7 +326,7 @@ function useKit(f, ax, ay) {
 // Skyhook: grapple to whatever the crosshair is on, up to 22 blocks away
 function fireSkyhook(f, pitch) {
   if (f.skyCd > 0 || f.layer) return false;
-  const cp = Math.cos(pitch), eye = f.z + EYE, dx = Math.cos(f.face) * cp, dy = Math.sin(f.face) * cp, dz = Math.sin(pitch);
+  const cp = Math.cos(pitch), eye = f.z + EYE * (f.size || 1), dx = Math.cos(f.face) * cp, dy = Math.sin(f.face) * cp, dz = Math.sin(pitch);
   const a = rayPick(f.x, f.y, eye, dx, dy, dz, 550);
   if (!a) return false;
   const x = f.x + dx * a.t, y = f.y + dy * a.t, z = eye + dz * a.t;
@@ -341,7 +352,7 @@ function announceRelic(f, id) {
 function nearestInFront(f, range, cone) {
   let best = null, bd = range;
   for (const o of G.fighters) {
-    if (o === f || !o.alive || o.isClone || o.layer !== f.layer || Math.abs(o.z - f.z) > 60) continue;
+    if (o === f || !o.alive || o.isClone || o.layer !== f.layer || Math.abs(o.z - f.z) > 60 * (f.size || 1)) continue;
     const d = hyp(o.x - f.x, o.y - f.y);
     if (d < bd && Math.abs(angDiff(f.face, Math.atan2(o.y - f.y, o.x - f.x))) < cone) { bd = d; best = o; }
   }
@@ -402,6 +413,7 @@ function toggleLayer(f) {
   const e = world.entrances.find(e => hyp(e.x - f.x, e.y - f.y) < 46);
   if (!e || G.pit || !f.onGround) return false;
   if (!f.layer && f.z > heightAt(e.x, e.y) + 20) return false;
+  if ((f.size || 1) > 1.2) { if (f === G.human) toast('You’re too big to fit down the tunnel'); return false; }
   f.layer = 1 - f.layer; f.x = e.x; f.y = e.y; f.z = f.layer ? 0 : heightAt(e.x, e.y); f.vz = 0; f.onGround = true;
   f.kbx = f.kby = 0; f.gather = null; f.path = null;
   return true;
@@ -441,6 +453,17 @@ function land(f, fall, onType) {
   const blocks = fall / B;
   if (f === G.human && G.stats) G.stats.fall = Math.max(G.stats.fall, blocks);
   if (blocks > 1.5) addFx('ring', f.x, f.y, f.layer, { col: '#d9c7a8', z: f.z + 1 });
+  // Landing in water: no damage, however far you fell
+  const wet = liquidAt(f);
+  if (wet && wet.type === 'water') {
+    if (blocks > 3.5) {
+      addFx('ring', f.x, f.y, f.layer, { col: '#9fd6ff', big: true, z: f.z + 2 });
+      Sfx.play('splash', f.x, f.y, f.z);
+      if (f === G.human) toast(blocks > 8 ? `Water bucket clutch! ${Math.round(blocks)} blocks, no damage` : 'The water broke your fall');
+    }
+    return;
+  }
+  if (isTitan(f)) { if (fall > 30) titanStomp(f); return; } // Titans never take fall damage
   const dmg = Math.max(0, blocks - 3.5);
   if (dmg <= 0 || wears(f, 'boots_wind')) return;
   Sfx.play('fall', f.x, f.y, f.z);
@@ -463,12 +486,53 @@ function land(f, fall, onType) {
   hurtRaw(f, dmg, null);
   if (f.alive) f.fellLast = false;
 }
+// Titan landing: a shockwave that throws everyone nearby
+function titanStomp(f) {
+  addFx('ring', f.x, f.y, f.layer, { col: '#c9a26a', big: true, z: f.z + 1 });
+  addFx('puff', f.x, f.y, f.layer, { col: '#b8a488', big: true, z: f.z + 6 });
+  Sfx.play('stomp', f.x, f.y, f.z);
+  NET.fx({ k: 'stomp', x: Math.round(f.x), y: Math.round(f.y), z: Math.round(f.z) });
+  for (const t of G.fighters) {
+    if (t === f || !t.alive || t.layer !== f.layer || t.owner === f || Math.abs(t.z - f.z) > 40) continue;
+    if (hyp(t.x - f.x, t.y - f.y) < 100) hurt(t, 2.5, f, Math.atan2(t.y - f.y, t.x - f.x), 480, 320);
+  }
+}
+
+// ---- buckets ----
+// The empty bucket in `slot` (or the first one found) becomes a full one
+function fillBucket(f, type, slot) {
+  const i = f.slots[slot] && f.slots[slot].id === 'bucket' ? slot : f.slots.findIndex(s => s && s.id === 'bucket');
+  if (i < 0) return false;
+  const s = f.slots[i], id = 'bucket_' + type;
+  if (s.n === 1) f.slots[i] = { id, n: 1 };
+  else { s.n--; const l = give(f, id, 1); if (l) dropStacks(f, [{ id, n: 1 }]); }
+  bump(f);
+  Sfx.play(type === 'lava' ? 'sizzle' : 'splash', f.x, f.y, f.z);
+  return true;
+}
+// Pour the full bucket in `slot` into cell (i, j, k); it goes back to being an empty bucket
+function pourBucket(f, slot, i, j, k) {
+  const s = f.slots[slot], type = s && ITEMS[s.id].bucket;
+  if (!type || !pourLiquid(f, type, i, j, k)) return false;
+  f.slots[slot] = { id: 'bucket', n: 1 }; bump(f);
+  if (f === G.human && G.stats) G.stats.pours = (G.stats.pours || 0) + 1;
+  return true;
+}
 
 // ---- per-frame physics for a fighter we simulate ----
 function updateFighter(f, dt) {
-  for (const k of ['atkCd', 'kitCd', 'invuln', 'speedT', 'hurtT', 'swingT', 'punchT', 'drinkCd', 'slowT', 'spikeCd', 'noFallT', 'skyCd']) if (f[k] > 0) f[k] -= dt;
+  for (const k of ['atkCd', 'kitCd', 'invuln', 'speedT', 'hurtT', 'swingT', 'punchT', 'drinkCd', 'slowT', 'spikeCd', 'noFallT', 'skyCd', 'titanT']) if (f[k] > 0) f[k] -= dt;
+  // Titan: grow and shrink smoothly; the collision circle grows too
+  const want = f.titanT > 0 && !f.layer ? TITAN_SIZE : 1;
+  if (f.size !== want) {
+    f.size += (want - f.size) * Math.min(1, dt * 6);
+    if (Math.abs(f.size - want) < 0.02) { f.size = want; if (want === 1 && f === G.human) toast('You shrink back to normal size'); }
+    f.r = 13 * f.size;
+  }
   f.biome = f.layer ? -1 : biomeAt(f.x, f.y);
   let sp = f.layer ? 165 : [190, 185, 172, 150][f.biome];
+  if (isTitan(f)) sp *= 1.25;
+  if (f.inLiq === 'water') sp *= 0.7; else if (f.inLiq === 'lava') sp *= 0.5;
   if (f.kit === 'yeti' && f.biome === 2) sp = 235;
   if (f.kit === 'bogwalker' && f.biome === 3) { sp = 225; if (f.hp < f.maxHp) f.hp = Math.min(f.maxHp, f.hp + 0.45 * dt); }
   if (f.poisonT > 0) {
@@ -523,6 +587,22 @@ function updateFighter(f, dt) {
       if (f.climb) { f.vz = 150; f.onGround = false; }
       else if (!f.onGround) f.vz = f.sneak ? GRAV * dt : Math.max(f.vz, -80);
     }
+    // Water: sink slowly (no fall damage builds up), hold Space to swim up, and it puts fires out.
+    // Lava: sets you on fire (poured lava only burns other people once PvP is on).
+    const liq = f.isClone ? null : liquidAt(f);
+    f.inLiq = liq ? liq.type : null;
+    if (f.inLiq === 'water') {
+      f.peakZ = f.z; f.burnT = 0;
+      if (f.glide) { f.vz = 170; f.onGround = false; }
+      else if (!f.onGround) f.vz = Math.max(f.vz, -110);
+    } else if (f.inLiq === 'lava') {
+      if (!f.onGround) f.vz = Math.max(f.vz, -160);
+      const by = liq.owner ? fighterById(liq.owner) : null;
+      if (!liq.owner || liq.owner === f.id || pvpOn()) {
+        if (!(f.burnT > 0) && f === G.human) toast('You’re in lava! Get out');
+        f.burnT = 3; f.burnBy = by && by !== f ? by : null;
+      }
+    }
     // Vertical: stand, step, fall, land
     const sup = supportAt(f.x, f.y, f.z, f.r, 0), supType = SUP_TYPE;
     if (f.onGround) {
@@ -558,6 +638,17 @@ function updateFighter(f, dt) {
     }
     const turf = !f.isClone && turfUnder(f);
     if (turf) { breakBlock(turf[0], turf[1], turf[2], null); addFx('puff', f.x, f.y, 0, { col: '#6b8a4a', z: f.z + 10 }); if (f === G.human) toast('The ground gave way: Snare Turf!'); }
+  }
+  // Burning: fast damage in lava, slower once you're out, until it wears off (water puts it out)
+  if (f.burnT > 0) {
+    f.burnT -= dt; f.burnTick = (f.burnTick || 0) - dt;
+    if (f.burnTick <= 0) {
+      const inLava = f.inLiq === 'lava';
+      f.burnTick = inLava ? 0.45 : 0.7;
+      f.diedTo = 'lava';
+      hurtRaw(f, inLava ? 1.5 : 0.5, f.burnBy);
+      if (f.alive) { f.diedTo = null; addFx('puff', f.x, f.y, f.layer, { col: '#ff7a2a', z: f.z + 20 + Math.random() * 30 }); }
+    }
   }
   if (!f.alive) return;
   // Gathering: stand still next to a resource
@@ -673,10 +764,10 @@ function updateProj(dt) {
       else if (p.z < g + 90 && nearObjs(p.x, p.y, 30).some(o => o.amt > 0 && o.kind !== 'reed' && hyp(o.x - p.x, o.y - p.y) < o.r)) p.life = 0;
     }
     // Only the shooter's machine decides hits; everyone else just draws the arrow
-    if (p.ghost || p.owner.remote) { for (const t of G.fighters) if (p.life > 0 && t !== p.owner && t.alive && t.layer === p.layer && hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + FH + 4) p.life = 0; continue; }
+    if (p.ghost || p.owner.remote) { for (const t of G.fighters) if (p.life > 0 && t !== p.owner && t.alive && t.layer === p.layer && hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + fh(t) + 4) p.life = 0; continue; }
     for (const t of G.fighters) {
       if (p.life <= 0 || t === p.owner || !t.alive || t.layer !== p.layer || t.owner === p.owner) continue;
-      if (hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + FH + 4) {
+      if (hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + fh(t) + 4) {
         const a = Math.atan2(p.vy, p.vx);
         if (resists(t)) { addFx('ring', t.x, t.y, t.layer, { col: '#8fa3a8', z: t.z + 30 }); }
         else if (p.kind === 'arrow') hurt(t, p.dmg, p.owner, a, p.kb);

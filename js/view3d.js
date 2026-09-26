@@ -57,6 +57,15 @@ function drawTag(s, name, hp, max, clone) {
   s.userData.tex.needsUpdate = true;
 }
 
+// A red marker over far-away fighters: it stays the same size on screen, so people stay visible at range
+const MARK_TEX = (() => {
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d');
+  g.beginPath(); g.moveTo(8, 12); g.lineTo(56, 12); g.lineTo(32, 52); g.closePath();
+  g.lineWidth = 7; g.strokeStyle = 'rgba(10,8,6,.75)'; g.stroke();
+  g.fillStyle = '#ff5a48'; g.fill();
+  return new T.CanvasTexture(c);
+})();
 function makeFighter(f) {
   const g = new T.Group(), body = new T.Group(); g.add(body);
   const col = new T.Color(f.color);
@@ -83,13 +92,23 @@ function makeFighter(f) {
   Object.values(dis).forEach(d => bush.add(d));
   const ring = new T.Mesh(FG.ring, new T.MeshBasicMaterial({ color: 0x9d7cf0 })); ring.position.y = 2;
   const tag = tagSprite(); tag.position.y = 80;
-  g.add(bush, ring, tag);
-  g.userData = { body, legL, legR, arm, blade, fist, plate, helm, padL, padR, bush, dis, ring, tag, mT, mL, mB, mA, walk: 0, w: -1, a: -1 };
+  const mark = new T.Sprite(new T.SpriteMaterial({ map: MARK_TEX, sizeAttenuation: false, fog: false, transparent: true }));
+  mark.scale.set(0.032, 0.032, 1); mark.position.y = 96; mark.renderOrder = 2;
+  g.add(bush, ring, tag, mark);
+  g.userData = { body, legL, legR, arm, blade, fist, plate, helm, padL, padR, bush, dis, ring, tag, mark, mT, mL, mB, mA, walk: 0, w: -1, a: -1 };
   return g;
+}
+// Players you've had on screen recently show up on your minimap for a few seconds
+const SPOT_TIME = 4;
+const spotV = new T.Vector3();
+function spot(f) {
+  spotV.set(f.x, f.z + 40, f.y).project(camera);
+  if (spotV.z < 1 && Math.abs(spotV.x) < 1 && Math.abs(spotV.y) < 1) { f.spotT = G.t; f.spotX = f.x; f.spotY = f.y; } // the map shows where you saw them
 }
 function updFighter(m, f, dt) {
   const u = m.userData;
   m.position.set(f.x, f.z, f.y);
+  m.scale.setScalar(f.size || 1);
   u.body.scale.y = f.sneak ? 0.86 : 1;
   m.rotation.y = -f.face;
   const moving = hyp(f.mx, f.my) > 0.1 && !f.gather && f.refillT <= 0;
@@ -105,13 +124,19 @@ function updFighter(m, f, dt) {
   }
   u.body.visible = !f.hidden; u.bush.visible = !!f.hidden;
   if (f.hidden) for (const [k, d] of Object.entries(u.dis)) d.visible = k === f.disguise;
-  u.mT.emissive.setHex(f.hurtT > 0 ? 0x992222 : 0x000000);
+  const burning = f.burnT > 0 || f.burnNet;
+  u.mT.emissive.setHex(f.hurtT > 0 ? 0x992222 : burning ? (Math.sin(G.t * 30 + f.x) > 0 ? 0xb04400 : 0x6a2000) : 0x000000);
   u.ring.visible = f.invuln > 0 || f.punchT > 0;
   if (u.ring.visible) u.ring.material.color.setHex(f.invuln > 0 ? 0x9d7cf0 : 0xf0b43c);
   const d = hyp(f.x - camera.position.x, f.y - camera.position.z);
   const v = VIEW.focus || G.human, snowy = v.biome === 2 && G.settings.snow && !G.pit && !v.layer;
-  u.tag.visible = !f.hidden && d < (snowy ? 220 : v.layer ? 330 : 650 * (1 - 0.45 * DAY.night));
+  u.tag.visible = !f.hidden && d < (snowy ? 220 : v.layer ? 330 : 650 * (1 - 0.45 * DAY.night)) && !(G.mode === 'replay' && d < 130);
   if (u.tag.visible) drawTag(u.tag, f.name, f.hp, f.maxHp, f.isClone);
+  // Markers reach much further than name tags, but not through snowstorms or far into the night
+  const markR = snowy ? 240 : v.layer ? 330 : 1250 * (1 - 0.4 * DAY.night);
+  u.mark.visible = !f.hidden && f !== v && d > 110 && d < markR && G.mode !== 'replay' && G.mode !== 'menu' && G.mode !== 'options';
+  if (u.mark.visible) u.mark.material.opacity = Math.min(1, (markR - d) / 150, (d - 110) / 90);
+  if ((u.mark.visible || u.tag.visible) && G.mode === 'play' && !f.hidden) spot(f);
 }
 
 function makeRat() {
@@ -153,6 +178,10 @@ function makeItem(it) {
     g.add(c, b, halo);
     if (!it.layer) { const beam = new T.Mesh(FG.beam, BEAM_MAT); beam.position.y = 620; g.add(beam); g.userData.beam = beam; }
     g.userData.halo = halo;
+  } else if (it.kind === 'supply') { // a landed supply drop: a crate under a blue beam until someone loots it
+    g.add(makeCrate());
+    const beam = new T.Mesh(FG.beam, DROP_BEAM); beam.position.y = 620; g.add(beam);
+    const halo = new T.Mesh(FG.flatRing, new T.MeshBasicMaterial({ color: 0x6fb8ff, transparent: true, opacity: 0.6 })); halo.scale.setScalar(30); halo.position.y = 1; g.add(halo);
   } else if (it.kind === 'bag' || it.kind === 'drop') {
     const b = new T.Mesh(FG.bag, FMAT.bag); b.scale.set(1, 0.85, 1); b.position.y = 7; b.castShadow = true;
     const t = new T.Mesh(FG.neck, FMAT.glass); t.position.y = 15; g.add(b, t);
@@ -239,6 +268,47 @@ function syncFeast() {
   }
   feastMarker.visible = G.human.layer === 0;
   feastMarker.userData.flag.rotation.y = Math.sin(G.t * 2) * 0.3;
+}
+
+// ---- supply drops: a blue beam marks the landing spot, then the crate floats down under a parachute ----
+const DROP_BEAM = new T.MeshBasicMaterial({ color: 0x6fb8ff, transparent: true, opacity: 0.3, blending: T.AdditiveBlending, depthWrite: false, fog: false, side: T.DoubleSide });
+FG.crate = new T.BoxGeometry(32, 26, 32);
+FG.crateBand = new T.BoxGeometry(33, 4, 33);
+FG.canopy = new T.SphereGeometry(52, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2);
+function makeCrate() {
+  const g = new T.Group();
+  const c = new T.Mesh(FG.crate, lam('#4f6f8f')); c.position.y = 13; c.castShadow = true;
+  const b = new T.Mesh(FG.crateBand, lam('#e6dfcc')); b.position.y = 13;
+  const b2 = new T.Mesh(FG.crateBand, lam('#e2733b')); b2.position.y = 24; b2.scale.set(1, 0.6, 1);
+  g.add(c, b, b2);
+  return g;
+}
+const dropVis = new Map();
+function syncDrops() {
+  const drops = world.drops || [], L = (VIEW.focus || G.human).layer;
+  for (const [d, v] of dropVis) if (!drops.includes(d)) { scene.remove(v.beam, v.fall); dropVis.delete(d); }
+  for (const d of drops) {
+    let v = dropVis.get(d);
+    if (!v) {
+      const beam = new T.Mesh(FG.beam, DROP_BEAM);
+      const fall = new T.Group(), canopy = new T.Mesh(FG.canopy, lam('#e2733b', { side: T.DoubleSide }));
+      canopy.position.y = 120; fall.add(makeCrate(), canopy);
+      const pts = [];
+      for (let q = 0; q < 6; q++) { const a = q / 6 * Math.PI * 2; pts.push(0, 26, 0, Math.cos(a) * 50, 120, Math.sin(a) * 50); }
+      fall.add(new T.LineSegments(new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute(pts, 3)), new T.LineBasicMaterial({ color: 0xe6dfcc })));
+      scene.add(beam, fall);
+      v = { beam, fall };
+      dropVis.set(d, v);
+    }
+    const g = heightAt(d.x, d.y), live = G.mode !== 'menu' && G.mode !== 'options' && L === 0;
+    v.beam.visible = live && (d.st === 'announced' || d.st === 'falling');
+    v.beam.position.set(d.x, g + 620, d.y);
+    v.fall.visible = live && d.st === 'falling';
+    if (v.fall.visible) {
+      const k = clamp((d.min * G.settings.len - G.t) / DROP_FALL, 0, 1);
+      v.fall.position.set(d.x, g + k * 1100, d.y); v.fall.rotation.y = G.t * 0.5;
+    }
+  }
 }
 
 // ---- snow ----
@@ -353,7 +423,8 @@ function render(dt) {
   frameNo++;
   const h = G.human, playing = G.mode !== 'menu' && G.mode !== 'options';
   const spec = G.mode === 'spectate' && G.specTarget && G.specTarget.alive ? G.specTarget : null;
-  const focus = spec || h, L = focus.layer, fp = playing && !spec; // fp: first person
+  const rp = G.mode === 'replay' ? REPLAY.view : null; // death replay: a free camera over the killer's shoulder
+  const focus = rp ? rp.focus : spec || h, L = focus.layer, fp = playing && !spec && !rp; // fp: first person
   VIEW.focus = focus;
   timeOfDay(playing ? G.clockMin : 14);
   surfaceGroup.visible = L === 0; underGroup.visible = L === 1;
@@ -366,11 +437,15 @@ function render(dt) {
   if (fp) {
     deathLift = h.alive ? 0 : Math.min(140, deathLift + dt * 60);
     const bob = hyp(h.mx, h.my) > 0.1 && h.alive && h.onGround ? Math.sin(G.t * 11) * 1.4 : 0;
-    camera.position.set(h.x, h.z + EYE - (h.sneak ? 9 : 0) + bob + deathLift, h.y);
+    camera.position.set(h.x, h.z + EYE * (h.size || 1) - (h.sneak ? 9 : 0) + bob + deathLift, h.y);
     camera.rotation.y = -h.face - Math.PI / 2;
     camera.rotation.x = h.alive ? VIEW.pitch : Math.max(-1.2, VIEW.pitch - deathLift / 200);
     camera.fov = (G.settings.fov || 75) + (h.speedT > 0 ? 13 : 0);
     if (h.hurtT > 0 && h.alive) { const s = h.hurtT * 14; camera.position.x += (Math.random() - .5) * s; camera.position.y += (Math.random() - .5) * s; camera.position.z += (Math.random() - .5) * s; }
+  } else if (rp) {
+    camera.position.set(rp.x, rp.z, rp.y);
+    camera.lookAt(rp.tx, rp.tz, rp.ty);
+    camera.fov = rp.fov;
   } else {
     // Menu: slow orbit. Spectating: follow behind the player you're watching.
     if (spec) camYaw += angDiff(camYaw, focus.face) * Math.min(1, dt * 3); else camYaw += dt * 0.12;
@@ -405,6 +480,7 @@ function render(dt) {
   for (const e of G.fx) sync(e, makeFx, updFx, e.layer === L);
   sweep();
   syncFeast();
+  syncDrops();
 
   // atmosphere: sky haze, snowstorm, or the dark of the tunnels
   const inSnow = L === 0 && focus.biome === 2 && G.settings.snow && !G.pit && focus.kit !== 'yeti';
@@ -479,6 +555,19 @@ function renderMinimap() {
     mctx.strokeStyle = `rgba(214,90,90,${p.t / 12})`; mctx.lineWidth = 2;
     mctx.beginPath(); mctx.arc(p.x * S, p.y * S, 4 + (12 - p.t) % 2 * 5, 0, 7); mctx.stroke();
   }
+  // Supply drops: a pulsing blue square from the announcement until someone loots the crate
+  const pulse = Math.sin(G.t * 5);
+  for (const d of world.drops || []) {
+    if (!dropLive(d)) continue;
+    mctx.fillStyle = '#6fb8ff'; mctx.strokeStyle = '#0f2233'; mctx.lineWidth = 1.5;
+    const r = 5 + pulse * 1.5; mctx.beginPath(); mctx.rect(d.x * S - r, d.y * S - r, r * 2, r * 2); mctx.fill(); mctx.stroke();
+  }
+  // Players you've seen in the last few seconds (fading), on your layer
+  if (G.human.alive && G.mode === 'play') for (const f of G.fighters) {
+    if (!f.alive || f === G.human || f.layer !== h.layer || !(G.t - (f.spotT ?? -99) < SPOT_TIME)) continue;
+    mctx.fillStyle = `rgba(255,90,72,${1 - (G.t - f.spotT) / SPOT_TIME})`;
+    mctx.beginPath(); mctx.arc(f.spotX * S, f.spotY * S, 3.2, 0, 7); mctx.fill();
+  }
   mctx.save(); mctx.translate(h.x * S, h.y * S); mctx.rotate(h.face);
   mctx.fillStyle = '#e2733b'; mctx.beginPath(); mctx.moveTo(8, 0); mctx.lineTo(-5, -5); mctx.lineTo(-3, 0); mctx.lineTo(-5, 5); mctx.closePath(); mctx.fill();
   mctx.restore();
@@ -508,12 +597,15 @@ function syncBlocks() {
         if (type === 'spike') blockMeshes.spikeTips = new T.InstancedMesh(SPIKE, lam('#b8bcbf'), 600 * 5);
         if (type === 'blast') blockMeshes.blastCaps = new T.InstancedMesh(BLAST_CAP, lam('#c63d3d', { emissive: 0x3a0a05 }), 600);
       } else if (def.glass) { blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, lam(def.color, { transparent: true, opacity: 0.32, depthWrite: false }), 2000); }
+      else if (def.liquid) blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, type === 'lava' ? LAVA_MAT : lam(def.color, { transparent: true, opacity: 0.55, depthWrite: false }), 1500);
       else if (def.ladder) blockMeshes[type] = new T.InstancedMesh(LADDER_GEO, lam(def.color), 2000);
       else { blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, lam('#ffffff'), MAX_BLOCKS); blockMeshes[type].setColorAt(0, new T.Color(1, 1, 1)); }
     }
     for (const m of Object.values(blockMeshes)) { m.castShadow = true; m.receiveShadow = true; m.count = 0; m.frustumCulled = false; scene.add(m); }
+    blockMeshes.water.castShadow = blockMeshes.lava.castShadow = false;
   }
   for (const m of Object.values(blockMeshes)) m.visible = (VIEW.focus || G.human).layer === 0;
+  LAVA_MAT.emissive.setRGB(0.72 + Math.sin(G.t * 2.6) * 0.1, 0.2 + Math.sin(G.t * 3.7) * 0.04, 0);
   if (BL.ver === blockVer) return;
   blockVer = BL.ver;
   const n = {}, col = new T.Color();
@@ -530,6 +622,13 @@ function syncBlocks() {
         dummy.position.set(cx + ox, y, cz + oz); dummy.updateMatrix();
         blockMeshes.spikeTips.setMatrixAt(n.spikeTips++, dummy.matrix);
       }
+      continue;
+    }
+    if (BLOCKS[b.type].liquid) { // full cells in a falling column, a shallow layer where it has spread
+      if (n[b.type] >= 1500) continue;
+      const above = blockAt(i, j + 1, k), hgt = b.lvl ? 0.5 : above && above.type === b.type ? 1 : 0.82;
+      dummy.position.set(cx, j * B, cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, hgt, 1); dummy.updateMatrix();
+      blockMeshes[b.type].setMatrixAt(n[b.type]++, dummy.matrix);
       continue;
     }
     if (b.type === 'ladder') {
@@ -569,11 +668,16 @@ function syncAim() {
     aimBox.scale.set(1, spike ? 0.2 : 1, 1);
     aimBox.position.set((a.i + .5) * B, spike ? a.j * B + 2.5 : a.j * B + B / 2, (a.k + .5) * B);
   }
-  const held = heldId(h), type = held && ITEMS[held].block ? held : null;
+  const held = heldId(h), type = held && ITEMS[held].block ? held : null, pour = held && ITEMS[held].bucket;
   if (type && a.pi !== null && count(h, type) > 0 && canPlace(type, a.pi, a.pj, a.pk)) {
     ghost.visible = true;
     ghost.position.set((a.pi + .5) * B, a.pj * B + B / 2, (a.pk + .5) * B);
     ghost.scale.set(1, type === 'spike' ? 0.2 : 1, 1);
     ghost.material.color.set(BLOCKS[type].color);
+  } else if (pour && a.pi !== null && !solidAt(a.pi, a.pj, a.pk)) {
+    ghost.visible = true;
+    ghost.position.set((a.pi + .5) * B, a.pj * B + B * 0.41, (a.pk + .5) * B);
+    ghost.scale.set(1, 0.82, 1);
+    ghost.material.color.set(BLOCKS[pour].color);
   }
 }
