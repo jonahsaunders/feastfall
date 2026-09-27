@@ -2,11 +2,12 @@
 // Match flow, input, HUD, inventory screen, screens (Play ↔ Options ↔ Game → Lose → Play), kit store.
 const $ = s => document.querySelector(s);
 function setHTML(sel, html) { const el = $(sel); if (el._h !== html) { el._h = html; el.innerHTML = html; } }
-G.settings = { len: 8, bots: 23, snow: true, dmgNums: true, shadows: true, sens: 1, vol: 0.6, fov: 75, tips: true, mapSize: 4800, mapType: 'mixed', botLevel: 1 };
+G.settings = { len: 8, bots: 23, snow: true, dmgNums: true, shadows: true, sens: 1, vol: 0.6, fov: 75, tips: true, mapSize: 4800, mapType: 'mixed', botLevel: 1, mode: 'solo', voice: true };
 G.mode = 'menu';
 const STORE = { coins: 150, owned: [], kit: 'killer', life: { matches: 0, wins: 0, kills: 0, best: 0, fall: 0 } };
 try { const s = JSON.parse(localStorage.getItem('ff_store')); if (s) Object.assign(STORE, s); } catch (e) {}
 try { const s = JSON.parse(localStorage.getItem('ff_settings')); if (s) Object.assign(G.settings, s); } catch (e) {}
+Sfx.setVoice(G.settings.voice);
 function save() {
   try { localStorage.setItem('ff_store', JSON.stringify(STORE)); localStorage.setItem('ff_settings', JSON.stringify(G.settings)); localStorage.setItem('ff_nick', LOBBY.nick); } catch (e) {}
 }
@@ -46,6 +47,14 @@ function loneliestPoint(taken) {
   }
   return best;
 }
+// A clear spot next to someone (a duos partner)
+function besidePoint(o) {
+  for (let i = 0; i < 24; i++) {
+    const a = rr(0, 6.28), d = rr(40, 80), x = o.x + Math.cos(a) * d, y = o.y + Math.sin(a) * d;
+    if (!seaAt(x, y) && !lavaPoolAt(x, y, 40) && !nearObjs(x, y, 40).some(q => hyp(q.x - x, q.y - y) < q.r + 16)) return { x, y };
+  }
+  return { x: o.x + 30, y: o.y };
+}
 function makeBot(name, id, kit) {
   const kits = Object.keys(KITS).filter(k => !KITS[k].locked), rk = pick(kits);
   const b = new Fighter(name, kit || rk, true, id), L = botLvl();
@@ -54,14 +63,14 @@ function makeBot(name, id, kit) {
   return b;
 }
 // Deterministic from the seed, so every player in an online match builds the same world and bots.
-function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans = null, size = G.settings.mapSize, type = G.settings.mapType) {
+function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans = null, size = G.settings.mapSize, type = G.settings.mapType, duo = false) {
   genWorld(seed, MAP_SIZES[size] ? size : 4800, type);
   resetBlocks();
   buildRuins();
   buildLandmarks();
   Object.assign(G, { fighters: [], rats: [], proj: [], fx: [], items: [], pings: [], feed: [], itemSeq: 0, t: 0, clockMin: 0, graceDone: false, feast: null, pit: false, over: false, coinsEarned: 0, killedBy: null,
     winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, duels: [], killer: null, teams: [], teamSeq: 0, allyT: 0,
-    bounty: null, bountySeen: null, bountyPingT: 0, bountyCheck: 0, qpings: [], noises: [], pathBudget: 0, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0, assists: 0 } });
+    bounty: null, bountySeen: null, bountyPingT: 0, bountyCheck: 0, qpings: [], noises: [], pathBudget: 0, graves: [], duo: !!duo, ann: {}, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0, assists: 0 } });
   replayReset(); resetPaths();
   // Rivals (solo only): bots that killed you before come back as themselves
   const rivals = human && !humans && !NET.on ? rivalBots() : [];
@@ -70,8 +79,13 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
   const taken = [];
   const all = humans ? [...humans] : human ? [human] : [];
   for (let i = 0; i < nBots; i++) all.push(i < rivals.length ? makeRival(rivals[i], 'b' + i) : makeBot(names[i % names.length] + (i >= names.length ? String(Math.floor(i / names.length) + 1) : ''), 'b' + i));
-  all.sort((a, b) => (a.kit === 'recluse') - (b.kit === 'recluse')); // Recluses pick their spot after everyone else
-  for (const f of all) { const p = f.kit === 'recluse' ? loneliestPoint(taken) : spawnPoint(taken, f.kit === 'finder'); Object.assign(f, { x: p.x, y: p.y, z: heightAt(p.x, p.y), onGround: true }); taken.push(p); G.fighters.push(f); }
+  formSquads(all); // duos: pairs, humans first
+  if (!G.duo) all.sort((a, b) => (a.kit === 'recluse') - (b.kit === 'recluse')); // Recluses pick their spot after everyone else
+  for (const f of all) {
+    const mate = G.duo && G.fighters.find(o => o.squad === f.squad); // partners start side by side
+    const p = mate ? besidePoint(mate) : f.kit === 'recluse' ? loneliestPoint(taken) : spawnPoint(taken, f.kit === 'finder');
+    Object.assign(f, { x: p.x, y: p.y, z: heightAt(p.x, p.y), onGround: true }); taken.push(p); G.fighters.push(f);
+  }
   if (!NET.on || NET.isHost()) {
     for (let i = 0; i < potCap(); i++) spawnPot();
     for (const r of world.ruins) addItem({ kind: 'chest', x: r.x, y: r.y, z: r.chestZ, layer: 0, stacks: ruinLoot(r) });
@@ -113,6 +127,7 @@ function updateDrops() {
       d.st = 'announced';
       const a = Math.atan2(d.y - PIT.y, d.x - PIT.x), dir = ['east', 'south-east', 'south', 'south-west', 'west', 'north-west', 'north', 'north-east'][((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
       banner('Supply drop incoming', `Lands in 3:00 in the ${dir} · marked in blue on your map`);
+      Sfx.say(`Supply drop incoming, ${dir}`);
     }
     if (d.st === 'announced' && G.t >= land - DROP_FALL) d.st = 'falling';
     if (d.st === 'falling' && G.t >= land) {
@@ -161,7 +176,7 @@ function startGame() {
   NET.on = false; G.watching = false; G.freeCam = null;
   G.grace = 2; G.botLevel = G.settings.botLevel ?? 1;
   const h = new Fighter(LOBBY.nick || 'You', STORE.kit, false, 'me');
-  newMatch(G.settings.bots, h);
+  newMatch(G.settings.bots, h, undefined, null, G.settings.mapSize, G.settings.mapType, G.settings.mode === 'duos');
   for (const b of G.fighters.filter(f => f.rival)) { // rivals announce themselves
     setTimeout(() => { if (b.alive && G.human === h) { G.feed.unshift({ txt: `Your rival ${b.name} is in this match`, t: 9, streak: true }); botSay(b, 'rival', h); } }, 3500);
   }
@@ -170,17 +185,20 @@ function startGame() {
   Sfx.start(); Sfx.setVolume(G.settings.vol);
   setMode('play');
   lockPointer();
-  banner('Grace period', `${G.settings.bots} bots. PvP turns on at 02:00. Chop wood, craft planks, find potions.`);
+  const mate = partnerOf(h);
+  banner(mate ? 'Duos' : 'Grace period', mate ? `Your partner is ${mate.name} (green marker). Stick together: you can revive each other. PvP at 02:00.` : `${G.settings.bots} bots. PvP turns on at 02:00. Chop wood, craft planks, find potions.`);
+  Sfx.setVoice(G.settings.voice);
 }
 
 // ---------- phases ----------
 function fmt(min) { const s = Math.max(0, Math.floor(min * 60)); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }
 function phases() {
   const m = G.clockMin, host = !NET.on || NET.isHost();
-  if (!G.graceDone && m >= G.grace) { G.graceDone = true; banner('PvP is on', 'Kill or be killed.'); }
+  if (!G.graceDone && m >= G.grace) { G.graceDone = true; banner('PvP is on', 'Kill or be killed.'); Sfx.say('Fight!', true); }
   if (!G.feast && m >= 20) {
     G.feast = { site: FEAST_SITES[world.seed % FEAST_SITES.length], state: 'announced' };
     banner('Feast announced', `${G.feast.site.name} · opens at 25:00 · marked on your map`);
+    Sfx.say(`The feast has been announced at ${G.feast.site.name}`);
   }
   if (G.feast && G.feast.state === 'announced' && m >= 25) {
     G.feast.state = 'spawned';
@@ -195,6 +213,7 @@ function phases() {
       addItem({ kind: 'feast', x, y, z: heightAt(x, y), layer: 0, stacks });
     });
     banner('The feast is open', 'Feast Blades, feast armour and potions.');
+    Sfx.say('The feast is open');
   }
   if (G.feast && G.feast.state === 'spawned' && !G.items.some(i => i.kind === 'feast' && !i.gone)) G.feast.state = 'done';
   if (!G.pit && m >= 60) {
@@ -208,7 +227,9 @@ function phases() {
       Object.assign(f, { layer: 0, x, y, z: heightAt(x, y), vz: 0, onGround: true, gather: null, plan: null, path: null, hidden: false });
     });
     banner('The pit', 'Time is up. Everyone left is in the arena. Last one standing wins.');
+    Sfx.say('Final showdown. Everyone to the pit.', true);
   }
+  if (DAY.night > 0.5 && !G.ann.night && !G.pit) { G.ann.night = true; Sfx.say('Night is falling'); }
   updateDrops();
 }
 
@@ -277,7 +298,8 @@ addEventListener('keydown', e => {
   }
   if (G.mode === 'spectate') {
     const k = e.key.toLowerCase();
-    if (k === 'escape') { if (G.freeCam) unlockPointer(); if (G.watching) backToMenu(); else setMode('end'); return; }
+    if (k === 'm') { toggleBigMap(); return; }
+    if (k === 'escape') { if (bigMapOpen()) { toggleBigMap(false); return; } if (G.freeCam) unlockPointer(); if (G.watching) backToMenu(); else if (!G.over) endGame(false); else setMode('end'); return; }
     if (k === 'f') { if (G.freeCam) { G.freeCam = null; unlockPointer(); spectate(1); } else startFreeCam(); return; }
     if (G.freeCam) { // WASD fly, Space up, Shift down, arrows go back to following someone
       if ([' ', 'shift', 'tab'].includes(k)) e.preventDefault();
@@ -292,6 +314,8 @@ addEventListener('keydown', e => {
   const k = e.key.toLowerCase(), h = G.human;
   if (['tab', ' ', 'arrowup', 'arrowdown', 'shift'].includes(k)) e.preventDefault();
   if (k === 'c' && !G.invOpen && h.alive) { if (!e.repeat) openWheel(); return; } // hold C: emotes and quick chat
+  if (k === 'm' && !G.invOpen) { if (!e.repeat) toggleBigMap(); return; } // the full map
+  if (k === 'escape' && bigMapOpen()) { toggleBigMap(false); return; }
   if (G.invOpen) {
     if (k === 'tab' || k === 'i' || k === 'e' || k === 'escape') toggleInv();
     else if (k >= '1' && k <= '9' && INV.hover !== null) swapWithHotbar(INV.hover, +k - 1);
@@ -311,7 +335,10 @@ addEventListener('keydown', e => {
   else if (k === 'g' && h.alive) dropHeld(h, e.ctrlKey);
   else if (k === 't' && NET.on) openChat();
   else if (k === 'e' && h.alive) {
+    const d = aimDoor();
     if (h.bike) dismountBike(h);
+    else if (d) toggleDoor(d.i, d.j, d.k, h);
+    else if (reviveTarget(h)) h.reviving = 0; // hold E by your partner's grave
     else if (!mountBike(h, nearBike(h)) && !toggleLayer(h)) { const o = gatherTarget(h); if (o) { h.gather = o; h.gatherT = 0; } }
   }
 });
@@ -332,6 +359,8 @@ cv.addEventListener('mousedown', e => {
   if (!locked && !noLock && !freeLook) { lockPointer(); return; }
   if (G.human.bike) return; // hands on the handlebars
   const h = G.human, item = heldId(h), bucket = item === 'bucket' || !!(item && ITEMS[item].bucket);
+  const door = aimDoor();
+  if (e.button === 2 && door && !h.sneak) { toggleDoor(door.i, door.j, door.k, h); return; } // right click opens doors (sneak to place against one)
   if (e.button === 2) { mouse.rdown = true; if (bucket) useBucket(h); else if (!(item && ITEMS[item].block)) drink(h); return; }
   if (e.button !== 0) return;
   mouse.down = true;
@@ -439,9 +468,10 @@ function humanInput(dt) {
   // Hold right click with a block to keep placing: jump and look down to tower up
   h.placeCd = (h.placeCd || 0) - dt;
   if (mouse.rdown && def && def.block && h.placeCd <= 0 && a && a.pi !== null) {
-    if (placeBlock(h, item, a.pi, a.pj, a.pk)) { h.placeCd = 0.16; h.swingT = 0.1; }
+    if (placeBlock(h, item, a.pi, a.pj, a.pk, { up: hatchUp(a) })) { h.placeCd = 0.16; h.swingT = 0.1; }
   }
 }
+const aimDoor = () => { const a = G.aim; return a && a.hit === 'block' && BLOCKS[a.b.type].door ? a : null; };
 let hitT;
 function hitMark() { const c = $('#cross'); c.classList.add('hit'); clearTimeout(hitT); hitT = setTimeout(() => c.classList.remove('hit'), 140); }
 function updateCross(dt) {
@@ -449,7 +479,8 @@ function updateCross(dt) {
   if (dd && dd.t > 0) { dd.t -= dt * 0.9; el.style.opacity = Math.max(0, dd.t); el.style.transform = `translate(-50%, -50%) rotate(${dd.a - h.face}rad)`; }
   else el.style.opacity = 0;
   if (G.killFlash > 0) { G.killFlash -= dt; $('#cross').classList.toggle('kill', G.killFlash > 0); }
-  const p = h.breakKey ? h.breakT / h.breakNeed : h.gather ? h.gatherT / gatherTime(h, h.gather) : h.charge >= 0 ? h.charge : h.refillT > 0 ? 1 - h.refillT / 0.22 : 0;
+  const rv = h.reviving && reviveTarget(h);
+  const p = rv ? rv.p.reviveP || 0 : h.breakKey ? h.breakT / h.breakNeed : h.gather ? h.gatherT / gatherTime(h, h.gather) : h.charge >= 0 ? h.charge : h.refillT > 0 ? 1 - h.refillT / 0.22 : 0;
   $('#cross').style.setProperty('--p', p.toFixed(3));
   $('#hurt').style.opacity = h.hurtT > 0 ? 1 : h.hp < 6 ? 0.45 : 0;
 }
@@ -540,13 +571,14 @@ function setBounty(f) {
   if (!f) return;
   G.bountyPingT = G.t;
   G.feed.unshift({ txt: `Bounty on ${f.name} · ${f.kills} kills`, t: 8, relic: true });
-  if (f === G.human) banner('There’s a bounty on you', `Everyone sees where you are every ${BOUNTY_PING} seconds. Stay alive.`);
+  if (f === G.human) { banner('There’s a bounty on you', `Everyone sees where you are every ${BOUNTY_PING} seconds. Stay alive.`); Sfx.say('There is a bounty on you'); }
+  else if (G.human.isFighter && G.human.alive && G.mode === 'play') Sfx.say(`Bounty on ${f.name}`);
   else if (G.human.alive) toast(`Bounty on ${f.name}: kill them for ${bountyReward(f)} coins`);
 }
 function claimBounty(t, killer) {
   const r = bountyReward(t);
   G.feed.unshift({ txt: killer ? `${killer.name} claimed the bounty on ${t.name}` : `The bounty on ${t.name} is gone`, t: 8, relic: true });
-  if (killer === G.human) { G.coinsEarned += r; banner('Bounty claimed', `${t.name} is down · +${r} coins`); }
+  if (killer === G.human) { G.coinsEarned += r; banner('Bounty claimed', `${t.name} is down · +${r} coins`); Sfx.say('Bounty claimed'); }
   G.bounty = null; G.bountySeen = null;
 }
 function bountyLine() {
@@ -560,6 +592,39 @@ function bountyLine() {
     line += ` · seen ${Math.round((G.t - s.t))}s ago, ${Math.round(hyp(s.x - h.x, s.y - h.y) / B)} blocks ${'↑↗→↘↓↙←↖'[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8]}`;
   }
   return line;
+}
+
+// ---------- music and the announcer ----------
+// How intense the music gets: enemies close by, a fight you're in, the pit, the last few players
+function combatLevel(v) {
+  if (!v || !v.isFighter || !v.alive || G.mode === 'menu' || G.mode === 'options') return 0;
+  let near = 1e9;
+  if (pvpOn()) for (const f of G.fighters) if (f !== v && f.alive && !f.isClone && !f.hidden && f.layer === v.layer && !allied(f, v)) near = Math.min(near, hyp(f.x - v.x, f.y - v.y));
+  let lvl = pvpOn() ? clamp(1 - (near - 120) / 420, 0, 1) * 0.55 : 0;
+  if (G.t - (v.lastHitT ?? -99) < 5 || G.t - (v.dealtT ?? -99) < 5) lvl += 0.4;
+  if (G.pit) lvl += 0.35;
+  if (pvpOn() && G.fighters.filter(f => f.alive && !f.isClone).length <= 5) lvl += 0.15;
+  return clamp(lvl, 0, 1);
+}
+// Spoken lines after a death: players (or squads) left, revenge, rivals
+const LEFT_WORDS = { 10: 'Ten', 5: 'Five', 3: 'Three', 2: 'Two' };
+function announcerKill(t, killer) {
+  const h = G.human;
+  if (!h || !h.isFighter || G.over || t.isClone || G.mode === 'menu' || G.mode === 'options') return;
+  if (killer === h && t.rival) Sfx.say('Rival defeated');
+  else if (killer === h && h.revengeOn === t) { Sfx.say('Revenge!'); h.revengeOn = null; }
+  if (G.duo && killer && killer !== h && t === partnerOf(h)) h.revengeOn = killer; // whoever got your partner
+  const alive = G.fighters.filter(f => f.alive && !f.isClone), left = G.duo ? new Set(alive.map(f => f.squad || f.id)).size : alive.length;
+  if (LEFT_WORDS[left] && !G.ann['left' + left]) {
+    G.ann['left' + left] = true;
+    if (left > 1 || !G.duo) Sfx.say(`${LEFT_WORDS[left]} ${G.duo ? 'squads' : 'players'} remain`);
+  }
+}
+// One kill-feed line: killer (and helpers), how, victim
+function feedKill(k) {
+  const help = k.help && k.help.length ? `<small>+ ${k.help.map(escapeHTML).join(', ')}</small>` : '';
+  const how = FEED_NAME[k.icon] || '';
+  return `${k.a ? `<span>${escapeHTML(k.a)}</span>${help}` : ''}<img class="fi${k.icon === 'skull' ? ' sk' : ''}" src="${feedIconURL(k.icon)}" alt="${escapeHTML(how || 'killed')}" title="${escapeHTML(how)}"><span>${escapeHTML(k.v)}</span>${!k.a && help ? ` ${help}` : ''}`;
 }
 
 // ---------- kill-streak callout ----------
@@ -590,7 +655,7 @@ function step(dt) {
   G.clockMin = G.t / G.settings.len;
   G.pathBudget = 3; // bot path searches allowed this frame
   pruneNoises(); trackVelocities(dt);
-  if (G.mode !== 'menu' && G.mode !== 'options' && G.human.isFighter) { humanInput(dt); phases(); }
+  if (G.mode !== 'menu' && G.mode !== 'options' && G.human.isFighter) { humanInput(dt); phases(); updateRevives(dt); replayRecord(dt); }
   for (const f of G.fighters) if (f.bot && f.alive && !f.remote) {
     try { botUpdate(f, dt); } catch (e) { f.plan = null; f.spath = null; reportOnce(e); } // one confused bot shouldn't stop the game
   }
@@ -635,21 +700,24 @@ function tick(now) {
       if (!camFocus || !camFocus.alive) camFocus = G.fighters.find(f => f.alive && !f.isClone);
       if (!camFocus || G.fighters.filter(f => f.alive && !f.isClone).length <= 1 || G.t > 240) startAttract();
       else Object.assign(G.human, { x: camFocus.x, y: camFocus.y, z: camFocus.z, layer: camFocus.layer, biome: camFocus.biome });
-      render(dt); Sfx.update('menu', dt, 0);
+      render(dt); Sfx.update('menu', dt, 0); Sfx.music(0, dt);
     } else if (G.mode === 'replay') {
       if (NET.on) step(dt); // online, the match carries on while you watch
       replayStep(dt);
       if (G.mode === 'replay') { replayApply(dt); render(dt); replayRestore(); } else render(0);
+      Sfx.music(0, dt);
     } else if (G.mode === 'play' || G.mode === 'spectate' || (NET.on && (G.mode === 'paused' || G.mode === 'end'))) {
       // Online matches keep running while you pause or after you die; spectating always does
       if (G.mode === 'spectate' && !G.freeCam && !(G.specTarget && G.specTarget.alive)) spectate(1);
       if (G.mode === 'spectate' && G.freeCam) moveFreeCam(dt);
       step(dt); render(dt); renderMinimap(); footsteps(dt);
-      if (G.mode === 'play') { updateCross(dt); updateNear(); checkTips(dt); checkLandmarks(); replayRecord(dt); }
+      if (G.mode === 'play') { updateCross(dt); updateNear(); checkTips(dt); checkLandmarks(); }
       const v = VIEW.focus || G.human;
-      Sfx.update(v.layer ? 'under' : v.biome === 2 && G.settings.snow && !G.pit ? 'snow' : 'surface', dt, DAY.night);
+      Sfx.update(v.layer ? 'under' : v.biome === 2 && G.settings.snow && !G.pit ? 'snow' : 'surface', dt, DAY.night, !!(v.hidden || (v.sneak && v === G.human)));
+      Sfx.music(combatLevel(v), dt);
+      if (bigMapOpen()) renderBigMap();
       hudT -= dt; if (hudT <= 0) { hudT = 0.1; updateHud(); }
-    } else { render(0); renderMinimap(); }
+    } else { render(0); renderMinimap(); Sfx.music(0, 0.016); }
     engineSounds();
   }
 }
@@ -688,7 +756,12 @@ function updateHud() {
   const bp = bagPots(h);
   $('#bagpots').textContent = bp ? `${bp} potion${bp > 1 ? 's' : ''} in backpack${canRefill(h) ? ' · R to refill' : ''}` : 'No potions in backpack';
   $('#bagpots').classList.toggle('warn', canRefill(h));
-  setHTML('#feed', G.feed.map(k => `<div class="${k.you ? 'you' : ''}${k.chat ? ' chat' : ''}${k.relic ? ' relic' : ''}${k.streak ? ' streak' : ''}">${k.team ? `<i style="background:${k.team}"></i>` : ''}${escapeHTML(k.txt)}</div>`).join(''));
+  setHTML('#feed', G.feed.map(k => `<div class="${k.you ? 'you' : ''}${k.chat ? ' chat' : ''}${k.relic ? ' relic' : ''}${k.streak ? ' streak' : ''}${k.kill ? ' kf' : ''}">${k.team && k.team !== true ? `<i style="background:${k.team}"></i>` : ''}${k.kill ? feedKill(k.kill) : escapeHTML(k.txt)}</div>`).join(''));
+  // Duos: your partner's name, health and whether they're down
+  const mate = G.duo ? partnerOf(h) : null;
+  $('#squadtag').hidden = !mate;
+  if (mate) setHTML('#squadtag', `<i style="background:${mate.teamCol}"></i><b>${escapeHTML(mate.name)}</b> ${mate.alive ? `<span class="sq-hp"><span style="width:${Math.max(0, mate.hp / mate.maxHp * 100).toFixed(0)}%"></span></span> ${Math.round(hyp(mate.x - h.x, mate.y - h.y) / B)} blocks`
+    : revivable(mate) ? `<em>down · revive in ${Math.ceil(mate.reviveUntil - G.t)}s</em>` : '<em>out</em>'}`);
   // Motorcycle: speedometer and damage while riding
   const bk = h.bike;
   $('#bikehud').hidden = !bk;
@@ -703,6 +776,8 @@ function updateHud() {
   if (bk) p = `<kbd>W</kbd><kbd>S</kbd> Throttle · <kbd>A</kbd><kbd>D</kbd> Steer · <kbd>Space</kbd> Brake · <kbd>E</kbd> Get off (hurts at speed)`;
   else if (h.alive && nearBike(h)) p = isTitan(h) ? 'Too big to ride while you’re a Titan' : `<kbd>E</kbd> Ride the motorcycle`;
   else if (h.refillT > 0) p = 'Refilling hotbar…';
+  else if (h.alive && reviveTarget(h)) p = `Hold <kbd>E</kbd> Revive ${escapeHTML(reviveTarget(h).p.name)}`;
+  else if (h.alive && aimDoor()) p = `<kbd>E</kbd> or <kbd>Right click</kbd> ${aimDoor().b.open ? 'Shut' : 'Open'} the ${aimDoor().b.type === 'trapdoor' ? 'trapdoor' : 'door'}`;
   else if (world.entrances.some(e => hyp(e.x - h.x, e.y - h.y) < 46) && !G.pit) p = h.layer ? '<kbd>E</kbd> Climb out' : '<kbd>E</kbd> Go down into the tunnels';
   else { const o = gatherTarget(h); if (o) p = `Hold <kbd>E</kbd> ${{ tree: 'Chop tree for wood', rock: 'Break rock for stone', reed: 'Cut reeds', ore: 'Mine iron ore (slow)' }[o.kind]}`; }
   const held = heldId(h);
@@ -735,7 +810,9 @@ function updateHud() {
   if (G.mode === 'spectate' && G.freeCam) $('#spec').textContent = `Free camera · WASD fly · Space up · Q down · Shift slow · click to look around   ← → follow a player · F follow · ${back}`;
   else if (G.mode === 'spectate' && G.specTarget) {
     const t = G.specTarget;
-    $('#spec').textContent = `Watching ${t.name} · ${KITS[t.kit].name} · ${Math.ceil(t.hp)} health · ${t.kills} kills   ← → or click to switch · F free camera · ${back}`;
+    const down = G.duo && !G.human.alive && G.human.isFighter && !G.over, mate = down && partnerOf(G.human);
+    $('#spec').textContent = down ? (revivable(G.human) ? `You’re down · ${mate.name} can revive you for ${Math.ceil(G.human.reviveUntil - G.t)}s more · Esc to give up` : `It’s up to ${mate.name} now · ← → switch · Esc to leave`)
+      : `Watching ${t.name} · ${KITS[t.kit].name} · ${Math.ceil(t.hp)} health · ${t.kills} kills   ← → or click to switch · F free camera · ${back}`;
   }
 }
 // Hold P: everyone in the match, alive first, then by kills
@@ -811,6 +888,9 @@ const TIPS = [
   { id: 'bike', when: h => !!nearBike(h, 200) || !!h.bike, text: 'Motorcycles are fast and fragile. Hit a tree at full speed and it can kill you, getting off at speed hurts, and a smoking bike is about to explode. Space brakes.' },
   { id: 'pitfall', when: h => count(h, 'pitfall') > 0, text: 'Pitfalls look like the ground. Place them where people walk: whoever steps on one is stuck in a hole for a couple of seconds.' },
   { id: 'near', when: () => NEAR_ELS.some(el => +el.style.opacity > 0), text: 'The red arrows around your crosshair point at people close by but out of view. Turn to face them.' },
+  { id: 'map', when: () => G.t > 40, text: 'Press M for the full map, with a grid and the names of landmarks. Esc or M closes it.' },
+  { id: 'duo', when: () => G.duo, text: 'Duos: your partner has a green marker you can see through walls. If one of you goes down, the other has 15 seconds to hold E by the gravestone and revive them.' },
+  { id: 'door', when: h => ['door', 'trapdoor', 'slab', 'stairs'].some(id => count(h, id)), text: 'Doors and trapdoors open and shut with E or right click (sneak to place blocks against them). Slabs and stairs can be walked up without jumping.' },
   { id: 'night', when: () => DAY.night > 0.5, text: 'Night falls before the pit. Names are harder to read from a distance, and so is yours.' },
 ];
 let tipsSeen = [];
@@ -1020,6 +1100,8 @@ function setMode(m) {
   $('#hud').classList.toggle('spec', m === 'spectate');
   $('#spec').hidden = m !== 'spectate';
   $('#replay').hidden = m !== 'replay';
+  if (m === 'replay') { $('#banner').hidden = true; $('#streak').hidden = true; }
+  if (m !== 'play' && m !== 'spectate') $('#bigmap').hidden = true;
   if (m !== 'play') $('#clickto').hidden = true; // never leave "Click to play" over a menu
   if (m !== 'play') { $('#board').hidden = true; $('#tipbox').hidden = true; }
   if (m !== 'play') { $('#inv').hidden = true; G.invOpen = false; $('#chat').hidden = true; G.chatOpen = false; }
@@ -1033,7 +1115,12 @@ function resume() { save(); setMode('play'); last = performance.now(); lockPoint
 function endGame(won) {
   if (G.over) return;
   G.over = true;
-  const h = G.human, place = G.fighters.filter(f => f.alive && !f.isClone).length + (won ? 0 : 1);
+  const h = G.human, left = G.fighters.filter(f => f.alive && !f.isClone), sq = f => f.squad || f.id;
+  const place = G.duo ? (won ? 1 : new Set(left.map(sq)).size + 1) : left.length + (won ? 0 : 1);
+  const entrants = G.duo ? new Set(G.fighters.filter(f => !f.isClone).map(sq)).size : G.fighters.filter(f => !f.isClone).length;
+  replayFlush();
+  toggleBigMap(false);
+  Sfx.say(won ? 'Victory' : 'Eliminated', true);
   if (won) G.coinsEarned += 200;
   STORE.coins += G.coinsEarned;
   const life = STORE.life = STORE.life || { matches: 0, wins: 0, kills: 0, best: 0, fall: 0 };
@@ -1042,20 +1129,27 @@ function endGame(won) {
   life.fall = Math.max(life.fall, G.stats.fall);
   save();
   // Dying plays the last few seconds back first (skip with Space, Esc or a click)
+  // Winning plays the play of the match
   setTimeout(() => {
     if (!won && !h.alive && G.mode === 'play' && playReplay(showEnd)) return;
+    if (won && playPom(showEnd)) return;
     showEnd();
   }, 900);
   function showEnd() {
-    $('#end-title').textContent = won ? 'Last one standing' : 'You lost';
-    $('#end-sub').textContent = won ? 'Everyone else is dead.' : G.killedBy ? `Killed by ${G.killedBy}.` : `${G.winnerName || 'Someone'} won the match.`;
+    const mate = G.duo ? partnerOf(h) : null;
+    $('#end-title').textContent = won ? (mate ? 'Last squad standing' : 'Last one standing') : 'You lost';
+    $('#end-sub').textContent = won ? (mate ? `You and ${mate.name} outlasted everyone.` : 'Everyone else is dead.') : G.killedBy ? `Killed by ${G.killedBy}.` : `${G.winnerName || 'Someone'} won the match.`;
     const st = G.stats;
-    $('#end-stats').innerHTML = [['Place', `#${place} of ${G.fighters.filter(f => !f.isClone).length}`], ['Kills', h.kills], ['Assists', st.assists || 0], ['Survived', fmt(G.clockMin)],
+    $('#end-stats').innerHTML = [['Place', `#${place} of ${entrants}${G.duo ? ' squads' : ''}`], ['Kills', h.kills], ['Assists', st.assists || 0], ['Survived', fmt(G.clockMin)],
       ['Damage dealt', st.dmg.toFixed(0)], ['Coins earned', `+${G.coinsEarned}`], ['Longest fall', `${st.fall.toFixed(1)} blocks`], ['Blocks placed', st.blocks]]
       .map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     $('#end-online').hidden = !NET.on || won;
     $('#btn-spec').hidden = won || !G.fighters.some(f => f.alive && !f.isClone && f !== G.human);
     $('#btn-replay').hidden = won || !replayReady();
+    replayFlush();
+    $('#btn-pom').hidden = !pomReady();
+    $('#pom-cap').hidden = !pomReady();
+    if (pomReady()) $('#pom-cap').textContent = `Play of the match: ${REPLAY.best.title} · ${REPLAY.best.sub}`;
     renderRematch();
     unlockPointer();
     setMode('end');
@@ -1063,10 +1157,23 @@ function endGame(won) {
 }
 function playReplay(done) {
   const k = G.killer;
-  if (!replayStart(k, done)) return false;
+  if (!replayStart(REPLAY.death, done)) return false;
+  $('#rp-tag').textContent = 'Replay';
   $('#rp-sub').textContent = k ? `Killed by ${k.name} · ${KITS[k.kit].name}` : G.killedBy === 'a long fall' ? 'You fell' : `Killed by ${G.killedBy}`;
   unlockPointer();
   setMode('replay');
+  return true;
+}
+// The play of the match: the best kill anyone made, over their shoulder
+function playPom(done) {
+  replayFlush();
+  if (!pomReady() || !replayStart(REPLAY.best, done)) return false;
+  const P = REPLAY.best;
+  $('#rp-tag').textContent = 'Play of the match';
+  $('#rp-sub').textContent = `${P.title} · ${P.sub}`;
+  unlockPointer();
+  setMode('replay');
+  Sfx.say(`Play of the match: ${P.title}`, true);
   return true;
 }
 function backToMenu() { if (NET.match) leaveMatch(); startAttract(); setMode('menu'); renderKits(); }
@@ -1077,7 +1184,10 @@ function fillOptions() {
   $('#o-shadows').checked = G.settings.shadows; $('#o-sens').value = G.settings.sens; $('#o-vol').value = G.settings.vol;
   $('#o-fov').value = G.settings.fov; $('#o-fov-v').textContent = G.settings.fov; $('#o-tips').checked = G.settings.tips; $('#o-map').value = G.settings.mapSize;
   $('#o-type').value = G.settings.mapType; $('#o-lvl').value = G.settings.botLevel;
+  $('#o-mode').value = G.settings.mode; $('#o-voice').checked = G.settings.voice;
 }
+$('#o-mode').addEventListener('change', e => { G.settings.mode = e.target.value; save(); });
+$('#o-voice').addEventListener('change', e => { G.settings.voice = e.target.checked; Sfx.setVoice(e.target.checked); save(); });
 $('#o-type').addEventListener('change', e => { G.settings.mapType = e.target.value; save(); });
 $('#o-lvl').addEventListener('change', e => { G.settings.botLevel = +e.target.value; save(); });
 $('#btn-rematch').addEventListener('click', rematch);
@@ -1096,6 +1206,7 @@ $('#o-tips').addEventListener('change', e => { G.settings.tips = e.target.checke
 $('#o-tips-reset').addEventListener('click', () => { tipsSeen = []; try { localStorage.removeItem('ff_tips'); } catch (e) {} toast('Tips will show again'); $('#o-tips-reset').textContent = 'Tips reset'; });
 $('#btn-spec').addEventListener('click', startSpectate);
 $('#btn-replay').addEventListener('click', () => playReplay(() => setMode('end')));
+$('#btn-pom').addEventListener('click', () => playPom(() => setMode('end')));
 $('#btn-options').addEventListener('click', () => { fillOptions(); setMode('options'); });
 $('#opt-back').addEventListener('click', () => { setMode('menu'); renderKits(); });
 $('#opt-resume').addEventListener('click', resume);

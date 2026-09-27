@@ -69,7 +69,7 @@ const markTex = col => {
   g.fillStyle = col; g.fill();
   return new T.CanvasTexture(c);
 };
-const MARK_TEX = markTex('#ff5a48'), MARK_GOLD = markTex('#ffd24a'); // gold: the bounty target
+const MARK_TEX = markTex('#ff5a48'), MARK_GOLD = markTex('#ffd24a'), MARK_MATE = markTex('#6fe08a'); // gold: the bounty target; green: your duos partner
 function makeFighter(f) {
   const g = new T.Group(), body = new T.Group(); g.add(body);
   const col = new T.Color(f.color);
@@ -172,12 +172,13 @@ function updFighter(m, f, dt) {
   u.tag.visible = !f.hidden && d < (snowy ? 220 : v.layer ? 330 : 650 * (1 - 0.45 * DAY.night)) && !(G.mode === 'replay' && d < 130) && !(f === G.human && G.mode === 'play');
   const bounty = f === G.bounty;
   if (u.tag.visible) drawTag(u.tag, f.rival ? `☠ ${f.name}` : f.name, f.hp, f.maxHp, f.isClone, f.teamCol, bounty); // ☠: a rival who's beaten you before
-  const mt = bounty ? MARK_GOLD : MARK_TEX;
-  if (u.mark.material.map !== mt) { u.mark.material.map = mt; u.mark.material.needsUpdate = true; }
+  const mate = G.duo && f !== G.human && f.squad && f.squad === G.human.squad; // your partner: always marked, even through walls
+  const mt = mate ? MARK_MATE : bounty ? MARK_GOLD : MARK_TEX;
+  if (u.mark.material.map !== mt) { u.mark.material.map = mt; u.mark.material.depthTest = !mate; u.mark.material.needsUpdate = true; }
   // Markers reach much further than name tags, but not through snowstorms or far into the night
   const markR = snowy ? 240 : v.layer ? 330 : 1250 * (1 - 0.4 * DAY.night);
-  u.mark.visible = !f.hidden && f !== v && d > 110 && d < markR && G.mode !== 'replay' && G.mode !== 'menu' && G.mode !== 'options';
-  if (u.mark.visible) u.mark.material.opacity = Math.min(1, (markR - d) / 150, (d - 110) / 90);
+  u.mark.visible = (mate || !f.hidden) && f !== v && d > (mate ? 50 : 110) && (mate || d < markR) && G.mode !== 'replay' && G.mode !== 'menu' && G.mode !== 'options';
+  if (u.mark.visible) u.mark.material.opacity = mate ? 1 : Math.min(1, (markR - d) / 150, (d - 110) / 90);
   if ((u.mark.visible || u.tag.visible) && G.mode === 'play' && !f.hidden) spot(f);
 }
 
@@ -406,6 +407,37 @@ function syncBikes(L) {
   for (const k of G.bikes || []) if (!k.gone) sync(k, makeBike, updBike, L === 0 && hyp(k.x - camera.position.x, k.y - camera.position.z) < 1300);
 }
 
+// ---- gravestones: where someone fell, with their name and who got them ----
+FG.stone = mergeGeos([new T.BoxGeometry(4, 16, 13).translate(0, 8, 0), new T.CylinderGeometry(6.5, 6.5, 4, 8, 1, false, 0, Math.PI).rotateX(Math.PI / 2).rotateY(Math.PI / 2).translate(0, 16, 0)]);
+FG.mound = new T.SphereGeometry(10, 7, 3, 0, Math.PI * 2, 0, Math.PI / 2).scale(1.5, 0.35, 1);
+const GRAVE_MAT = lam('#8e918f'), MOUND_MAT = lam('#5a4a38');
+function makeGrave(gr) {
+  const g = new T.Group();
+  const st = new T.Mesh(FG.stone, GRAVE_MAT); st.position.x = -8; st.castShadow = true;
+  const mo = new T.Mesh(FG.mound, MOUND_MAT); mo.position.x = 5;
+  const tag = tagSprite(); tag.position.y = 32; tag.scale.set(56, 14, 1);
+  drawTag(tag, gr.by ? `${gr.name} · by ${gr.by}` : gr.name, 1, 1, true);
+  const ring = new T.Mesh(FG.flatRing, new T.MeshBasicMaterial({ color: 0x6fe08a, transparent: true, opacity: 0.8, fog: false })); ring.position.y = 1.5;
+  g.add(st, mo, tag, ring); g.userData.tag = tag; g.userData.stone = st; g.userData.ring = ring;
+  g.rotation.y = -(gr.face || 0);
+  return g;
+}
+function updGrave(g, gr) {
+  g.position.set(gr.x, gr.z, gr.y);
+  const d = hyp(gr.x - camera.position.x, gr.y - camera.position.z);
+  g.userData.tag.visible = d > 55 && d < 260; // not right up close, where it would fill the screen
+  const rise = Math.min(1, (G.t - gr.t) * 2); // pops up out of the ground
+  g.userData.stone.scale.y = rise;
+  // A duos partner who can still be revived: a green ring that fills in while someone revives them
+  const f = gr.reviveUntil > G.t && fighterById(gr.id), ring = g.userData.ring;
+  ring.visible = !!(f && !f.alive);
+  if (ring.visible) { ring.scale.setScalar(36 + Math.sin(G.t * 5) * 3); ring.material.opacity = 0.45 + 0.5 * (f.reviveP || 0); }
+}
+function syncGraves(L) {
+  const upTo = G.mode === 'replay' ? REPLAY.t : Infinity; // a replay only shows graves that were there at the time
+  for (const gr of G.graves || []) sync(gr, makeGrave, updGrave, gr.layer === L && gr.t <= upTo && hyp(gr.x - camera.position.x, gr.y - camera.position.z) < 1000);
+}
+
 // ---- snow ----
 const SNOW_N = 1400, snowGeo = new T.BufferGeometry(), snowPos = new Float32Array(SNOW_N * 3);
 for (let i = 0; i < SNOW_N; i++) { snowPos[i * 3] = rr(-350, 350); snowPos[i * 3 + 1] = rr(-60, 260); snowPos[i * 3 + 2] = rr(-350, 350); }
@@ -579,7 +611,7 @@ function render(dt) {
   syncBlocks();
   syncAim();
   // players, rats, items, projectiles, effects
-  for (const f of G.fighters) if (f.alive && !(fp && f === h)) sync(f, makeFighter, (m, f) => updFighter(m, f, dt), f.layer === L && hyp(f.x - camera.position.x, f.y - camera.position.z) < (L ? 500 : 1300));
+  for (const f of G.fighters) if (f.alive && !(fp && f === h)) sync(f, makeFighter, (m, f) => updFighter(m, f, dt), f.layer === L && hyp(f.x - camera.position.x, f.y - camera.position.z) < (L ? 500 : G.duo && f.squad === G.human.squad ? 2600 : 1300));
   if (L === 1) for (const r of G.rats) if (!r.dead) sync(r, makeRat, (m, r) => { m.position.set(r.x, 0, r.y); m.rotation.y = -r.a; m.userData.tail.rotation.y = Math.sin(G.t * 14 + r.x) * 0.5; }, true);
   for (const it of G.items) if (!it.gone) sync(it, makeItem, (m, it) => {
     m.position.set(it.x, (it.z ?? (it.layer ? 0 : heightAt(it.x, it.y))) + (m.userData.bob ? Math.sin(G.t * 3 + it.x) * 2 : 0), it.y);
@@ -596,7 +628,7 @@ function render(dt) {
     }
   }, p.layer === L);
   for (const e of G.fx) sync(e, makeFx, updFx, e.layer === L);
-  syncBikes(L);
+  syncBikes(L); syncGraves(L);
   for (const p of G.qpings || []) sync(p, makePing, updPing, p.layer === L);
   sweep();
   syncFeast();
@@ -641,11 +673,17 @@ const mm = document.getElementById('minimap'), mctx = mm.getContext('2d');
 let mmTick = 0;
 function renderMinimap() {
   if (mmTick++ % 3) return;
-  const S = mm.width / WORLD, h = VIEW.focus || G.human;
+  drawMap(mctx, mm.width, 1, false);
+}
+// The map, on the minimap or the full-screen map (M). `ms` scales markers and lines; `big` adds a grid and names.
+function drawMap(mctx, W, ms, big) {
+  const S = W / ms / WORLD, h = VIEW.focus || G.human;
   mctx.setTransform(1, 0, 0, 1, 0, 0);
   mctx.globalAlpha = h.layer ? 0.35 : 1;
-  mctx.drawImage(world.ground, 0, 0, mm.width, mm.height);
+  mctx.drawImage(world.ground, 0, 0, W, W);
   mctx.globalAlpha = 1;
+  mctx.setTransform(ms, 0, 0, ms, 0, 0);
+  if (big) mapGrid(mctx, W / ms);
   if (h.layer) {
     mctx.strokeStyle = '#8b6b48'; mctx.lineWidth = 3; mctx.lineCap = 'round';
     for (const line of world.tunnels) { mctx.beginPath(); line.forEach((p, i) => i ? mctx.lineTo(p.x * S, p.y * S) : mctx.moveTo(p.x * S, p.y * S)); mctx.stroke(); }
@@ -713,10 +751,68 @@ function renderMinimap() {
     mctx.fillStyle = `rgba(255,90,72,${1 - (G.t - f.spotT) / SPOT_TIME})`;
     mctx.beginPath(); mctx.arc(f.spotX * S, f.spotY * S, 3.2, 0, 7); mctx.fill();
   }
+  // Graves of people you knew: your partner's (green while they can be revived)
+  for (const g of G.graves || []) {
+    if (g.layer !== h.layer || !(g.reviveUntil > G.t)) continue;
+    const f = fighterById(g.id);
+    if (!f || f.alive || f.squad !== G.human.squad) continue;
+    mctx.fillStyle = '#6fe08a'; mctx.strokeStyle = '#0a2a12'; mctx.lineWidth = 1.2;
+    mctx.beginPath(); mctx.rect(g.x * S - 2, g.y * S - 6, 4, 12); mctx.rect(g.x * S - 5, g.y * S - 3, 10, 3.5); mctx.fill(); mctx.stroke();
+  }
+  // Duos: your partner, always, as a green arrow (faded when they're on the other layer)
+  const mate = G.duo && partnerOf(G.human);
+  if (mate && mate.alive) {
+    mctx.save(); mctx.translate(mate.x * S, mate.y * S); mctx.rotate(mate.face); mctx.globalAlpha = mate.layer === h.layer ? 1 : 0.45;
+    mctx.fillStyle = mate.teamCol || '#6fe08a'; mctx.strokeStyle = '#0a2a12'; mctx.lineWidth = 1;
+    mctx.beginPath(); mctx.moveTo(7, 0); mctx.lineTo(-4.5, -4.5); mctx.lineTo(-2.5, 0); mctx.lineTo(-4.5, 4.5); mctx.closePath(); mctx.fill(); mctx.stroke();
+    mctx.restore();
+  }
+  if (big) mapNames(mctx, S, h);
   mctx.save(); mctx.translate(h.x * S, h.y * S); mctx.rotate(h.face);
   mctx.fillStyle = '#e2733b'; mctx.beginPath(); mctx.moveTo(8, 0); mctx.lineTo(-5, -5); mctx.lineTo(-3, 0); mctx.lineTo(-5, 5); mctx.closePath(); mctx.fill();
+  if (big) { mctx.strokeStyle = '#1a120a'; mctx.lineWidth = 1; mctx.stroke(); }
   mctx.restore();
 }
+// Full-screen map grid: columns A-H, rows 1-8
+const GRID_N = 8;
+function mapGrid(c, W) {
+  c.strokeStyle = 'rgba(10,12,10,.28)'; c.lineWidth = 1;
+  for (let i = 1; i < GRID_N; i++) { const p = i / GRID_N * W; c.beginPath(); c.moveTo(p, 0); c.lineTo(p, W); c.moveTo(0, p); c.lineTo(W, p); c.stroke(); }
+  c.font = '600 11px "Saira Condensed", system-ui, sans-serif'; c.fillStyle = 'rgba(242,234,214,.85)'; c.textBaseline = 'top';
+  for (let i = 0; i < GRID_N; i++) { c.fillText('ABCDEFGH'[i], (i + 0.5) / GRID_N * W - 3, 3); c.fillText(String(i + 1), 3, (i + 0.5) / GRID_N * W - 6); }
+}
+const gridRef = (x, y) => 'ABCDEFGH'[clamp(Math.floor(x / WORLD * GRID_N), 0, GRID_N - 1)] + (clamp(Math.floor(y / WORLD * GRID_N), 0, GRID_N - 1) + 1);
+// Names on the full-screen map: landmarks, the feast, the pit, your partner
+function mapNames(c, S, h) {
+  const label = (txt, x, y, col = '#f2ead6') => {
+    c.font = '600 12px "Saira Condensed", system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'top';
+    c.lineWidth = 3; c.strokeStyle = 'rgba(8,10,8,.8)'; c.strokeText(txt, x, y); c.fillStyle = col; c.fillText(txt, x, y);
+    c.textAlign = 'left';
+  };
+  for (const m of world.landmarks) if (m.layer === h.layer) label(LANDMARKS[m.id].name, m.x * S, m.y * S + 9, '#ffd24a');
+  if (G.feast) label(`Feast · ${G.feast.site.name}`, G.feast.site.x * S, G.feast.site.y * S + 10, '#e6b84a');
+  if (h.layer === 0) label('The pit', PIT.x * S, PIT.y * S + PIT.r * S + 2, '#e6dfcc');
+  const mate = G.duo && partnerOf(G.human);
+  if (mate && mate.alive) label(mate.name, mate.x * S, mate.y * S + 7, mate.teamCol);
+}
+// ---- full-screen map (M) ----
+const bm = document.getElementById('bigmap-c'), bctx = bm.getContext('2d');
+const bigMapOpen = () => !$('#bigmap').hidden;
+function toggleBigMap(on = !bigMapOpen()) {
+  if (on && !(G.mode === 'play' || G.mode === 'spectate')) return;
+  $('#bigmap').hidden = !on;
+  if (on) renderBigMap();
+}
+let bmTick = 0;
+function renderBigMap() {
+  if (bmTick++ % 3) return;
+  const px = Math.round(Math.min(innerWidth - 40, innerHeight - 120, 1100) * Math.min(2, devicePixelRatio || 1));
+  if (bm.width !== px) { bm.width = bm.height = px; }
+  drawMap(bctx, px, px / 360 * 0.62, true);
+  const h = VIEW.focus || G.human;
+  $('#bigmap-where').textContent = `${placeName(h)} · ${gridRef(h.x, h.y)}${h.layer ? ' · underground' : ''}`;
+}
+
 
 // ---- placed blocks ----
 const BLOCK_GEO = new T.BoxGeometry(B, B, B).translate(0, B / 2, 0);
@@ -731,6 +827,13 @@ function mergeGeos(geos) {
 const LADDER_GEO = mergeGeos([new T.BoxGeometry(2.5, B, 2.5).translate(-8, B / 2, 0), new T.BoxGeometry(2.5, B, 2.5).translate(8, B / 2, 0),
   ...[4, 10.5, 17, 23.5].map(y => new T.BoxGeometry(16, 2, 2).translate(0, y, 0))]);
 const BLAST_CAP = new T.BoxGeometry(9, 7, 9).translate(0, 7.5, 0);
+// Doors, trapdoors, slabs and stairs, all built facing +x (rot 0) and turned into place
+const DOOR_GEO = mergeGeos([new T.BoxGeometry(5, B, B - 1).translate(0, B / 2, 0), ...[5, 19].map(y => new T.BoxGeometry(6.5, 2.4, B - 4).translate(0, y, 0))]);
+const HATCH_GEO = mergeGeos([new T.BoxGeometry(B - 1, 3.5, B - 1).translate(0, 1.75, 0), new T.BoxGeometry(B - 4, 1.2, 3).translate(0, 4, -6), new T.BoxGeometry(B - 4, 1.2, 3).translate(0, 4, 6)]);
+const HATCH_OPEN_GEO = new T.BoxGeometry(3.5, B - 1, B - 1).translate(0, B / 2, 0);
+const SLAB_GEO = new T.BoxGeometry(B, B / 2, B).translate(0, B / 4, 0);
+const STAIRS_GEO = mergeGeos([new T.BoxGeometry(B, B / 2, B).translate(0, B / 4, 0), new T.BoxGeometry(B / 2, B / 2, B).translate(B / 4, B * 0.75, 0)]);
+const ROT_DIR = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // rot -> sim (x, y) direction
 const TURF_COL = ['#3d5a2e', '#c29c57', '#dbe3e8', '#3a5143'];
 const blockMeshes = {};
 let blockVer = -1;
@@ -746,6 +849,11 @@ function syncBlocks() {
       } else if (def.glass) { blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, lam(def.color, { transparent: true, opacity: 0.32, depthWrite: false }), 2000); }
       else if (def.liquid) blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, type === 'lava' ? LAVA_MAT : lam(def.color, { transparent: true, opacity: 0.55, depthWrite: false }), 1500);
       else if (def.ladder) blockMeshes[type] = new T.InstancedMesh(LADDER_GEO, lam(def.color), 2000);
+      else if (def.door || def.half || def.stairs) {
+        const geo = def.hatch ? HATCH_GEO : def.door ? DOOR_GEO : def.half ? SLAB_GEO : STAIRS_GEO;
+        blockMeshes[type] = new T.InstancedMesh(geo, lam(def.color), 1500);
+        if (def.door) blockMeshes[type + 'Open'] = new T.InstancedMesh(def.hatch ? HATCH_OPEN_GEO : DOOR_GEO, lam(def.color), 1500);
+      }
       else { blockMeshes[type] = new T.InstancedMesh(BLOCK_GEO, lam('#ffffff'), MAX_BLOCKS); blockMeshes[type].setColorAt(0, new T.Color(1, 1, 1)); }
     }
     for (const m of Object.values(blockMeshes)) { m.castShadow = true; m.receiveShadow = true; m.count = 0; m.frustumCulled = false; scene.add(m); }
@@ -794,6 +902,21 @@ function syncBlocks() {
       blockMeshes.ladder.setMatrixAt(n.ladder++, dummy.matrix);
       continue;
     }
+    const def = BLOCKS[b.type];
+    if (def.door || def.half || def.stairs) {
+      const r = b.rot || 0, key2 = def.door && b.open ? b.type + 'Open' : b.type;
+      if (n[key2] >= 1500) continue;
+      let px = cx, pz = cz, py = j * B, ry = -r * Math.PI / 2;
+      if (def.hatch) {
+        if (b.open) { const [dx, dy] = ROT_DIR[r]; px += dx * (B / 2 - 1.75); pz += dy * (B / 2 - 1.75); } // swung up against the far side
+        else if (b.up) py += B - 3.5;
+      } else if (def.door && b.open) { // swung back against the side of the doorway
+        const [dx, dy] = ROT_DIR[(r + 1) % 4]; px += dx * (B / 2 - 2.5); pz += dy * (B / 2 - 2.5); ry -= Math.PI / 2;
+      }
+      dummy.position.set(px, py, pz); dummy.rotation.set(0, ry, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+      blockMeshes[key2].setMatrixAt(n[key2]++, dummy.matrix);
+      continue;
+    }
     const m = blockMeshes[b.type];
     dummy.position.set(cx, j * B, cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
     m.setMatrixAt(n[b.type], dummy.matrix);
@@ -819,15 +942,16 @@ function syncAim() {
   if (!a || G.mode !== 'play' || !h.alive || h.layer) return;
   if (a.hit === 'block') {
     aimBox.visible = true;
-    const spike = a.b.type === 'spike';
-    aimBox.scale.set(1, spike ? 0.2 : 1, 1);
-    aimBox.position.set((a.i + .5) * B, spike ? a.j * B + 2.5 : a.j * B + B / 2, (a.k + .5) * B);
+    const d = BLOCKS[a.b.type], hgt = a.b.type === 'spike' || (d.hatch && !a.b.open) ? 0.2 : d.half ? 0.5 : 1;
+    aimBox.scale.set(1, hgt, 1);
+    aimBox.position.set((a.i + .5) * B, a.j * B + (d.hatch && a.b.up && !a.b.open ? B * (1 - hgt / 2) : B * hgt / 2), (a.k + .5) * B);
   }
   const held = heldId(h), type = held && ITEMS[held].block ? held : null, pour = held && ITEMS[held].bucket;
   if (type && a.pi !== null && count(h, type) > 0 && canPlace(type, a.pi, a.pj, a.pk)) {
     ghost.visible = true;
-    ghost.position.set((a.pi + .5) * B, a.pj * B + B / 2, (a.pk + .5) * B);
-    ghost.scale.set(1, type === 'spike' || type === 'pitfall' ? 0.2 : 1, 1);
+    const d = BLOCKS[type], up = d.hatch && hatchUp(a), hgt = type === 'spike' || type === 'pitfall' || d.hatch ? 0.2 : d.half ? 0.5 : d.door ? 2 : 1;
+    ghost.position.set((a.pi + .5) * B, a.pj * B + (up ? B * 0.9 : B * hgt / 2), (a.pk + .5) * B);
+    ghost.scale.set(1, hgt, 1);
     ghost.material.color.set(BLOCKS[type].color);
   } else if (pour && a.pi !== null && !solidAt(a.pi, a.pj, a.pk)) {
     ghost.visible = true;

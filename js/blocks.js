@@ -1,7 +1,7 @@
 'use strict';
 // Placeable blocks on a 25-unit grid (surface only): towers, walls, bunkers, traps.
 // Cell (i, j, k): i = floor(x / B), k = floor(y / B) horizontally, j = floor(z / B) vertically.
-const B = 25, FH = 62, STEP = 8, GRAV = 1100, JUMP_V = 285, REACH = 130, MAX_BLOCKS = 8000;
+const B = 25, FH = 62, STEP = 13, GRAV = 1100, JUMP_V = 285, REACH = 130, MAX_BLOCKS = 8000; // STEP: slabs and stairs are walkable, full blocks need a jump
 const BLOCKS = {
   plank:  { name: 'Planks',      solid: true,  hard: 0.5,  color: '#a2774a' },
   cobble: { name: 'Cobblestone', solid: true,  hard: 1.2,  color: '#8c8e8a' },
@@ -17,11 +17,30 @@ const BLOCKS = {
   water:  { name: 'Water',       solid: false, hard: 999,  color: '#3f8fd0', liquid: true, unbreakable: true },
   lava:   { name: 'Lava',        solid: false, hard: 999,  color: '#ff6a1a', liquid: true, unbreakable: true },
   pitfall: { name: 'Pitfall',    solid: false, hard: 0.3,  color: '#8a5a2e', trap: true, pit: true },
+  // Doors (two cells tall) and trapdoors: solid while shut, open with E. Slabs are half a block; stairs step up.
+  door:     { name: 'Door',      solid: true,  hard: 0.5,  color: '#8a5a2e', door: true },
+  trapdoor: { name: 'Trapdoor',  solid: true,  hard: 0.4,  color: '#9a6a3a', door: true, hatch: true },
+  slab:     { name: 'Slab',      solid: true,  hard: 0.8,  color: '#9a9c98', half: true },
+  stairs:   { name: 'Stairs',    solid: true,  hard: 0.5,  color: '#a2774a', stairs: true },
 };
 const BL = { map: new Map(), ver: 0 };
 const bkey = (i, j, k) => i + ',' + j + ',' + k;
 const blockAt = (i, j, k) => BL.map.get(bkey(i, j, k));
-function solidAt(i, j, k) { const b = BL.map.get(bkey(i, j, k)); return !!b && BLOCKS[b.type].solid; }
+const blockSolid = b => !!b && BLOCKS[b.type].solid && !(BLOCKS[b.type].door && b.open); // open doors let you through
+function solidAt(i, j, k) { return blockSolid(BL.map.get(bkey(i, j, k))); }
+// How high a block's top is at (x, y): slabs are half height; stairs are half height at the front and full at the back
+function blockTop(b, i, j, k, x, y) {
+  const d = BLOCKS[b.type];
+  if (d.half) return j * B + B / 2;
+  if (d.hatch) return b.up ? (j + 1) * B : j * B + 4; // a thin plate at the bottom (or top) of its cell
+  if (d.stairs) {
+    const fx = x / B - i, fy = y / B - k, r = b.rot || 0;
+    return j * B + ((r === 0 ? fx > .5 : r === 1 ? fy > .5 : r === 2 ? fx < .5 : fy < .5) ? B : B / 2);
+  }
+  return (j + 1) * B;
+}
+// Does this cell stop someone standing at height z? (low enough slabs and stair steps can be walked onto)
+function blocksWay(i, j, k, x, y, z) { const b = blockAt(i, j, k); return blockSolid(b) && blockTop(b, i, j, k, x, y) > z + STEP; }
 function resetBlocks() { BL.map.clear(); BL.ver++; if (typeof arenaSeen !== 'undefined') { arenaSeen.clear(); lavaSeen.clear(); } }
 // A fighter's height: Titans grow
 const fh = f => FH * (f.size || 1);
@@ -35,11 +54,15 @@ function supportAt(x, y, z, r, layer) {
   const hr = r * 0.7;
   const i0 = Math.floor((x - hr) / B), i1 = Math.floor((x + hr) / B);
   const k0 = Math.floor((y - hr) / B), k1 = Math.floor((y + hr) / B);
-  const jTop = Math.floor((z + STEP) / B) - 1;
+  const jTop = Math.floor((z + STEP) / B);
   for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
     for (let j = jTop; (j + 1) * B > s; j--) {
       const b = blockAt(i, j, k);
-      if (b && BLOCKS[b.type].solid) { s = (j + 1) * B; SUP_TYPE = b.type; break; }
+      if (!blockSolid(b)) continue;
+      const top = blockTop(b, i, j, k, clamp(x, i * B, (i + 1) * B - 0.01), clamp(y, k * B, (k + 1) * B - 0.01));
+      if (top > z + STEP) continue; // too high to step onto (a wall): look lower
+      if (top > s) { s = top; SUP_TYPE = b.type; }
+      break;
     }
   }
   return s;
@@ -51,9 +74,9 @@ function collideBlocks(f) {
   const i0 = Math.floor((f.x - f.r) / B), i1 = Math.floor((f.x + f.r) / B);
   const k0 = Math.floor((f.y - f.r) / B), k1 = Math.floor((f.y + f.r) / B);
   const j0 = Math.floor((f.z + STEP) / B), j1 = Math.floor((f.z + fh(f) - 1) / B);
-  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
-    if (!solidAt(i, j, k)) continue;
+  for (let j = j0 - 1; j <= j1; j++) for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
     const qx = clamp(f.x, i * B, (i + 1) * B), qy = clamp(f.y, k * B, (k + 1) * B);
+    if (!blocksWay(i, j, k, qx, qy, f.z)) continue; // slabs and stair steps you can walk onto don't push you back
     const dx = f.x - qx, dy = f.y - qy, d = hyp(dx, dy);
     if (d >= f.r) continue;
     if (d > 0.001) { f.x += dx / d * (f.r - d); f.y += dy / d * (f.r - d); }
@@ -80,7 +103,7 @@ function rayPick(ox, oy, oz, dx, dy, dz, reach, liquids = false) {
     const x = ox + dx * t, y = oy + dy * t, z = oz + dz * t;
     const i = Math.floor(x / B), j = Math.floor(z / B), k = Math.floor(y / B);
     const b = blockAt(i, j, k);
-    if (b && (liquids || !BLOCKS[b.type].liquid)) return { hit: 'block', i, j, k, b, pi, pj, pk, t };
+    if (b && (liquids || !BLOCKS[b.type].liquid)) return { hit: 'block', i, j, k, b, pi, pj, pk, t, z };
     if (z <= heightAt(x, y)) {
       const cj = Math.floor(heightAt((i + .5) * B, (k + .5) * B) / B);
       return { hit: 'ground', i, j: cj, k, pi: i, pj: cj, pk: k, t };
@@ -136,15 +159,63 @@ function ladderAt(f) {
   return false;
 }
 const BTYPES = Object.keys(BLOCKS);
-function placeBlock(f, type, i, j, k) {
+// Doors, trapdoors and stairs carry a few flags: open, which way they face (rot 0 +x, 1 +y, 2 -x, 3 -y),
+// whether a trapdoor hangs at the top of its cell, and whether this is the top half of a door
+const shaped = type => BLOCKS[type].door || BLOCKS[type].stairs;
+const packFlags = b => (b.open ? 1 : 0) | (b.rot || 0) << 1 | (b.up ? 8 : 0) | (b.top ? 16 : 0);
+const unpackFlags = n => ({ open: !!(n & 1), rot: n >> 1 & 3, up: !!(n & 8), top: !!(n & 16) });
+const blkOp = (i, j, k, b) => [i, j, k, BTYPES.indexOf(b.type), b.owner, 0, packFlags(b)];
+// Which way someone faces, as a rot (0 +x, 1 +y, 2 -x, 3 -y)
+const faceRot = a => ((Math.round(a / (Math.PI / 2)) % 4) + 4) % 4;
+function placeBlock(f, type, i, j, k, opt = {}) {
   if (count(f, type) <= 0 || !canPlace(type, i, j, k)) return false;
+  const d = BLOCKS[type];
+  if (d.door && !d.hatch && !canPlace(type, i, j + 1, k)) return false; // a door needs two cells of room
   take(f, type, 1, heldId(f) === type ? f.sel : null);
-  BL.map.set(bkey(i, j, k), { type, owner: f.id });
+  const b = { type, owner: f.id };
+  if (shaped(type)) {
+    b.rot = faceRot(f.face || 0);
+    if (d.hatch && opt.up) b.up = true;
+    b.open = false;
+  }
+  BL.map.set(bkey(i, j, k), b);
+  if (d.door && !d.hatch) { // the top half of a door
+    const t = { ...b, top: true };
+    BL.map.set(bkey(i, j + 1, k), t);
+    NET.blk(blkOp(i, j + 1, k, t));
+  }
   BL.ver++;
   if (f === G.human && G.stats) G.stats.blocks++;
   noise((i + .5) * B, (k + .5) * B, 0, 300, f);
-  NET.blk(BLOCKS[type].trap || BLOCKS[type].fake ? [i, j, k, BTYPES.indexOf(type), f.id] : [i, j, k, BTYPES.indexOf(type)]);
+  NET.blk(shaped(type) ? blkOp(i, j, k, b) : d.trap || d.fake ? [i, j, k, BTYPES.indexOf(type), f.id] : [i, j, k, BTYPES.indexOf(type)]);
   Sfx.play('place', (i + .5) * B, (k + .5) * B, j * B);
+  return true;
+}
+// A trapdoor goes in the top of its cell when you aim at the underside of a block, or at the upper half of a
+// block's side (so one placed against the edge of a hole sits flush with the floor and covers it)
+const hatchUp = a => !!a && a.hit === 'block' && ((a.pi === a.i && a.pk === a.k && a.pj === a.j - 1) || (a.pj === a.j && a.z - a.j * B > B / 2));
+// Open or shut a door or trapdoor (both halves of a door swing together)
+function doorCells(i, j, k) {
+  const b = blockAt(i, j, k);
+  if (!b || !BLOCKS[b.type].door) return [];
+  if (BLOCKS[b.type].hatch) return [[i, j, k]];
+  return b.top ? [[i, j - 1, k], [i, j, k]] : [[i, j, k], [i, j + 1, k]];
+}
+function toggleDoor(i, j, k, f, open) {
+  const cells = doorCells(i, j, k).filter(([a, c, e]) => blockAt(a, c, e));
+  if (!cells.length) return false;
+  const now = open === undefined ? !blockAt(...cells[0]).open : open;
+  if (!now && cells.some(([a, c, e]) => cellBlockedByBody(a, c, e) && !BLOCKS[blockAt(a, c, e).type].hatch)) return false; // someone's in the doorway
+  for (const [a, c, e] of cells) {
+    const b = blockAt(a, c, e);
+    if (b.open === now) continue;
+    b.open = now;
+    NET.blk(blkOp(a, c, e, b));
+  }
+  BL.ver++;
+  const [a, c, e] = cells[0];
+  Sfx.play(now ? 'door_open' : 'door_shut', (a + .5) * B, (e + .5) * B, c * B);
+  if (f) noise((a + .5) * B, (e + .5) * B, 0, 260, f);
   return true;
 }
 // Block changes made on another player's machine
@@ -157,6 +228,11 @@ function applyBlockOps(ops) {
       const s = typeof src === 'string' ? src : bkey(i, j, k);
       BL.map.set(bkey(i, j, k), { type, owner: owner || null, src: s, lvl: lvl ? 1 : 0 });
       if (type === 'lava' && !lavaSeen.has(s)) lavaSeen.set(s, G.t);
+    } else if (shaped(type)) {
+      const ex = blockAt(i, j, k), fl = unpackFlags(lvl || 0);
+      if (ex && ex.type === type && BLOCKS[type].door && ex.open !== fl.open)
+        Sfx.play(fl.open ? 'door_open' : 'door_shut', (i + .5) * B, (k + .5) * B, j * B);
+      BL.map.set(bkey(i, j, k), { type, owner: owner || null, ...fl });
     } else BL.map.set(bkey(i, j, k), { type, owner: owner || null });
     if (type === 'arena') arenaSeen.set(bkey(i, j, k), G.t);
   }
@@ -166,6 +242,10 @@ function breakBlock(i, j, k, f) {
   const key = bkey(i, j, k), b = BL.map.get(key);
   if (!b) return;
   if (BLOCKS[b.type].unbreakable && f) return; // players can't break arena glass; the duel ends it
+  if (BLOCKS[b.type].door && !BLOCKS[b.type].hatch) { // the other half of a door goes with it
+    const oj = b.top ? j - 1 : j + 1, o = blockAt(i, oj, k);
+    if (o && o.type === b.type) { BL.map.delete(bkey(i, oj, k)); NET.blk([i, oj, k, -1]); }
+  }
   BL.map.delete(key); BL.ver++;
   NET.blk([i, j, k, -1]);
   if (f === G.human && G.stats) G.stats.broken++;

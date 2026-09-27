@@ -1,5 +1,6 @@
 'use strict';
-// Sound: a quiet generative ambient bed that changes with where you are, plus small positional effects.
+// Sound: a quiet generative ambient bed that changes with where you are, plus small positional effects,
+// a combat music layer that builds up when fighting is close, and an announcer (the system's speech voice).
 // Everything is synthesised with Web Audio, so there are no files to load.
 const Sfx = (() => {
   let ac = null, master, noiseBuf, pad, padGain, wind, windGain, windFilter, cave, caveGain, dripT = 0, chordT = 0, chordI = 0;
@@ -86,6 +87,10 @@ const Sfx = (() => {
     voice: d => { const b = 180 + Math.random() * 120; for (let i = 0; i < 3; i++) { tone(b * (1 + (i % 2) * 0.25), 0.07, 'triangle', 0.12, b * 1.3, i * 0.075, d); noise(0.05, 1400 + i * 300, 4, 0.05, 'bandpass', 0, d, i * 0.075); } },
     rev: d => { tone(45, 0.5, 'sawtooth', 0.14, 120, 0, d); tone(90, 0.45, 'square', 0.05, 200, 0.05, d); },
     crash: d => { noise(0.4, 1200, 0.6, 0.6, 'lowpass', 200, d); tone(90, 0.3, 'sine', 0.5, 40, 0, d); noise(0.25, 3800, 4, 0.18, 'bandpass', 1500, d, 0.03); },
+    door_open: d => { tone(190, 0.28, 'sawtooth', 0.04, 260, 0, d); noise(0.08, 700, 1.5, 0.15, 'bandpass', 0, d); },
+    door_shut: d => { tone(110, 0.12, 'triangle', 0.3, 70, 0, d); noise(0.07, 800, 1.2, 0.25, 'lowpass', 0, d); },
+    revive: d => { for (let i = 0; i < 4; i++) tone(392 * Math.pow(1.26, i), 0.22, 'sine', 0.14, 0, i * 0.09, d); },
+    down: d => { tone(330, 0.3, 'triangle', 0.14, 0, 0, d); tone(247, 0.5, 'triangle', 0.14, 0, 0.22, d); },
     streak: d => { tone(523, 0.1, 'square', 0.07, 0, 0, d); tone(784, 0.12, 'square', 0.07, 0, 0.09, d); tone(1047, 0.3, 'triangle', 0.08, 0, 0.18, d); },
   };
   // Positional: sounds fade with distance from whoever you're watching, and pan left or right
@@ -108,8 +113,46 @@ const Sfx = (() => {
     if (g * loud < 0.02) return;
     SOUNDS['step_' + surface](out(g * loud, pan));
   }
-  let cricketT = 0;
-  function update(env, dt, night = 0) {
+  // ---- combat music: drums, bass and an arpeggio over the ambient chords, layered in by intensity (0-1) ----
+  let musG = null, mus = 0, musStep = 0, musNext = 0;
+  function music(level, dt) {
+    if (!ac) return;
+    if (!musG) { musG = ac.createGain(); musG.gain.value = 0.9; musG.connect(master); }
+    mus += (level - mus) * Math.min(1, dt * (level > mus ? 1.4 : 0.35)); // swells in quickly, fades out slowly
+    const t = ac.currentTime;
+    if (mus < 0.08) { musNext = t; musStep = 0; return; }
+    const bpm = 96 + mus * 36, sx = 60 / bpm / 4;
+    if (musNext < t - 0.2) musNext = t;
+    while (musNext < t + 0.12) {
+      const w = musNext - t, s16 = musStep % 16, root = CHORDS[chordI][0] / 2;
+      if (s16 % 4 === 0 && mus > 0.3) { tone(95, 0.16, 'sine', 0.3 * mus, 42, w, musG); } // kick
+      if (s16 === 10 && mus > 0.55) tone(95, 0.14, 'sine', 0.22 * mus, 42, w, musG);
+      if (s16 % 2 === 0 && mus > 0.45) noise(0.03, 8000, 1, 0.05 * mus, 'highpass', 0, musG, w); // hats
+      if ((s16 === 4 || s16 === 12) && mus > 0.65) noise(0.13, 1800, 0.9, 0.16 * mus, 'bandpass', 900, musG, w); // snare
+      if ([0, 3, 6, 8, 11, 14].includes(s16)) tone(root * (s16 === 8 ? 1.5 : 1), sx * 1.6, 'sawtooth', 0.06 * mus, 0, w, musG); // bass
+      if (mus > 0.8 && s16 % 2 === 1) tone(CHORDS[chordI][(s16 >> 1) % 3] * 2, sx * 0.9, 'square', 0.025 * mus, 0, w, musG); // arpeggio
+      musStep++; musNext += sx;
+    }
+  }
+  // ---- the announcer: the system voice reads short callouts ----
+  let lastSay = '', lastSayT = 0, voiceOn = true, voicePick = null;
+  function say(text, urgent = false) {
+    const sp = window.speechSynthesis;
+    if (!ac || !voiceOn || vol <= 0 || !sp || !text) return;
+    const now = performance.now();
+    if (text === lastSay && now - lastSayT < 5000) return;
+    if (!urgent && sp.pending) return; // don't let a backlog build up
+    if (urgent) sp.cancel();
+    lastSay = text; lastSayT = now;
+    if (voicePick === null) { const vs = sp.getVoices(); voicePick = vs.find(v => /^en/i.test(v.lang) && /david|guy|george|daniel|male/i.test(v.name)) || vs.find(v => /^en/i.test(v.lang)) || false; }
+    const u = new SpeechSynthesisUtterance(text);
+    if (voicePick) u.voice = voicePick;
+    u.rate = 1.05; u.pitch = 0.75; u.volume = Math.min(1, vol * 1.5);
+    sp.speak(u);
+  }
+  function setVoice(on) { voiceOn = on; if (!on && window.speechSynthesis) speechSynthesis.cancel(); }
+  let cricketT = 0, hush = 1;
+  function update(env, dt, night = 0, hiding = false) {
     if (!ac) return;
     // Crickets at night, above ground
     if (night > 0.4 && (env === 'surface' || env === 'menu')) {
@@ -118,7 +161,9 @@ const Sfx = (() => {
     }
     const t = ac.currentTime;
     const [p, w, c] = env === 'under' ? [0.0, 0.0, 0.07] : env === 'snow' ? [0.018, 0.16, 0] : env === 'menu' ? [0.03, 0.03, 0] : [0.035, 0.025, 0];
-    padGain.gain.setTargetAtTime(p, t, 1.2); windGain.gain.setTargetAtTime(w, t, 0.8); caveGain.gain.setTargetAtTime(c, t, 1.0);
+    hush += ((hiding ? 0.35 : 1) - hush) * Math.min(1, dt * 1.5); // hiding in a bush or sneaking: the music drops back
+    padGain.gain.setTargetAtTime(p * hush * (1 - mus * 0.3), t, 1.2);
+    if (musG) musG.gain.setTargetAtTime(0.9 * hush, t, 0.3); windGain.gain.setTargetAtTime(w, t, 0.8); caveGain.gain.setTargetAtTime(c, t, 1.0);
     chordT -= dt;
     if (chordT <= 0) {
       chordT = 11; chordI = (chordI + 1) % CHORDS.length;
@@ -155,5 +200,5 @@ const Sfx = (() => {
     for (const [id, v] of eng) if (!seen.has(id)) { v.g.gain.setTargetAtTime(0, t, 0.08); v.o1.stop(t + 0.5); v.o2.stop(t + 0.5); eng.delete(id); }
   }
   function setVolume(v) { vol = v; if (master) master.gain.setTargetAtTime(v, ac.currentTime, 0.05); }
-  return { start, play, step, engines, update, setVolume };
+  return { start, play, step, engines, update, music, say, setVoice, setVolume, get intensity() { return mus; } };
 })();

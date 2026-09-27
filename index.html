@@ -177,6 +177,25 @@
   @media (prefers-reduced-motion: reduce) { #bikehud.wreck { animation: none; } }
   #near i { position: absolute; left: 50%; top: 50%; width: 22px; height: 13px; opacity: 0; background: #ff5a48; clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%); filter: drop-shadow(0 0 2px rgba(0,0,0,.8)); transition: opacity .12s; }
   #hud.spec #near { display: none; }
+  /* Kill feed: killer, how (an icon), victim */
+  #feed .kf { display: flex; align-items: center; gap: 6px; }
+  #feed .kf img.fi { width: 20px; height: 20px; margin: -2px 0; }
+  #feed .kf img.sk { opacity: .8; }
+  #feed .kf small { color: var(--dim); font-weight: 500; }
+  /* Duos: your partner under the clock */
+  #squadtag { font: 600 13px var(--ui); color: var(--bone); margin-top: 4px; display: flex; align-items: center; gap: 6px; }
+  #squadtag i { width: 10px; height: 10px; display: inline-block; }
+  #squadtag em { color: #ff8a7a; font-style: normal; }
+  .sq-hp { display: inline-block; width: 60px; height: 5px; background: rgba(255,255,255,.15); }
+  .sq-hp span { display: block; height: 100%; background: #6fe08a; }
+  /* Full-screen map (M) */
+  #bigmap { position: fixed; inset: 0; background: rgba(6,8,7,.74); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 12px 16px; box-sizing: border-box; }
+  #bigmap-c { width: min(calc(100vw - 40px), calc(100vh - 130px), 1100px); height: auto; aspect-ratio: 1; border: 2px solid var(--line); background: #000; }
+  .bm-head { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline; justify-content: center; font: 600 14px var(--ui); color: var(--bone); }
+  .bm-head small { color: var(--dim); font-weight: 500; }
+  .bm-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; justify-content: center; font: 500 12.5px var(--ui); color: #c9c3b1; max-width: min(1100px, calc(100vw - 32px)); }
+  .bm-legend span::before { content: ""; display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+  #pom-cap { margin: 0; color: var(--gold); font: 600 14px var(--ui); }
   /* Death replay: letterbox bars and a caption */
   #replay { position: fixed; inset: 0; pointer-events: none; }
   #replay::before, #replay::after { content: ""; position: absolute; left: 0; right: 0; height: 9vh; background: #050706; }
@@ -318,6 +337,8 @@
               <select id="m-size"><option value="3200">Standard</option><option value="4800" selected>Large</option><option value="6400">Huge</option></select></div>
             <div class="field"><label for="m-type">Map type</label>
               <select id="m-type"><option value="mixed" selected>Mixed</option><option value="islands">Islands</option><option value="desert">Desert</option><option value="winter">Winter</option><option value="random">Random</option></select></div>
+            <div class="field"><label for="m-mode">Mode</label>
+              <select id="m-mode"><option value="solo" selected>Solo</option><option value="duos">Duos</option></select></div>
             <div class="field"><label for="m-lvl">Bot difficulty</label>
               <select id="m-lvl"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Brutal</option></select></div>
             <div class="field"><label for="m-len">Match length</label>
@@ -341,11 +362,12 @@
         <dt>Mouse</dt><dd>Look around. Click the game to capture the mouse; arrow keys also turn</dd>
         <dt><kbd>Space</kbd> · <kbd>Shift</kbd></dt><dd>Jump · sneak (you won’t walk off edges, and it blocks Faller damage). Walk into a ladder to climb it</dd>
         <dt>Left click</dt><dd>Swing (hold to keep swinging), hold on a block to break it, draw the bow, drink, or use your kit</dd>
-        <dt>Right click</dt><dd>With blocks: place them (hold, jump and look down to tower up). With a bucket: fill it or pour it. Otherwise: drink</dd>
+        <dt>Right click</dt><dd>With blocks: place them (hold, jump and look down to tower up). On a door or trapdoor: open or shut it (sneak to place against it). With a bucket: fill it or pour it. Otherwise: drink</dd>
         <dt><kbd>1</kbd>–<kbd>9</kbd> · wheel</dt><dd>Select hotbar slot</dd>
         <dt><kbd>Tab</kbd></dt><dd>Inventory and crafting</dd>
         <dt><kbd>Q</kbd> · <kbd>F</kbd> · <kbd>R</kbd></dt><dd>Kit ability · drink · refill hotbar with potions from your backpack</dd>
-        <dt><kbd>E</kbd></dt><dd>Get on or off a motorcycle, enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron</dd>
+        <dt><kbd>E</kbd></dt><dd>Open or shut a door or trapdoor, get on or off a motorcycle, enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron, or to revive your partner in duos</dd>
+        <dt><kbd>M</kbd></dt><dd>Full-screen map</dd>
         <dt><kbd>G</kbd> · <kbd>Ctrl</kbd>+<kbd>G</kbd></dt><dd>Drop one of the held item · drop the whole stack</dd>
         <dt><kbd>P</kbd> (hold)</dt><dd>Scoreboard</dd>
         <dt><kbd>C</kbd> (hold)</dt><dd>Emotes and quick chat: move the mouse toward one and let go. People within about 44 blocks hear you, and some lines ping their map</dd>
@@ -373,6 +395,8 @@
       <select id="o-map"><option value="3200">Standard</option><option value="4800">Large</option><option value="6400">Huge</option></select></div>
     <div class="field"><label for="o-type">Map type</label>
       <select id="o-type"><option value="mixed">Mixed</option><option value="islands">Islands</option><option value="desert">Desert</option><option value="winter">Winter</option><option value="random">Random</option></select></div>
+    <div class="field"><label for="o-mode">Mode</label>
+      <select id="o-mode"><option value="solo">Solo</option><option value="duos">Duos: you and a bot partner</option></select></div>
     <div class="field"><label for="o-lvl">Bot difficulty</label>
       <select id="o-lvl"><option value="0">Easy</option><option value="1">Normal</option><option value="2">Brutal</option></select></div>
     <div class="field"><label for="o-bots">Bots in solo matches · <b id="o-bots-v">23</b></label>
@@ -382,6 +406,7 @@
     <div class="field"><label for="o-shadows">Shadows (turn off if it runs slowly)</label><input id="o-shadows" type="checkbox"></div>
     <div class="field"><label for="o-sens">Mouse sensitivity</label><input id="o-sens" type="range" min="0.3" max="2.5" step="0.1"></div>
     <div class="field"><label for="o-vol">Music and sound</label><input id="o-vol" type="range" min="0" max="1" step="0.05"></div>
+    <div class="field"><label for="o-voice">Announcer voice</label><input id="o-voice" type="checkbox"></div>
     <div class="field"><label for="o-fov">Field of view · <b id="o-fov-v">75</b>°</label><input id="o-fov" type="range" min="60" max="100" step="1"></div>
     <div class="field"><label for="o-tips">Tips for new players</label><span class="row"><button class="btn ghost small" id="o-tips-reset" type="button">Show again</button><input id="o-tips" type="checkbox"></span></div>
     <p class="hint">Map size, match length and bot count apply to the next solo match. Every map is generated fresh. 99 bots is the design doc’s 100-player lobby and needs a fast computer.</p>
@@ -398,8 +423,9 @@
     <h2 id="end-title">You lost</h2>
     <p id="end-sub"></p>
     <div class="stats" id="end-stats"></div>
+    <p id="pom-cap" hidden></p>
     <p class="hint" id="end-online" hidden>The match carries on for the others. Leaving takes you back to the lobby.</p>
-    <div class="row"><button class="btn" id="btn-rematch">Rematch</button><button class="btn ghost" id="btn-again">Back to Play</button><button class="btn ghost" id="btn-spec" hidden>Spectate</button><button class="btn ghost" id="btn-replay" hidden>Watch replay</button></div>
+    <div class="row"><button class="btn" id="btn-rematch">Rematch</button><button class="btn ghost" id="btn-again">Back to Play</button><button class="btn ghost" id="btn-spec" hidden>Spectate</button><button class="btn ghost" id="btn-replay" hidden>Watch replay</button><button class="btn ghost" id="btn-pom" hidden>Play of the match</button></div>
   </div>
 </section>
 
@@ -415,6 +441,7 @@
     <div id="droptag" hidden></div>
     <div id="bountytag" hidden></div>
     <div id="online-tag" hidden></div>
+    <div id="squadtag" hidden></div>
   </div>
   <div class="tr">
     <canvas id="minimap" width="360" height="360"></canvas>
@@ -445,9 +472,19 @@
 
 <div id="banner" hidden><h2></h2><p></p></div>
 
+<section id="bigmap" hidden>
+  <div class="bm-head"><span id="bigmap-where"></span><small>M or Esc to close</small></div>
+  <canvas id="bigmap-c" width="1100" height="1100"></canvas>
+  <div class="bm-legend">
+    <span style="--c:#e2733b">You</span><span style="--c:#6fe08a">Duos partner</span><span style="--c:#ff5a48">Seen recently</span><span style="--c:#e8c27a">Ruin</span>
+    <span style="--c:#ffd24a">Landmark · bounty</span><span style="--c:#e6b84a">Feast</span><span style="--c:#6fb8ff">Supply drop</span><span style="--c:#5fe0f0">Quick-chat ping</span>
+    <span style="--c:#ff7a1f">Lava</span><span style="--c:#ff9a3c">Motorcycle</span><span style="--c:#e6dfcc">Tunnel entrance</span><span style="--c:#b7aea2">Cave</span>
+  </div>
+</section>
+
 <section id="replay" hidden>
   <div class="rp-box">
-    <div class="rp-tag">Replay</div>
+    <div class="rp-tag" id="rp-tag">Replay</div>
     <p id="rp-sub"></p>
     <div class="rp-bar"><i id="rp-prog"></i></div>
     <p class="rp-hint">Space, Esc or click to skip</p>
@@ -486,6 +523,7 @@
 <script src="js/view3d.js"></script>
 <script src="js/replay.js"></script>
 <script src="js/social.js"></script>
+<script src="js/squads.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

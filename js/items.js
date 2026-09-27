@@ -24,6 +24,10 @@ const ITEMS = {
   pad:    { name: 'Launch Pad', stack: 16, cat: 'block', block: 'pad', desc: 'Updraft’s pad. Flings whoever steps on it about 14 blocks up. Off your own pads you land safely.' },
   pitfall: { name: 'Pitfall', stack: 16, cat: 'block', block: 'pitfall', desc: 'A trapdoor that passes for the ground. Anyone but you who steps on it drops into a hole: 3 damage and stuck for 2.5 seconds. Look closely and you can spot them.' },
   ladder: { name: 'Ladder', stack: 64, cat: 'block', block: 'ladder', desc: 'Place against a wall or on the ground. Walk into it (or hold Space) to climb; Shift to hold still. No fall damage while on a ladder.' },
+  door:     { name: 'Door', stack: 16, cat: 'block', block: 'door', desc: 'Two blocks tall. Press E (or right click) on it to open or shut it. Shut, it stops people and arrows like a wall.' },
+  trapdoor: { name: 'Trapdoor', stack: 16, cat: 'block', block: 'trapdoor', desc: 'A hatch you can stand on. Press E on it to open it and drop through, or cover a hole or a ladder shaft with it. Aim at a ceiling to hang it up top.' },
+  slab:     { name: 'Stone Slab', stack: 64, cat: 'block', block: 'slab', desc: 'Half a block tall: you walk straight up onto it, no jumping. Good for low cover and ramps.' },
+  stairs:   { name: 'Stairs', stack: 64, cat: 'block', block: 'stairs', desc: 'Walk up them without jumping. They climb in the direction you face when you place them.' },
   charm:  { name: 'Feather Charm', stack: 8, cat: 'use', desc: 'Keep it anywhere in your inventory: it is used up to block one fall of 7+ blocks.' },
   bucket: { name: 'Bucket', stack: 16, cat: 'use', desc: 'Right click on swamp water, a lava pool, or poured water or lava to fill it.' },
   bucket_water: { name: 'Water Bucket', stack: 1, cat: 'use', bucket: 'water', desc: 'Right click to pour. Landing in water cancels fall damage: pour it under you just before you hit the ground. Hold Space in water to swim up. Put out fires.' },
@@ -62,6 +66,10 @@ const RECIPES = [
   { out: 'hay', cost: { reed: 3 }, cat: 'Blocks' },
   { out: 'spike', cost: { wood: 1, stone: 2 }, cat: 'Blocks' },
   { out: 'ladder', n: 4, cost: { wood: 2 }, cat: 'Blocks' },
+  { out: 'door', cost: { wood: 3 }, cat: 'Blocks' },
+  { out: 'trapdoor', n: 2, cost: { wood: 2 }, cat: 'Blocks' },
+  { out: 'slab', n: 4, cost: { stone: 1 }, cat: 'Blocks' },
+  { out: 'stairs', n: 4, cost: { wood: 2 }, cat: 'Blocks' },
   { out: 'pitfall', n: 2, cost: { wood: 2, stone: 1 }, cat: 'Blocks' },
   { out: 'blast', cost: { stone: 2, iron: 1 }, cat: 'Blocks', kit: 'tripwire' },
   { out: 'turf', n: 4, cost: { wood: 1 }, cat: 'Blocks', kit: 'snare' },
@@ -219,6 +227,18 @@ function paintIcon(id, kit) {
     P([[3, 12], [21, 12], [21, 20], [3, 20]], '#1c1712');
     P([[3, 12], [21, 12], [19, 7], [5, 7]], '#8a5a2e', '#5a3a1c'); L([[7, 9.5], [17, 9.5]], '#5a3a1c', 0.8);
     L([[3, 20], [21, 20]], '#6b8a4a', 1.6);
+  } else if (id === 'door') {
+    P([[7, 2], [17, 2], [17, 22], [7, 22]], '#8a5a2e', '#5a3a1c'); P([[9, 4.5], [15, 4.5], [15, 10.5], [9, 10.5]], '#6b4424'); P([[9, 13], [15, 13], [15, 19.5], [9, 19.5]], '#6b4424');
+    g.fillStyle = '#e6b84a'; g.beginPath(); g.arc(15.6, 12, 1, 0, 7); g.fill();
+  } else if (id === 'trapdoor') {
+    P([[12, 7], [21, 11], [12, 15], [3, 11]], '#9a6a3a', '#5a3a1c'); P([[3, 11], [12, 15], [12, 17], [3, 13]], '#7a4e28'); P([[12, 15], [21, 11], [21, 13], [12, 17]], '#6b4424');
+    L([[7.5, 9], [16.5, 13]], '#5a3a1c', 0.8); L([[7.5, 13], [16.5, 9]], '#5a3a1c', 0.8);
+  } else if (id === 'slab') {
+    const col = BLOCKS.slab.color;
+    P([[12, 8], [21, 12.5], [12, 17], [3, 12.5]], shade(col, 0.1)); P([[3, 12.5], [12, 17], [12, 21.5], [3, 17]], col); P([[12, 17], [21, 12.5], [21, 17], [12, 21.5]], shade(col, -0.12));
+  } else if (id === 'stairs') {
+    const col = BLOCKS.stairs.color, dk = shade(col, -0.14), lt = shade(col, 0.1);
+    P([[3, 21], [3, 3], [11, 3], [11, 12], [21, 12], [21, 21]], col, dk, 0.8); L([[3, 3], [11, 3]], lt, 1.4); L([[11, 12], [21, 12]], lt, 1.4);
   } else if (it.block && it.block !== 'spike' && it.block !== 'ladder') cube(BLOCKS[it.block].color);
   else if (it.tier) {
     const col = WCOL[it.tier];
@@ -265,3 +285,33 @@ function paintIcon(id, kit) {
 function iconCanvas(id, kit) { const k = id + (id === 'kit' ? kit : ''); return ICON_CACHE[k] || (ICON_CACHE[k] = paintIcon(id, kit)); }
 const ICON_URL = {};
 function iconURL(id, kit) { const k = id + (id === 'kit' ? kit : ''); return ICON_URL[k] || (ICON_URL[k] = iconCanvas(id, kit).toDataURL()); }
+
+// ---- kill feed icons: how someone died ----
+// Weapons reuse the item icons; everything else gets a small drawing of its own
+const FEED_ITEM = { w1: 'sword1', w2: 'sword2', w3: 'sword3', w4: 'sword4', w5: 'maul', bow: 'bow', pitfall: 'pitfall', spike: 'spike', blast: 'blast' };
+const FEED_NAME = { w0: 'fists', w1: 'Wood Sword', w2: 'Stone Sword', w3: 'Iron Sword', w4: 'Feast Blade', w5: 'Quake Maul', bow: 'Bow', fall: 'fall', lava: 'fire', pitfall: 'pitfall', spike: 'spike trap',
+  blast: 'blast trap', bolt: 'lightning', crash: 'crash', bike: 'exploding motorcycle', ram: 'run over', poison: 'poison', rat: 'rats', stomp: 'Titan stomp', skull: '' };
+const FEED_CACHE = {};
+function feedIconURL(kind) {
+  if (FEED_ITEM[kind]) return iconURL(FEED_ITEM[kind]);
+  if (FEED_CACHE[kind]) return FEED_CACHE[kind];
+  const S = 64, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d'); g.scale(S / 24, S / 24); g.lineJoin = 'round'; g.lineCap = 'round';
+  const P = (pts, fill, stroke, w = 1) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); if (fill) { g.fillStyle = fill; g.fill(); } if (stroke) { g.strokeStyle = stroke; g.lineWidth = w; g.stroke(); } };
+  const L = (pts, col, w) => { g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.strokeStyle = col; g.lineWidth = w; g.stroke(); };
+  const O = (x, y, r, col) => { g.fillStyle = col; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill(); };
+  switch (kind) {
+    case 'w0': P([[6, 9], [17, 9], [19, 12], [19, 18], [8, 18], [6, 15]], '#d9c7a8', '#8a7458'); for (const x of [9, 12, 15]) L([[x, 9], [x, 13]], '#8a7458', 0.8); break;
+    case 'fall': L([[12, 3], [12, 16]], '#e8e1cf', 2.2); P([[7, 13], [17, 13], [12, 19]], '#e8e1cf'); L([[3, 21], [21, 21]], '#8f9296', 2); break;
+    case 'lava': P([[12, 2], [18, 10], [19, 16], [15, 21], [9, 21], [5, 16], [6, 10], [9, 13]], '#ff7a1f'); P([[12, 10], [15, 15], [14, 19], [10, 19], [9, 15]], '#ffd24a'); break;
+    case 'bolt': P([[14, 2], [6, 13], [11, 13], [9, 22], [18, 9], [13, 9], [16, 2]], '#ffe27a', '#b8942a', 0.8); break;
+    case 'crash': P([[4, 18], [9, 12], [15, 12], [20, 18]], '#9aa0a3'); O(7, 18, 3, '#2a2a2a'); O(17, 18, 3, '#2a2a2a'); P([[12, 2], [14, 7], [19, 6], [15, 10], [12, 9], [9, 11], [9, 6], [5, 5], [10, 5]], '#ffb347'); break;
+    case 'bike': O(12, 12, 9, '#ff7a1f'); O(12, 12, 5.5, '#ffd24a'); O(12, 12, 2.5, '#fff6d8'); break;
+    case 'ram': O(6, 16, 4, '#2a2a2a'); O(18, 16, 4, '#2a2a2a'); O(6, 16, 1.5, '#9aa0a3'); O(18, 16, 1.5, '#9aa0a3'); P([[6, 16], [10, 9], [16, 9], [18, 16]], null, '#c63d3d', 1.6); break;
+    case 'poison': P([[10, 2.5], [14, 2.5], [14, 8], [10, 8]], '#e8e1cf'); O(12, 15, 6.5, '#6fbf3a'); O(10, 13, 1.6, '#d6f5b8'); break;
+    case 'rat': P([[4, 16], [8, 10], [15, 9], [20, 14], [16, 17], [6, 17]], '#6f6a64'); O(9, 9, 2.2, '#8a857f'); O(18.5, 13, 0.9, '#1a1a1a'); L([[4, 16], [2, 20]], '#b89c8a', 1); break;
+    case 'stomp': P([[5, 21], [5, 10], [9, 6], [16, 6], [19, 10], [19, 21]], '#b88a5a', '#6b4a2e'); L([[2, 22], [22, 22]], '#e6b84a', 1.6); break;
+    default: P([[6, 10], [7, 5], [12, 3], [17, 5], [18, 10], [16, 14], [16, 18], [8, 18], [8, 14]], '#e8e1cf'); O(9.5, 10, 2, '#1a1a1a'); O(14.5, 10, 2, '#1a1a1a'); L([[10, 18], [10, 15.5]], '#1a1a1a', 0.8); L([[14, 18], [14, 15.5]], '#1a1a1a', 0.8);
+  }
+  return (FEED_CACHE[kind] = c.toDataURL());
+}

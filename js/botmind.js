@@ -27,7 +27,7 @@ function canSee(a, o) {
   for (let t = 25; t < d - 20; t += 25) {
     const k = t / d, x = a.x + dx * k, y = a.y + dy * k, z = z0 + (z1 - z0) * k;
     if (z < heightAt(x, y) + 2) return false;
-    if (BL.map.size) { const b = blockAt(Math.floor(x / B), Math.floor(z / B), Math.floor(y / B)); if (b && BLOCKS[b.type].solid && !BLOCKS[b.type].glass) return false; }
+    if (BL.map.size) { const b = blockAt(Math.floor(x / B), Math.floor(z / B), Math.floor(y / B)); if (blockSolid(b) && !BLOCKS[b.type].glass && !BLOCKS[b.type].hatch) return false; }
   }
   // trees, rocks and cacti near the line
   for (const ob of nearObjs(a.x + dx / 2, a.y + dy / 2, d / 2 + 40)) {
@@ -107,15 +107,26 @@ function cellCost(ci, ck) {
   else if (G.pit && hyp(x - PIT.x, y - PIT.y) > PIT.r - 20) v = 0;
   else {
     for (const o of nearObjs(x, y, 60)) if (o.kind !== 'reed' && o.amt > 0 && hyp(o.x - x, o.y - y) < o.r + 14) { v = 0; break; }
+    // Blocks: any wall closes the cell, unless there's a door in it (a doorway is a way through)
+    let walls = 0, door = false;
     if (v && BL.map.size) for (let i = ci * 2; i <= ci * 2 + 1 && v; i++) for (let k = ck * 2; k <= ck * 2 + 1; k++) {
-      const j = baseJ(i, k);
-      if (solidAt(i, j, k) || solidAt(i, j + 1, k)) { v = 0; break; }
+      const j = baseJ(i, k), d = blockAt(i, j + 1, k) || blockAt(i, j, k);
+      if (d && BLOCKS[d.type].door && !BLOCKS[d.type].hatch) door = true;
+      if (wallAt(i, j, k) || wallAt(i, j + 1, k, true)) walls++;
       const lv = blockAt(i, j, k); if (lv && lv.type === 'lava') { v = 0; break; }
     }
+    if (walls && !door) v = 0;
     if (v && biomeAt(x, y) === 3) v = 2.2;
   }
   pgCache.set(key, { v, t: G.t, w: world });
   return v;
+}
+// A block bots can't just walk through: doors don't count (they open them), nor do slabs and stairs at foot level
+function wallAt(i, j, k, head) {
+  const b = blockAt(i, j, k);
+  if (!blockSolid(b) || BLOCKS[b.type].door) return false;
+  const x = (i + .5) * B, y = (k + .5) * B;
+  return head || blockTop(b, i, j, k, x, y) > Math.max(j * B, heightAt(x, y)) + STEP; // sticks up too far to step onto
 }
 function resetPaths() { pgCache.clear(); }
 // Grid line check: every cell the segment passes through is open

@@ -82,12 +82,19 @@ const srcId = s => s && s.isFighter ? (s.owner || s).id : null;
 const fighterById = id => G.fighters.find(f => f.id === id && !f.isClone);
 
 // ---- damage and death ----
+// What did the damage, for the kill feed icon: set around a hurt() call with withKind
+// (w0-w5 fists and weapons by tier, bow, fall, lava, pitfall, spike, blast, bolt, crash, bike, ram, poison, rat, stomp)
+function withKind(kind, fn) { const p = G.hitKind; G.hitKind = kind; try { return fn(); } finally { G.hitKind = p; } }
+const hitKindOf = (t, src) => G.hitKind || t.diedTo || (src && src.isFighter ? 'w' + Math.min(5, weaponTier(src)) : 'skull');
 function hurt(t, amt, src, ang, kb, up = 0) {
   if (!t.alive || t.invuln > 0) return false;
   if (t.isFighter && src && src.isFighter && !pvpOn()) return false;
+  if (G.duo && src && src.isFighter && t !== (src.owner || src) && allied(t, src.owner || src)) return false; // no friendly fire in duos
   if (t.isClone) { t.alive = false; addFx('puff', t.x, t.y, t.layer, { col: t.color, z: t.z + 30 }); return true; }
   const byMe = src && (src.owner || src) === G.human && t !== G.human && G.stats;
-  if (t.remote) { if (byMe) G.stats.dmg += amt; NET.hit(t, { d: +amt.toFixed(2), a: +ang.toFixed(2), kb: Math.round(kb || 0), up: up || undefined, by: srcId(src) }); t.hurtT = 0.2; return true; }
+  if (src && src.isFighter) (src.owner || src).dealtT = G.t;
+  if (t.remote) { if (byMe) G.stats.dmg += amt; NET.hit(t, { d: +amt.toFixed(2), a: +ang.toFixed(2), kb: Math.round(kb || 0), up: up || undefined, by: srcId(src), k: hitKindOf(t, src) }); t.hurtT = 0.2; return true; }
+  t.lastKind = hitKindOf(t, src);
   amt *= 1 - armorDef(t);
   if (byMe) G.stats.dmg += amt;
   noteDamage(t, src, amt);
@@ -108,7 +115,9 @@ function hurt(t, amt, src, ang, kb, up = 0) {
 // Fall and trap damage ignores armour; a recent attacker gets credit for knocking you off.
 function hurtRaw(t, amt, src) {
   if (!t.alive || t.invuln > 0) return;
-  if (t.remote) { NET.hit(t, { d: +amt.toFixed(2), raw: 1, by: srcId(src) }); return; }
+  if (G.duo && src && src.isFighter && t !== (src.owner || src) && allied(t, src.owner || src)) return;
+  if (t.remote) { NET.hit(t, { d: +amt.toFixed(2), raw: 1, by: srcId(src), k: hitKindOf(t, src) }); return; }
+  t.lastKind = hitKindOf(t, src);
   t.hp -= amt; t.hurtT = 0.25; t.gather = null; t.hidden = false;
   noteDamage(t, src, amt);
   if (G.settings.dmgNums) addFx('num', t.x, t.y, t.layer, { txt: amt.toFixed(1), z: t.z + 70 });
@@ -134,7 +143,7 @@ function applyHit(t, m) {
     t.kbx = Math.cos(m.pull[0]) * m.pull[1]; t.kby = Math.sin(m.pull[0]) * m.pull[1]; t.gather = null; t.hidden = false;
     if (m.pull[2]) jump(t, m.pull[2]);
   }
-  if (m.d) { if (m.raw) hurtRaw(t, m.d, src); else hurt(t, m.d, src, m.a || 0, m.kb || 0, m.up || 0); }
+  if (m.d) withKind(typeof m.k === 'string' ? m.k.slice(0, 8) : null, () => { if (m.raw) hurtRaw(t, m.d, src); else hurt(t, m.d, src, m.a || 0, m.kb || 0, m.up || 0); });
   if (m.jinx) shuffleHotbar(t);
   if (m.poison) { t.poisonT = m.poison; t.poisonBy = src; }
   if (m.slow) t.slowT = Math.max(t.slowT || 0, m.slow);
@@ -150,12 +159,15 @@ function killFighter(t, src) {
   addFx('puff', t.x, t.y, t.layer, { col: t.color, big: true, z: t.z + 30 });
   // Assists: anyone else who did 2+ damage in the last 15 seconds
   const assists = [...(t.dmgBy || [])].filter(([s, v]) => s !== killer && s.alive !== undefined && !s.isClone && G.t - v.t < 15 && v.d >= 2).map(([s]) => s);
-  announceKill(t, killer, t.fellLast, assists);
-  NET.kill(t, killer, t.fellLast, assists);
+  const kind = t.fellLast ? 'fall' : t.lastKind || 'skull';
+  announceKill(t, killer, t.fellLast, assists, kind);
+  NET.kill(t, killer, t.fellLast, assists, kind);
 }
 // Shared by local deaths and deaths reported over the network
-function announceKill(t, killer, fell, assists = []) {
-  t.alive = false;
+function announceKill(t, killer, fell, assists = [], kind = 'skull') {
+  t.alive = false; t.lastKind = kind; t.reviveP = 0;
+  if (G.duo && !t.isClone && squadAlive(t)) t.reviveUntil = G.t + REVIVE_TIME; // the partner can still bring them back
+  if (!FEED_NAME.hasOwnProperty(kind)) kind = 'skull';
   if (killer) {
     if (!killer.remote) killer.kills++;
     if (!killer.remote && killer.kit === 'leech' && killer.alive) killer.hp = Math.min(killer.maxHp, killer.hp + 8);
@@ -163,16 +175,35 @@ function announceKill(t, killer, fell, assists = []) {
   }
   const how = fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : t.diedTo === 'crash' ? 'crashed' : 'died';
   const help = assists.length ? ` + ${assists.map(a => a.name).join(', ')}` : '';
-  G.feed.unshift({ txt: killer ? `${killer.name}${help} ⟶ ${t.name}` : `${t.name} ${how}${help ? ` (${help.slice(3)} helped)` : ''}`, t: 7, you: t === G.human || killer === G.human || assists.includes(G.human) });
+  G.feed.unshift({ txt: killer ? `${killer.name}${help} ⟶ ${t.name}` : `${t.name} ${how}${help ? ` (${help.slice(3)} helped)` : ''}`, t: 7, you: t === G.human || killer === G.human || assists.includes(G.human),
+    kill: { a: killer ? killer.name : '', v: t.name, icon: kind, help: assists.map(a => a.name), ac: killer && killer.color, vc: t.color } });
+  addGrave(t, killer, kind);
   if (assists.includes(G.human) && t !== G.human) { G.coinsEarned += 20; if (G.stats) G.stats.assists = (G.stats.assists || 0) + 1; toast(`Assist on ${t.name} · +20 coins`); }
   if (killer) streakCallout(killer, t, fell);
+  noteHighlight(t, killer, fell, kind); // before the bounty is claimed, so it counts
   if (killer && killer.bot) botSay(killer, 'kill', t);
   if (t.bot) botSay(t, 'die', killer);
   if (t === G.human && killer) noteRival(killer);
   if (killer === G.human && t.rival) beatRival(t);
   if (G.bounty === t) claimBounty(t, killer);
-  if (t === G.human) { G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : { lava: 'lava', pitfall: 'a pitfall', crash: 'a motorcycle crash', bike: 'an exploding motorcycle' }[t.diedTo] || 'the pit'; endGame(false); }
+  if (t === G.human) {
+    G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : { lava: 'lava', pitfall: 'a pitfall', crash: 'a motorcycle crash', bike: 'an exploding motorcycle', fall: 'a long fall',
+      rat: 'rats', poison: 'poison', spike: 'a spike trap', blast: 'a blast trap', bolt: 'lightning', ram: 'a motorcycle' }[t.diedTo || kind] || 'the pit';
+    replaySnapDeath();
+    if (G.duo && squadAlive(t)) humanDown(); else endGame(false);
+  } else if (G.duo && t.squad && t.squad === G.human.squad && G.human.isFighter) {
+    if (!G.human.alive && !squadAlive(G.human)) endGame(false); // your partner was your last hope
+    else if (G.human.alive) { Sfx.play('down'); Sfx.say(t.reviveUntil ? `${t.name} is down. Revive them.` : `${t.name} is down`, true); }
+  }
+  announcerKill(t, killer);
   checkWin();
+}
+// A gravestone where someone died (the newest 60 are kept)
+function addGrave(t, killer, kind) {
+  if (t.isClone || !G.graves) return;
+  const z = t.layer ? 0 : supportAt(t.x, t.y, t.z + 10, 4, 0);
+  G.graves.push({ id: t.id, x: t.x, y: t.y, z, layer: t.layer, face: t.face || 0, name: t.name, by: killer ? killer.name : '', kind, t: G.t, reviveUntil: t.reviveUntil || 0 });
+  if (G.graves.length > 60) G.graves.shift();
 }
 // Kill streaks and special kills: everyone sees them in the feed, and your own get a callout and 25 coins
 const MULTI = ['', '', 'Double kill', 'Triple kill', 'Quadra kill', 'Rampage'];
@@ -194,19 +225,22 @@ function streakCallout(k, t, fell) {
   G.feed.unshift({ txt: `${k.name}: ${calls.join(' · ')}`, t: 6, you: k === G.human, streak: true });
   if (k === G.human) {
     showStreak(calls[0], calls.slice(1).join(' · '));
+    Sfx.say(calls[0].replace(/:.*/, ''));
     if (k.multi >= 2 || SPREE[k.streak]) G.coinsEarned += 25;
   }
 }
 // Allies (bots that have teamed up) don't hurt each other
-const allied = (a, b) => !!(a && b && a.team && a.team === b.team);
+// ...and nor do duos partners
+const allied = (a, b) => !!(a && b && ((a.team && a.team === b.team) || (a.squad && a.squad === b.squad)));
 function checkWin() {
   const alive = G.fighters.filter(f => f.alive && !f.isClone);
-  if (alive.length !== 1) return;
+  if (!alive.length || new Set(alive.map(f => f.squad || f.id)).size !== 1) return; // one fighter, or one squad, left
+  const win = alive.find(f => f === G.human) || alive[0];
   if (!NET.on) {
-    if (G.human.alive) endGame(true);
-    else if (!G.winShown) { G.winShown = true; banner(`${alive[0].name} wins`, 'Last one standing.'); }
+    if (G.human.alive || (G.duo && win.squad && win.squad === G.human.squad)) endGame(true);
+    else if (!G.winShown) { G.winShown = true; banner(`${G.duo && alive.length > 1 ? alive.map(f => f.name).join(' & ') : win.name} win${alive.length > 1 ? '' : 's'}`, 'Last one standing.'); }
   }
-  else if (NET.isHost()) NET.end(alive[0]);
+  else if (NET.isHost()) NET.end(win);
 }
 function hitRat(rat, dmg, src, ang) {
   rat.hp -= dmg; rat.kbx += Math.cos(ang) * 260; rat.kby += Math.sin(ang) * 260;
@@ -513,7 +547,7 @@ function detonate(i, j, k, owner) {
   for (const t of G.fighters) {
     if (!t.alive || t.layer !== 0 || t.isClone || hyp(t.x - x, t.y - y) > 75 || Math.abs(t.z - z) > 80) continue;
     if (owner && t === owner) continue;
-    hurt(t, 5, owner || null, Math.atan2(t.y - y, t.x - x), 480, 330);
+    withKind('blast', () => hurt(t, 5, owner || null, Math.atan2(t.y - y, t.x - x), 480, 330));
   }
   addFx('puff', x, y, 0, { col: '#e2733b', big: true, z: z + 20 }); addFx('bolt', x, y, 0, { t: 0.2 });
   noise(x, y, 0, 900, owner);
@@ -546,7 +580,7 @@ function land(f, fall, onType) {
       if (!(v.remote ? v.net.sn : v.sneak)) {
         addFx('ring', v.x, v.y, v.layer, { col: '#e2733b', big: true, z: v.z + 2 });
         if (f === G.human) toast(`Your fall hit ${v.name} for ${dmg.toFixed(1)}`);
-        if (pvpOn()) { v.fellLast = true; hurtRaw(v, dmg * 1.2, f); }
+        if (pvpOn()) withKind('stomp', () => hurtRaw(v, dmg * 1.2, f));
         return;
       }
       if (f === G.human) toast(`${v.name} was sneaking. You took the fall.`);
@@ -555,7 +589,7 @@ function land(f, fall, onType) {
   if (dmg >= 3 && take(f, 'charm', 1)) { if (f === G.human) toast('Feather Charm used up: fall damage blocked'); return; }
   f.fellLast = true;
   if (f === G.human) toast(`Fell ${Math.round(blocks)} blocks: −${dmg.toFixed(1)} health`);
-  hurtRaw(f, dmg, null);
+  withKind('fall', () => hurtRaw(f, dmg, null));
   if (f.alive) f.fellLast = false;
 }
 // Pitfall: the trapdoor gives way. You drop chest-deep into a hole, take a hit and can't get out for 2.5 seconds.
@@ -578,7 +612,7 @@ function titanStomp(f) {
   NET.fx({ k: 'stomp', x: Math.round(f.x), y: Math.round(f.y), z: Math.round(f.z) });
   for (const t of G.fighters) {
     if (t === f || !t.alive || t.layer !== f.layer || t.owner === f || Math.abs(t.z - f.z) > 40) continue;
-    if (hyp(t.x - f.x, t.y - f.y) < 100) hurt(t, 2.5, f, Math.atan2(t.y - f.y, t.x - f.x), 480, 320);
+    if (hyp(t.x - f.x, t.y - f.y) < 100) withKind('stomp', () => hurt(t, 2.5, f, Math.atan2(t.y - f.y, t.x - f.x), 480, 320));
   }
 }
 
@@ -624,7 +658,7 @@ function burnTick(f, dt) {
   const inLava = f.inLiq === 'lava';
   f.burnTick = inLava ? 0.45 : 0.7;
   f.diedTo = 'lava';
-  hurtRaw(f, inLava ? 1.5 : 0.5, f.burnBy);
+  withKind('lava', () => hurtRaw(f, inLava ? 1.5 : 0.5, f.burnBy));
   if (f.alive) { f.diedTo = null; addFx('puff', f.x, f.y, f.layer, { col: '#ff7a2a', z: f.z + 20 + Math.random() * 30 }); }
 }
 
@@ -646,7 +680,7 @@ function updateFighter(f, dt) {
   if (f.kit === 'bogwalker' && f.biome === 3) { sp = 225; if (f.hp < f.maxHp) f.hp = Math.min(f.maxHp, f.hp + 0.45 * dt); }
   if (f.poisonT > 0) {
     f.poisonT -= dt; f.poisonTick = (f.poisonTick || 0) - dt;
-    if (f.poisonTick <= 0) { f.poisonTick = 0.8; hurtRaw(f, 0.5, f.poisonBy); }
+    if (f.poisonTick <= 0) { f.poisonTick = 0.8; withKind('poison', () => hurtRaw(f, 0.5, f.poisonBy)); }
   }
   // On a motorcycle, the bike does the moving (bikes.js)
   if (f.bike) { rideBike(f, dt); burnTick(f, dt); return; }
@@ -738,7 +772,7 @@ function updateFighter(f, dt) {
         addFx('ring', f.x, f.y, 0, { col: '#c63d3d', z: f.z + 2 });
         Sfx.play('spike', f.x, f.y, f.z);
         if (f === G.human) toast('Spike trap!');
-        if (pvpOn() || !trap.owner) hurtRaw(f, 4, fighterById(trap.owner));
+        if (pvpOn() || !trap.owner) withKind('spike', () => hurtRaw(f, 4, fighterById(trap.owner)));
       }
     }
     const turf = !f.isClone && turfUnder(f);
@@ -829,7 +863,7 @@ function updateRats(dt) {
       let tgt = null, td = 170;
       for (const f of under) if (!f.remote && !wears(f, 'crown') && hyp(f.x - nest.x, f.y - nest.y) < 220) { const d = hyp(f.x - r.x, f.y - r.y); if (d < td) { td = d; tgt = f; } }
       let a, sp;
-      if (tgt) { a = Math.atan2(tgt.y - r.y, tgt.x - r.x); sp = 130; if (td < 20 && r.biteT <= 0 && !(tgt.biteCd > G.t)) { r.biteT = 1.1; tgt.biteCd = G.t + 0.3; hurt(tgt, 0.6, null, a, 80); } }
+      if (tgt) { a = Math.atan2(tgt.y - r.y, tgt.x - r.x); sp = 130; if (td < 20 && r.biteT <= 0 && !(tgt.biteCd > G.t)) { r.biteT = 1.1; tgt.biteCd = G.t + 0.3; withKind('rat', () => hurt(tgt, 0.6, null, a, 80)); } }
       else { a = Math.atan2(nest.y - r.y, nest.x - r.x) + Math.sin(G.t * 4 + r.x) * 1.4; sp = hyp(nest.x - r.x, nest.y - r.y) > 60 ? 90 : 40; }
       r.a = a;
       const nx = r.x + (Math.cos(a) * sp + r.kbx) * dt, ny = r.y + (Math.sin(a) * sp + r.kby) * dt;
@@ -866,7 +900,7 @@ function updateProj(dt) {
       if (hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + fh(t) + 4) {
         const a = Math.atan2(p.vy, p.vx);
         if (resists(t)) { addFx('ring', t.x, t.y, t.layer, { col: '#8fa3a8', z: t.z + 30 }); }
-        else if (p.kind === 'arrow') hurt(t, p.dmg, p.owner, a, p.kb);
+        else if (p.kind === 'arrow') withKind('bow', () => hurt(t, p.dmg, p.owner, a, p.kb));
         else if (p.kind === 'swap') { if (pvpOn() && t.invuln <= 0 && !t.isClone) swapPlaces(p.owner, t); }
         else if (pvpOn() && t.invuln <= 0) {
           const o = p.owner, b = Math.atan2(o.y - t.y, o.x - t.x);
@@ -888,7 +922,7 @@ function updateFx(dt) {
       e.done = true;
       if (!e.ghost) {
         noise(e.x, e.y, e.layer, 1000, e.owner);
-        for (const t of G.fighters) if (t !== e.owner && t.alive && t.layer === e.layer && hyp(t.x - e.x, t.y - e.y) < 75) hurt(t, 5, e.owner, Math.atan2(t.y - e.y, t.x - e.x), 200);
+        for (const t of G.fighters) if (t !== e.owner && t.alive && t.layer === e.layer && hyp(t.x - e.x, t.y - e.y) < 75) withKind('bolt', () => hurt(t, 5, e.owner, Math.atan2(t.y - e.y, t.x - e.x), 200));
         if (e.layer === 0) strikeBlocks(e.x, e.y, 60);
       }
       addFx('bolt', e.x, e.y, e.layer, { t: 0.35 });

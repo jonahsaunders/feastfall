@@ -1,55 +1,97 @@
 'use strict';
-// Death replay: the last few seconds before you died, filmed over your killer's shoulder.
-// While you're alive, nearby fighters and projectiles are recorded 30 times a second. Playback
-// swaps the recorded values into the live objects just for the render, then puts them back,
+// Replays: the death replay (the last few seconds before you died, filmed over your killer's shoulder) and the
+// play of the match (the best kill anyone made, filmed over the shoulder of whoever made it).
+// Every fighter, motorcycle and projectile is recorded 20 times a second, and the last 8 seconds are kept.
+// When you die, or a kill scores higher than the current play of the match, that stretch is kept as a clip.
+// Playback swaps the recorded values into the live objects just for the render, then puts them back,
 // so an online match keeps running underneath.
-const REPLAY = { buf: [], acc: 0, t: 0, t0: 0, t1: 0, hold: 0, killer: null, view: null, cam: null, saved: null, proxies: new Map(), onDone: null };
-const RP_KEEP = 6, RP_HZ = 30, RP_LEN = 5;
+const REPLAY = { buf: [], acc: 0, t: 0, t0: 0, t1: 0, hold: 0, clip: null, view: null, cam: null, saved: null, proxies: new Map(), onDone: null, death: null, best: null, pending: null };
+const RP_KEEP = 8, RP_HZ = 20, RP_LEN = 5;
 const RP_F = ['x', 'y', 'z', 'face', 'hp', 'swingT', 'hurtT', 'mx', 'my', 'sneak', 'hidden', 'disguise', 'size', 'layer', 'invuln', 'punchT', 'charge', 'burnT', 'burnNet', 'gather', 'bike', 'pitT', 'pitNet'];
 const RP_K = ['x', 'y', 'z', 'face', 'speed', 'steer', 'air', 'vz', 'wheel', 'gone']; // motorcycles
 
-function replayReset() { REPLAY.buf = []; REPLAY.acc = 0; REPLAY.proxies.clear(); }
+function replayReset() { Object.assign(REPLAY, { buf: [], acc: 0, death: null, best: null, pending: null, clip: null }); REPLAY.proxies.clear(); }
 
 function replayRecord(dt) {
-  const h = G.human;
-  if (!h || !h.isFighter || !h.alive) return;
+  if (!G.human || !G.human.isFighter) return;
   REPLAY.acc += dt;
   if (REPLAY.acc < 1 / RP_HZ) return;
   REPLAY.acc = 0;
   const fs = [];
-  for (const f of G.fighters) {
-    if (!f.alive) continue;
-    if (f !== h && f !== h.lastHitBy && (f.layer !== h.layer || hyp(f.x - h.x, f.y - h.y) > 1100)) continue;
-    fs.push([f, RP_F.map(k => f[k])]);
-  }
-  const ks = (G.bikes || []).filter(k => hyp(k.x - h.x, k.y - h.y) < 1300).map(k => [k, RP_K.map(n => k[n])]);
+  for (const f of G.fighters) if (f.alive) fs.push([f, RP_F.map(k => f[k])]);
+  const ks = (G.bikes || []).filter(k => !k.gone).map(k => [k, RP_K.map(n => k[n])]);
   REPLAY.buf.push({ t: G.t, fs, ks, ps: G.proj.map(p => [p, p.x, p.y, p.z, p.vx, p.vy, p.vz]) });
   while (REPLAY.buf.length && REPLAY.buf[0].t < G.t - RP_KEEP) REPLAY.buf.shift();
+  // A highlight is kept a moment after the kill, so the clip shows what happened next
+  const P = REPLAY.pending;
+  if (P && G.t >= P.at + 1.5) {
+    REPLAY.pending = null;
+    if (!REPLAY.best || P.score >= REPLAY.best.score) REPLAY.best = { ...P, frames: REPLAY.buf.filter(b => b.t >= P.at - 5.5) };
+  }
 }
-
-// Returns false when there isn't enough footage to show
-function replayStart(killer, done) {
+// Keep the footage of the human's death (the recorder carries on for the play of the match)
+function replaySnapDeath() {
   const b = REPLAY.buf;
-  if (b.length < 20) return false;
-  Object.assign(REPLAY, { t0: b[0].t, t1: b[b.length - 1].t, hold: 0, killer, onDone: done, cam: null, view: null });
-  REPLAY.t = Math.max(REPLAY.t0, REPLAY.t1 - RP_LEN);
+  REPLAY.death = b.length >= 20 ? { frames: b.slice(), focus: G.human, anchor: G.killer, at: b[b.length - 1].t } : null;
+}
+// Score a kill for the play of the match
+function noteHighlight(t, k, fell, kind) {
+  if (!k || !k.isFighter || t.isClone || !G.human.isFighter) return;
+  let score = 10;
+  const why = [];
+  if (k.multi >= 2) { score += 15 * (k.multi - 1); why.push(MULTI[Math.min(5, k.multi)]); }
+  if (k.streak >= 3) { score += 4 * Math.min(k.streak, 10); why.push(`${k.streak} in a row`); }
+  const special = { pitfall: 'Pitfall', ram: 'Road kill', bike: 'Wrecked', stomp: 'Titan stomp', bolt: 'Lightning', lava: 'Burned', blast: 'Blast trap' }[kind];
+  if (special) { score += 12; why.push(special); } else if (fell) { score += 12; why.push('Knocked off'); }
+  const d = hyp(k.x - t.x, k.y - t.y);
+  if (d > 750) { score += 15; why.push('Long shot'); }
+  if (G.bounty === t) { score += 20; why.push('Bounty claimed'); }
+  if (k.alive && k.hp < 4) { score += 12; why.push(`${Math.max(0.5, Math.round(k.hp * 2) / 2)} health left`); }
+  if (t.rival || k.rival) score += 5;
+  if (k === G.human) score += 8;
+  const left = new Set(G.fighters.filter(f => f.alive && !f.isClone).map(f => f.squad || f.id)).size;
+  if (left <= 1) { score += 18; why.push('Winning kill'); }
+  const P = REPLAY.pending;
+  if (P && P.anchor === k && G.t - P.at < 10) { score = Math.max(score, P.score) + 6; } // a follow-up kill in the same clip
+  if (P && P.score > score) return;
+  if (REPLAY.best && REPLAY.best.score > score) return;
+  REPLAY.pending = { score, anchor: k, focus: t, at: G.t, title: k.name, sub: why.length ? why.join(' · ') : `${k.name} eliminated ${t.name}`, victim: t.name };
+}
+// The match is over: take a highlight that's still waiting for its last second and a half
+function replayFlush() {
+  const P = REPLAY.pending;
+  if (!P) return;
+  REPLAY.pending = null;
+  if (!REPLAY.best || P.score >= REPLAY.best.score) REPLAY.best = { ...P, frames: REPLAY.buf.filter(b => b.t >= P.at - 5.5) };
+}
+const pomReady = () => !!(REPLAY.best && REPLAY.best.frames.length >= 20);
+
+// Returns false when there isn't enough footage to show. `clip` is REPLAY.death or REPLAY.best.
+function replayStart(clip, done) {
+  const b = clip && clip.frames;
+  if (!b || b.length < 20) return false;
+  const t1 = b[b.length - 1].t;
+  Object.assign(REPLAY, { clip, t0: b[0].t, t1, hold: 0, onDone: done, cam: null, view: null });
+  REPLAY.t = Math.max(REPLAY.t0, clip === REPLAY.death ? t1 - RP_LEN : clip.at - 3.2); // a highlight starts a few seconds before the kill
+  REPLAY.start = REPLAY.t;
   return true;
 }
 function replayFinish() {
-  REPLAY.view = null;
+  REPLAY.view = null; REPLAY.clip = null;
   const d = REPLAY.onDone; REPLAY.onDone = null;
   if (d) d();
 }
-// Real time -> replay time: normal speed, then slow motion for the last second
+// Real time -> replay time: normal speed, and slow motion around the moment that matters
 function replayStep(dt) {
-  const R = REPLAY;
-  if (R.t < R.t1) R.t = Math.min(R.t1, R.t + dt * (R.t1 - R.t < 1.1 ? 0.35 : 1));
-  else if ((R.hold += dt) > 1.3) { replayFinish(); return; }
-  $('#rp-prog').style.width = `${Math.min(100, (R.t - Math.max(R.t0, R.t1 - RP_LEN)) / Math.min(RP_LEN, R.t1 - R.t0) * 100)}%`;
+  const R = REPLAY, death = R.clip === R.death, at = R.clip ? R.clip.at : R.t1;
+  const slow = death ? R.t1 - R.t < 1.1 : Math.abs(at - R.t) < 0.45;
+  if (R.t < R.t1) R.t = Math.min(R.t1, R.t + dt * (slow ? (death ? 0.35 : 0.4) : 1));
+  else if ((R.hold += dt) > (death ? 1.3 : 0.9)) { replayFinish(); return; }
+  $('#rp-prog').style.width = `${Math.min(100, (R.t - R.start) / Math.max(0.1, R.t1 - R.start) * 100)}%`;
 }
 
 function replayApply(dt) {
-  const R = REPLAY, b = R.buf;
+  const R = REPLAY, b = R.clip.frames;
   let i = 0;
   while (i < b.length - 2 && b[i + 1].t <= R.t) i++;
   const A = b[i], Bf = b[Math.min(i + 1, b.length - 1)], k = Bf.t > A.t ? clamp((R.t - A.t) / (Bf.t - A.t), 0, 1) : 0;
@@ -78,8 +120,10 @@ function replayApply(dt) {
   });
   G.fx = [];
 
-  // Camera: over the killer's shoulder, looking at you; with no killer, a slow orbit around you
-  const v = G.human, K = R.killer && shown.has(R.killer) && R.killer !== v ? R.killer : null;
+  // Camera: over the shoulder of the anchor (your killer, or whoever made the play) looking at the focus
+  // (you, or who they got); once the focus is gone, or with no anchor, a slow orbit
+  const C = R.clip, K0 = C.anchor && shown.has(C.anchor) ? C.anchor : null;
+  const v = C.focus && shown.has(C.focus) ? C.focus : K0 || C.focus, K = K0 && K0 !== v ? K0 : null;
   const tx = v.x, ty = v.y, tz = v.z + 34 * (v.size || 1);
   let cx, cy, cz, fov = 62;
   if (K) {
@@ -105,4 +149,4 @@ function replayRestore() {
   for (const [k, vals] of s.bikes) RP_K.forEach((n, q) => { k[n] = vals[q]; });
   G.proj = s.proj; G.fx = s.fx; REPLAY.saved = null;
 }
-const replayReady = () => REPLAY.buf.length >= 20;
+const replayReady = () => !!(REPLAY.death && REPLAY.death.frames.length >= 20);

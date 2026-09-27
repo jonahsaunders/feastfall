@@ -136,6 +136,8 @@ function botThink(b) {
     }
     if (b.campSpot) { b.plan = { type: 'go', x: b.campSpot.x, y: b.campSpot.y, layer: 0 }; return; }
   }
+  // Duos: revive a downed partner, back them up, stay close
+  if (G.duo && squadPlan(b)) return;
   // Allies: join a partner's fight, otherwise keep up with the leader
   if (b.team) {
     const mates = b.team.m.filter(f => f !== b && f.alive);
@@ -282,7 +284,7 @@ function botDrive(b, dt) {
 // Run where the bots are simulated (solo, or the host); other players hear about it through NET.fx.
 const TEAM_COLS = ['#5aa9c7', '#c4c24a', '#b670c9', '#6fc27a', '#e28fb3', '#d8a45a', '#7f8fe0'];
 function updateAlliances(dt) {
-  if (NET.on && !NET.isHost()) return;
+  if ((NET.on && !NET.isHost()) || G.duo) return; // no side deals in duos
   if ((G.allyT = (G.allyT || 0) - dt) > 0) return;
   G.allyT = 2;
   const alive = G.fighters.filter(f => f.alive && !f.isClone);
@@ -382,6 +384,11 @@ function steer(b, x, y, layer, dt) {
   }
   if (b.detourT > 0) { b.detourT -= dt; a += b.side * 1.3; }
   b.mx = Math.cos(a); b.my = Math.sin(a);
+  // Doors: open a shut one that's in the way
+  if (b.layer === 0 && BL.map.size && !(b.doorCd > G.t)) {
+    const i = Math.floor((b.x + b.mx * (b.r + 12)) / B), j = Math.floor((b.z + 10) / B), k = Math.floor((b.y + b.my * (b.r + 12)) / B), d = blockAt(i, j, k);
+    if (d && BLOCKS[d.type].door && !BLOCKS[d.type].hatch && !d.open) { b.doorCd = G.t + 0.6; toggleDoor(i, j, k, b, true); }
+  }
   // Unstick: hop, break a block in the way, or walk sideways for a moment
   const moved = hyp(b.x - (b.lx ?? b.x), b.y - (b.ly ?? b.y));
   b.lx = b.x; b.ly = b.y;
@@ -441,6 +448,7 @@ function botUpdate(b, dt) {
   if (b.bike) { botDrive(b, dt); return; }
   const p = b.plan;
   if (!p) return;
+  if (p.type === 'revive') { botRevive(b, dt); return; }
   if (p.type === 'bike') { // walk to the bike and get on
     const k = p.k;
     if (!k || k.gone || k.rider || !bikeStill(k)) { b.plan = null; return; }

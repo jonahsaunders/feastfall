@@ -99,14 +99,14 @@ function hearQuick(f, i, p) {
   const q = QUICK[i];
   if (!f || !q) return;
   const L = G.human;
-  if (L && f !== L && hyp(f.x - L.x, f.y - L.y) > HEAR) return; // out of earshot
+  if (L && f !== L && hyp(f.x - L.x, f.y - L.y) > HEAR && !(G.duo && allied(f, L))) return; // out of earshot
   showSay(f, q.text, true);
   Sfx.play('voice', f.x, f.y, f.z);
   if (p) G.qpings.push({ x: p.x, y: p.y, layer: p.layer, t: 10, who: f.name, text: q.text, mine: f === L });
   // Hunters and rushers who hear "Enemy here" or "Help" sometimes come to see
   if (!NET.on || NET.isHost()) for (const b of G.fighters) {
-    if (!b.bot || !b.alive || b.remote || b === f || hyp(b.x - f.x, b.y - f.y) > HEAR || !p) continue;
-    if ((b.style === 'hunter' || b.pers === 'rusher') && rng() < 0.5 && !(b.plan && (b.plan.type === 'fight' || b.plan.type === 'bike'))) b.plan = { type: 'go', x: p.x, y: p.y, layer: p.layer };
+    if (!b.bot || !b.alive || b.remote || b === f || (hyp(b.x - f.x, b.y - f.y) > HEAR && !(G.duo && allied(b, f))) || !p) continue;
+    if (((G.duo && allied(b, f)) || ((b.style === 'hunter' || b.pers === 'rusher') && rng() < 0.5)) && !(b.plan && (b.plan.type === 'fight' || b.plan.type === 'bike'))) b.plan = { type: 'go', x: p.x, y: p.y, layer: p.layer };
   }
 }
 // Where the crosshair points, out to about 60 blocks (for "Enemy here" and "Loot here")

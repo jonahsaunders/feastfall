@@ -17,7 +17,7 @@ const NET = {
   },
   // ---- called by the game ----
   hit(t, m) { if (this.on) this.send('hit', { to: t.id, ...m }); },
-  kill(t, killer, fell, assists = []) { if (this.on) this.send('kill', { v: t.id, k: killer ? killer.id : null, f: fell ? 1 : 0, a: assists.map(a => a.id) }); },
+  kill(t, killer, fell, assists = [], kind) { if (this.on) this.send('kill', { v: t.id, k: killer ? killer.id : null, f: fell ? 1 : 0, a: assists.map(a => a.id), c: kind }); },
   blk(op) { if (this.on) { this.outBlk.push(op); logBlk([op]); } },
   res(o) { if (this.on) this.outRes.push([o.kind === 'ore' ? 1 : 0, (o.kind === 'ore' ? world.ores : world.objs).indexOf(o), o.amt]); },
   fx(d) { if (this.on) this.send('fx', d); },
@@ -61,7 +61,9 @@ function applyPacked(f, a, o) {
   if (!f || f.deadDone) return;
   f.net.tx = a[o]; f.net.ty = a[o + 1]; f.net.tz = a[o + 2]; f.net.tf = a[o + 3] / 100;
   f.hp = a[o + 4] / 10; const fl = a[o + 5];
-  if (!(fl & 1) && f.alive) { f.alive = false; }
+  const revived = f.revivedT !== undefined && G.t - f.revivedT < 3; // duos: their own machine may not have heard about it yet
+  if (!(fl & 1) && f.alive && !revived) { f.alive = false; }
+  if ((fl & 1) && !f.alive && revived) f.alive = true;
   f.layer = fl & 2 ? 1 : 0; f.hidden = !!(fl & 4); f.sneak = f.net.sn = !!(fl & 8); f.charge = fl & 16 ? 0.5 : -1;
   f.disguise = ['bush', 'rock', 'snowrock', 'cactus'][(fl >> 5) & 3];
   f.net.titan = !!(fl & 128); f.burnNet = !!(fl & 256); f.pitNet = !!(fl & 512);
@@ -134,7 +136,7 @@ function wireMatch(m) {
     hit: d => { const t = fighterById(d.to); if (t && !t.remote) applyHit(t, d); },
     kill: (d, msg) => {
       const v = fighterById(d.v); if (!v || !v.remote) return;
-      v.deadDone = true; announceKill(v, d.k ? fighterById(d.k) : null, d.f, (Array.isArray(d.a) ? d.a : []).map(fighterById).filter(Boolean));
+      v.deadDone = true; announceKill(v, d.k ? fighterById(d.k) : null, d.f, (Array.isArray(d.a) ? d.a : []).map(fighterById).filter(Boolean), typeof d.c === 'string' ? d.c : 'skull');
       addFx('puff', v.x, v.y, v.layer, { col: v.color, big: true, z: v.z + 30 });
     },
     blk: d => { applyBlockOps(d.ops || []); logBlk(d.ops || []); },
@@ -156,6 +158,7 @@ function wireMatch(m) {
       if (d.k === 'bounty' && !NET.isHost()) { const f = fighterById(d.o); if (f && f.alive) setBounty(f); }
       if (d.k === 'stomp') { addFx('ring', d.x, d.y, 0, { col: '#c9a26a', big: true, z: d.z + 1 }); addFx('puff', d.x, d.y, 0, { col: '#b8a488', big: true, z: d.z + 6 }); Sfx.play('stomp', d.x, d.y, d.z); }
       if (d.k === 'boom') { addFx('puff', d.x, d.y, 0, { col: '#e2733b', big: true, z: d.z + 20 }); addFx('bolt', d.x, d.y, 0, { t: 0.2 }); Sfx.play('bolt', d.x, d.y, d.z); }
+      if (d.k === 'revive' && o) applyRevive(o, fighterById(d.by));
       if (d.k === 'rope' && o && Array.isArray(d.a)) addFx('rope', d.a[0], d.a[1], 0, { owner: o, t: 1.4, az: d.a[2] });
     },
     item: d => {
@@ -220,7 +223,7 @@ function startWatch(cfg, parts = []) {
     f.color = /^#[0-9a-f]{6}$/i.test(r.c) ? r.c : '#f2ead6'; f.remote = true; newInv(f);
     return f;
   });
-  newMatch(cfg.bots, null, cfg.seed, humans, MAP_SIZES[cfg.sz] ? cfg.sz : 4800, cfg.mt || 'mixed');
+  newMatch(cfg.bots, null, cfg.seed, humans, MAP_SIZES[cfg.sz] ? cfg.sz : 4800, cfg.mt || 'mixed', !!cfg.duo);
   for (const f of G.fighters) f.remote = true;
   const me = new Fighter(LOBBY.nick || 'Watcher', 'killer', false, NET.me);
   Object.assign(me, { alive: false, deadDone: true, x: PIT.x, y: PIT.y, z: 300 });
@@ -254,7 +257,7 @@ function onEnd(d) {
   if (G.watching) { const w = fighterById(d.w); banner(`${w ? w.name : 'Someone'} wins`, 'Last one standing.'); return; }
   if (G.over && !G.human.alive) { const w = fighterById(d.w); banner(`${w ? w.name : 'Someone'} wins`, 'Last one standing.'); return; }
   const w = fighterById(d.w);
-  if (d.w === NET.me) endGame(true);
+  if (d.w === NET.me || (G.duo && w && w.squad && w.squad === G.human.squad)) endGame(true);
   else { G.killedBy = null; G.winnerName = w ? w.name : 'Someone'; endGame(false, true); }
 }
 
@@ -273,7 +276,7 @@ function startOnline(d) {
     return f;
   });
   const me = humans.find(f => f.id === NET.me);
-  newMatch(d.bots, me, d.seed, humans, MAP_SIZES[d.sz] ? d.sz : 4800, d.mt || 'mixed');
+  newMatch(d.bots, me, d.seed, humans, MAP_SIZES[d.sz] ? d.sz : 4800, d.mt || 'mixed', !!d.duo);
   for (const f of G.fighters) if (f.bot && !NET.isHost()) f.remote = true;
   G.human = me;
   VIEW.pitch = -0.05;
@@ -463,7 +466,7 @@ function startHostedMatch() {
   if (!roster.some(r => r.p === NET.me)) roster.unshift({ p: NET.me, n: LOBBY.nick, k: STORE.kit, c: LOBBY.color });
   roster.sort((a, b) => a.p < b.p ? -1 : 1);
   const d = { seed: Math.floor(Math.random() * 1e9), bots: Math.min(MAX_ONLINE_BOTS, +$('#m-bots').value), len: +$('#m-len').value, sz: +$('#m-size').value,
-    mt: $('#m-type').value, lvl: +$('#m-lvl').value, host: NET.me, roster };
+    mt: $('#m-type').value, lvl: +$('#m-lvl').value, duo: $('#m-mode').value === 'duos' ? 1 : 0, host: NET.me, roster };
   NET.send('start', d);
   lobbyPresence({ started: true });
   NET.match.presence({ rm: null, live: 1 }).catch(() => {});

@@ -84,6 +84,35 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 <p><b>Pitfalls.</b> A trapdoor that passes for the ground. Whoever steps on it drops chest-deep into a hole, takes 3 damage and is stuck for 2.5 seconds. Yours show up in brown; other people's you have to spot.</p>
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/duos.jpg" alt="Duos: standing at a partner's gravestone inside a green ring, with a Hold E to revive prompt">
+<p><b>Duos.</b> Play in squads of two, with a bot partner solo or a friend online. Partners can't hurt each other, see each other through walls and on the map, and when one goes down the other has 15 seconds to hold E at the gravestone and bring them back.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/pom.jpg" alt="Play of the match: a triple kill replayed from over the player's shoulder">
+<p><b>Play of the match.</b> The best kill of the match (multi-kills, streaks, long shots, bounties, pitfalls, road kills, clutch kills on low health, the winning blow) is replayed over the shoulder of whoever made it. It plays after a win, and the end screen always has it.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/building.jpg" alt="A small cobblestone fort with an open door, wooden stairs and a slab walkway">
+<p><b>Doors, trapdoors, stairs and slabs.</b> Doors and trapdoors open and shut with E or right-click, and bots open them too. Put a trapdoor over a hole or a ladder shaft. Stairs and slabs can be walked up without jumping, so you can build ramps and forts.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/graves.jpg" alt="Gravestones with names, and a kill feed with weapon icons">
+<p><b>Kill feed icons and gravestones.</b> The feed shows how each person died: the weapon, a bow, a fall, fire, a pitfall, a spike or blast trap, lightning, a motorcycle and more. A gravestone marks where they fell, with who got them.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/bigmap.jpg" alt="The full-screen map with a grid, landmark names, a duos partner and a supply drop">
+<p><b>Full-screen map.</b> Press M for the whole map with a grid (A–H, 1–8), landmark and feast names, your partner, supply drops, lava and bikes.</p>
+</td>
+<td width="50%" valign="top">
+<p><b>Music that follows the fight, and an announcer.</b> Drums and bass build up when enemies are close, when you're in a fight, in the pit and when only a few are left, and drop back when you hide in a disguise or sneak. An announcer calls "Fight!", the feast, supply drops, bounties, how many players are left, the pit, night falling, your streaks, revenge and victory. Turn the voice off in Options.</p>
+</td>
+</tr>
 </table>
 
 - **Map types.** Mixed, Islands (a ring of islands in a shallow sea you wade across), Desert (sand, dunes and a few oases), Winter (snowed-in pine forest and big mountain ranges), or Random. Pick one in Options, or as host in an online match.
@@ -112,6 +141,7 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 - **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, and you climb a ladder to reach them.
 - **Ladders.** Craft them, lean them against a wall and climb. No fall damage while you're on one.
 - **A new map every match.** Mountain ranges, deserts, swamps, ruins, landmarks and feast sites are placed at random from the match seed, in three sizes: Standard, Large (default) and Huge.
+- **Duos online:** the host picks Solo or Duos. Players are paired with each other first, then with bots.
 - **Online multiplayer** for up to 16 players plus bots, through a small relay server included here. The desktop app runs that server for you.
 - **Everything is generated in code:** the low-poly world, the item icons and the ambient music and sound effects. There are no asset files.
 
@@ -209,7 +239,7 @@ npm install
 npm start
 ```
 
-Open `http://localhost:8080`. The page connects back to the same server, so everyone who opens that address shares a lobby. The online panel shows the address friends on your network can open. Browser players and desktop players can play together: either one can type the other's address under **Join a server**. One player clicks **Host a match**, everyone else clicks **Join**, and the host starts it. The host picks the bot count, map size, map type, bot difficulty and match length.
+Open `http://localhost:8080`. The page connects back to the same server, so everyone who opens that address shares a lobby. The online panel shows the address friends on your network can open. Browser players and desktop players can play together: either one can type the other's address under **Join a server**. One player clicks **Host a match**, everyone else clicks **Join**, and the host starts it. The host picks the bot count, map size, map type, Solo or Duos, bot difficulty and match length.
 
 - **Private matches:** click **Host private** instead. It isn't listed in the lobby; friends type its five-character code under **Join with a code**.
 - **Spectating:** a match that's already running shows **Watch** in the lobby (or join a private one with its code). You get a live copy of the match: follow players with ← →, or press **F** for a free camera (WASD to fly, Space up, Q down).
@@ -234,11 +264,12 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 | WASD · mouse | Move · look (click the game to capture the mouse) |
 | Space · Shift | Jump · sneak (you won't walk off edges, and it blocks Faller damage). Walk into a ladder, or hold Space, to climb |
 | Left click | Swing (hold to keep swinging), hold on a block to break it, draw the bow, use the held item |
-| Right click | Place the held block (hold, jump and look down to tower up), fill or pour a bucket, otherwise drink |
+| Right click | Place the held block (hold, jump and look down to tower up), open or shut a door (sneak to place against it), fill or pour a bucket, otherwise drink |
 | 1–9 · wheel | Select a hotbar slot |
 | Tab | Inventory and crafting |
 | Q · F · R | Kit ability · drink · refill the hotbar with potions from your backpack |
-| E | Get on or off a motorcycle, enter or leave a tunnel; hold to chop, mine or cut reeds |
+| E | Open or shut a door or trapdoor, get on or off a motorcycle, enter or leave a tunnel; hold to chop, mine or cut reeds, or to revive your partner in duos |
+| M | Full-screen map (M or Esc closes it) |
 | On a motorcycle | W · S throttle and brake/reverse, A · D steer, Space hard brake, mouse looks around, E gets off |
 | G · Ctrl+G | Drop one of the held item · drop the whole stack |
 | P (hold) | Scoreboard |
@@ -253,7 +284,9 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 
 Mouse look works by capturing the mouse, like any first-person game. Some windows can't do that (embedded browsers inside other apps, for example). There the game switches to free-look: the cursor is hidden, moving the mouse turns the view, and resting it against the window edge keeps turning. Chrome, Edge, Firefox and the desktop app capture the mouse normally.
 
-When you die, a short replay plays first (Space, Esc or a click skips it). The end screen then offers **Rematch**, **Spectate** (← → or clicking switches between players, **F** for a free camera, Esc goes back) and **Watch replay**.
+When you die, a short replay plays first (Space, Esc or a click skips it). The end screen then offers **Rematch**, **Spectate** (← → or clicking switches between players, **F** for a free camera, Esc goes back), **Watch replay** and **Play of the match**. In duos you watch your partner while you're down; Esc gives up.
+
+Trapdoors go in the top half of a block space when you aim at the underside of a block or the upper half of a block's side, so one placed against the edge of a hole sits flush with the floor.
 
 In water, hold Space to swim up. Water puts out fires.
 
@@ -272,18 +305,19 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | `index.html` | Page, HUD, menus and styles |
 | `config.js` | Where online play connects |
 | `js/world.js` | Seeded map: map types, biomes, trees, rocks, reeds, tunnels, caves, lava pools, supply drop sites |
-| `js/blocks.js` | Placeable blocks, collision, fall support, raycasting, poured water and lava |
+| `js/blocks.js` | Placeable blocks, doors, slabs and stairs, collision, fall support, raycasting, poured water and lava |
 | `js/items.js` | Item registry, drawn icons, inventory, armour, recipes |
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
 | `js/bikes.js` | Motorcycles: riding, jumps, crashes, running people over, explosions |
 | `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced), personalities, difficulty, tactics and alliances |
 | `js/botmind.js` | What bots notice (line of sight, noises, memory) and how they get around (pathfinding) |
 | `js/social.js` | Bot chat, rivals, emotes, quick chat and map pings |
+| `js/squads.js` | Duos: squads, partners, revives |
 | `js/net.js` | Online play: lobby, private matches, spectating, rematches, state sync, host migration |
 | `js/scene3d.js` | Renderer, lights, terrain mesh, instanced scenery, tunnels |
-| `js/view3d.js` | Per-frame 3D: players, markers, items, effects, supply drops, first-person held item, minimap |
-| `js/replay.js` | Records the last few seconds and plays them back when you die |
-| `js/audio.js` | Generated ambient music, positional stereo sound effects and footsteps |
+| `js/view3d.js` | Per-frame 3D: players, markers, items, gravestones, effects, supply drops, first-person held item, minimap and full-screen map |
+| `js/replay.js` | Records the last few seconds, for the death replay and the play of the match |
+| `js/audio.js` | Generated ambient and combat music, the announcer, positional stereo sound effects and footsteps |
 | `js/main.js` | Game loop, input, HUD, inventory screen, menus, kit store |
 | `server.js` | Static file server plus a WebSocket relay for multiplayer |
 | `desktop/main.js` | The Windows app: starts `server.js` inside the app and opens the game window |
@@ -299,6 +333,7 @@ Because the clients are trusted, a modified client could cheat. That's fine for 
 
 - You can't join a match that's already running as a player, only watch it (you can play in the rematch).
 - Rivals only come back in solo matches.
+- The announcer uses your system's speech voice, so it sounds different on each computer.
 - Rats in the tunnels are separate for each player (their hide drops are real).
 - On a bad connection a block edit or hit can occasionally be lost.
 - 99 bots needs a fast computer. Turn shadows off in Options if it runs slowly.

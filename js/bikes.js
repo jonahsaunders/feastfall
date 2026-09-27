@@ -93,7 +93,7 @@ function bikeObstacle(k, x, y) {
   }
   if (BL.map.size) {
     const i = Math.floor(x / B), c = Math.floor(y / B);
-    for (let j = Math.floor((k.z + STEP + 1) / B); j <= Math.floor((k.z + 38) / B); j++) if (solidAt(i, j, c)) return 'wall';
+    for (let j = Math.floor(k.z / B); j <= Math.floor((k.z + 38) / B); j++) if (blocksWay(i, j, c, x, y, k.z)) return 'wall';
   }
   if (G.pit && hyp(x - PIT.x, y - PIT.y) > PIT.r - 20) return 'wall';
   if (x < 30 || y < 30 || x > WORLD - 30 || y > WORLD - 30) return 'wall';
@@ -155,7 +155,7 @@ function ramFighters(k, r) {
     t.ramT = G.t + 0.8;
     if (isTitan(t)) { crashBike(k, r, s, 'titan'); return; }
     if (!t.remote) t.diedTo = 'ram';
-    hurt(t, s / 60, by === t ? null : by, a, s * 0.9, 260);
+    withKind('ram', () => hurt(t, s / 60, by === t ? null : by, a, s * 0.9, 260));
     if (t.alive && !t.remote) t.diedTo = null;
     k.speed *= 0.65; k.hp -= 4;
     Sfx.play('crash', t.x, t.y, t.z);
@@ -199,7 +199,7 @@ function explodeBike(k) {
     const d = hyp(t.x - k.x, t.y - k.y);
     if (d > 110 || Math.abs(t.z - k.z) > 90) continue;
     if (!t.remote) t.diedTo = 'bike';
-    hurt(t, 7 * (1 - d / 160), t === by ? null : by, Math.atan2(t.y - k.y, t.x - k.x), 520, 360);
+    withKind('bike', () => hurt(t, 7 * (1 - d / 160), t === by ? null : by, Math.atan2(t.y - k.y, t.x - k.x), 520, 360));
     if (t.alive && !t.remote) t.diedTo = null;
   }
   bikeBoomFx(k.x, k.y, k.z);
