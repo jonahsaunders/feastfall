@@ -128,6 +128,7 @@ function driveBike(k, r, dt) {
   }
   k.x = nx; k.y = ny;
   k.wheel += k.speed * dt / 11.7;
+  if (r && (k.noiseT = (k.noiseT || 0) - dt) <= 0) { k.noiseT = 0.6; noise(k.x, k.y, 0, 450 + Math.abs(k.speed) * 0.6, r); } // engines carry
   if (Math.abs(k.speed) > 110) ramFighters(k, r);
   // Up and down: follow the ground; when it drops away faster than you, you're in the air
   const g = supportAt(k.x, k.y, k.z, 10, 0);
@@ -202,6 +203,7 @@ function explodeBike(k) {
     if (t.alive && !t.remote) t.diedTo = null;
   }
   bikeBoomFx(k.x, k.y, k.z);
+  noise(k.x, k.y, 0, 1000, by);
   NET.fx({ k: 'bkx', i: k.id, x: Math.round(k.x), y: Math.round(k.y), z: Math.round(k.z) });
 }
 function bikeBoomFx(x, y, z) {

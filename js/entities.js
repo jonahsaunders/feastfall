@@ -91,6 +91,7 @@ function hurt(t, amt, src, ang, kb, up = 0) {
   amt *= 1 - armorDef(t);
   if (byMe) G.stats.dmg += amt;
   noteDamage(t, src, amt);
+  noise(t.x, t.y, t.layer, 420, src); // a fight is loud: whoever's nearby hears where
   if (t.emoteT > 0) stopEmote(t);
   if (t === G.human && src && src.isFighter) G.dmgDir = { a: Math.atan2(src.y - t.y, src.x - t.x), t: 1 };
   t.hp -= amt; t.hurtT = 0.2; t.gather = null; t.refillT = 0; t.hidden = false;
@@ -227,6 +228,7 @@ function swing(f, armed = true) {
   if (f.atkCd > 0) return false;
   const tier = armed ? f.weapon : 0, maul = tier === 5, big = f.size || 1, titan = isTitan(f);
   f.atkCd = maul ? 0.62 : 0.28; f.swingT = 0.14; f.swings++; f.hidden = false;
+  noise(f.x, f.y, f.layer, 320, f);
   let dmg = WDMG[tier] + (f.kit === 'killer' ? 1 : 0) + (titan ? 1.5 : 0);
   const punching = f.punchT > 0;
   if (punching) dmg += 8;
@@ -279,6 +281,7 @@ function spawnProj(p, ghost) {
 function shoot(f, charge, pitch = 0) {
   if (!f.bow || !take(f, 'arrow', 1)) return;
   const s = 420 + 560 * charge, c = Math.cos(pitch);
+  noise(f.x, f.y, f.layer, 480, f);
   spawnProj({ kind: 'arrow', x: f.x, y: f.y, z: f.z + 46, vx: Math.cos(f.face) * s * c, vy: Math.sin(f.face) * s * c, vz: Math.sin(pitch) * s, owner: f, layer: f.layer, life: 2, dmg: 0.8 + charge * 1.4, kb: 150 + 380 * charge });
   Sfx.play('shoot', f.x, f.y, f.z);
 }
@@ -513,6 +516,7 @@ function detonate(i, j, k, owner) {
     hurt(t, 5, owner || null, Math.atan2(t.y - y, t.x - x), 480, 330);
   }
   addFx('puff', x, y, 0, { col: '#e2733b', big: true, z: z + 20 }); addFx('bolt', x, y, 0, { t: 0.2 });
+  noise(x, y, 0, 900, owner);
   NET.fx({ k: 'boom', x: Math.round(x), y: Math.round(y), z: Math.round(z) });
   Sfx.play('bolt', x, y, z);
 }
@@ -753,6 +757,7 @@ function updateFighter(f, dt) {
         f.gatherT = 0; o.amt--; NET.res(o);
         const mat = { tree: 'wood', rock: 'stone', ore: 'iron', reed: 'reed' }[o.kind];
         const n = mat === 'wood' && f.kit === 'cutter' && rng() < 0.5 ? 2 : 1;
+        noise(f.x, f.y, f.layer, 240, f);
         const left = give(f, mat, n);
         if (left) { dropStacks(f, [{ id: mat, n: left }]); if (f === G.human) toast('Inventory full'); }
         addFx('chip', o.x, o.y, f.layer, { col: { wood: '#a4743f', stone: '#9aa0a3', iron: '#d9905a', reed: '#b9a95a' }[mat], z: f.z + 30 });
@@ -882,6 +887,7 @@ function updateFx(dt) {
     if (e.kind === 'strike' && e.t <= 0 && !e.done) {
       e.done = true;
       if (!e.ghost) {
+        noise(e.x, e.y, e.layer, 1000, e.owner);
         for (const t of G.fighters) if (t !== e.owner && t.alive && t.layer === e.layer && hyp(t.x - e.x, t.y - e.y) < 75) hurt(t, 5, e.owner, Math.atan2(t.y - e.y, t.x - e.x), 200);
         if (e.layer === 0) strikeBlocks(e.x, e.y, 60);
       }

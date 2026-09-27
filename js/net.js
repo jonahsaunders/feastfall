@@ -70,7 +70,7 @@ function applyPacked(f, a, o) {
   else f.emoteT = 0;
   f.net.w = a[o + 6]; f.net.am = a[o + 7];
   f.net.ad = [1, 2, 4, 8].reduce((d, bit, i) => d + (f.net.am & bit ? [0.08, 0.14, 0.11, 0.07][i] * (f.net.am & 16 ? 1.45 : 1) : 0), 0);
-  if (f.net.sw !== undefined && f.net.sw !== a[o + 8]) f.swingT = 0.14;
+  if (f.net.sw !== undefined && f.net.sw !== a[o + 8]) { f.swingT = 0.14; noise(f.x, f.y, f.layer, 320, f); }
   f.net.sw = a[o + 8]; f.kills = a[o + 9];
   if (f.net.first === undefined) { f.net.first = 1; f.x = f.net.tx; f.y = f.net.ty; f.z = f.net.tz; f.face = f.net.tf; }
 }
@@ -141,7 +141,7 @@ function wireMatch(m) {
     res: d => { for (const [t, i, a] of d.r || []) { const o = (t ? world.ores : world.objs)[i]; if (o && a < o.amt) o.amt = a; } },
     fx: (d, msg) => {
       const o = fighterById(d.o);
-      if (d.k === 'p' && o) { const v = d.v; G.proj.push({ kind: d.t, x: v[0], y: v[1], z: v[2], vx: v[3], vy: v[4], vz: v[5], owner: o, layer: d.l, life: d.t === 'hook' ? 0.6 : 2, ghost: true }); }
+      if (d.k === 'p' && o) { const v = d.v; noise(v[0], v[1], d.l, 480, o); G.proj.push({ kind: d.t, x: v[0], y: v[1], z: v[2], vx: v[3], vy: v[4], vz: v[5], owner: o, layer: d.l, life: d.t === 'hook' ? 0.6 : 2, ghost: true }); }
       if (d.k === 's') addFx('strike', d.x, d.y, d.l, { t: 0.6, ghost: true });
       if (d.k === 'c' && o) for (const dd of [-0.7, 0.7]) spawnClone(o, d.f + dd);
       if (d.k === 'ping') G.pings.push({ x: d.x, y: d.y, layer: 1, t: 12, src: fighterById(msg.peer) });

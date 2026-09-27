@@ -61,8 +61,8 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
   buildLandmarks();
   Object.assign(G, { fighters: [], rats: [], proj: [], fx: [], items: [], pings: [], feed: [], itemSeq: 0, t: 0, clockMin: 0, graceDone: false, feast: null, pit: false, over: false, coinsEarned: 0, killedBy: null,
     winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, duels: [], killer: null, teams: [], teamSeq: 0, allyT: 0,
-    bounty: null, bountySeen: null, bountyPingT: 0, bountyCheck: 0, qpings: [], stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0, assists: 0 } });
-  replayReset();
+    bounty: null, bountySeen: null, bountyPingT: 0, bountyCheck: 0, qpings: [], noises: [], pathBudget: 0, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0, assists: 0 } });
+  replayReset(); resetPaths();
   // Rivals (solo only): bots that killed you before come back as themselves
   const rivals = human && !humans && !NET.on ? rivalBots() : [];
   const names = BOT_NAMES.filter(n => !rivals.some(r => r.name === n));
@@ -588,8 +588,12 @@ let last = performance.now(), hudT = 0, potT = 0;
 function step(dt) {
   G.t += dt;
   G.clockMin = G.t / G.settings.len;
+  G.pathBudget = 3; // bot path searches allowed this frame
+  pruneNoises(); trackVelocities(dt);
   if (G.mode !== 'menu' && G.mode !== 'options' && G.human.isFighter) { humanInput(dt); phases(); }
-  for (const f of G.fighters) if (f.bot && f.alive && !f.remote) botUpdate(f, dt);
+  for (const f of G.fighters) if (f.bot && f.alive && !f.remote) {
+    try { botUpdate(f, dt); } catch (e) { f.plan = null; f.spath = null; reportOnce(e); } // one confused bot shouldn't stop the game
+  }
   for (const f of G.fighters) if (f.alive && !f.remote) updateFighter(f, dt);
   netInterp(dt);
   // keep bodies from stacking (only move the ones we simulate)
@@ -616,7 +620,14 @@ function step(dt) {
   }
   netTick(dt);
 }
+// Errors in the loop are logged once each and the game carries on, rather than freezing
+const reported = new Set();
+function reportOnce(e) { const k = String(e && e.message); if (!reported.has(k)) { reported.add(k); console.error(e); } }
 function frame(now) {
+  try { tick(now); } catch (e) { reportOnce(e); }
+  requestAnimationFrame(frame);
+}
+function tick(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   if (world) {
     if (G.mode === 'menu' || G.mode === 'options') {
@@ -641,7 +652,6 @@ function frame(now) {
     } else { render(0); renderMinimap(); }
     engineSounds();
   }
-  requestAnimationFrame(frame);
 }
 
 // ---------- HUD ----------

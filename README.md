@@ -89,6 +89,15 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 - **Map types.** Mixed, Islands (a ring of islands in a shallow sea you wade across), Desert (sand, dunes and a few oases), Winter (snowed-in pine forest and big mountain ranges), or Random. Pick one in Options, or as host in an online match.
 - **Caves** cut into every mountain range: a stone arch on the surface (a grey peak on the map) leads to a dead-end cave with extra iron and a chest at the end.
 - **Bots with personalities.** Cowards run, campers dig in near places people visit, rushers chase whoever's closest, looters go for chests and death bags. They talk too, in speech bubbles and the feed when you're close. Choose Easy, Normal or Brutal bots.
+- **Bots that play fair and think.**
+  - They only see what's in their line of sight: hills, trees, rocks and walls hide you.
+  - They hear swings, fights, arrows, building, chopping, explosions, engines and footsteps. Sneaking is silent.
+  - They remember where they last saw you and come to check.
+  - They take a moment to react when they first spot you.
+  - They find their way around obstacles.
+  - In a fight, they aim ahead of you when you're moving, back off behind cover to drink when they're hurt, and pick on whoever's weakest or already fighting someone else.
+  - They avoid being outnumbered.
+  - If you camp up a tower, they shoot you down or build their own pillar right next to it.
 - **Rivals.** A bot that kills you remembers you. It comes back in your next solo matches with a ☠ by its name and hunts you down. Beat it for 75 bonus coins; beat it twice and it's gone.
 - **Emotes and quick chat.** Hold **C** for a wheel: wave, taunt, dance or cheer, or call out "Help!", "Enemy here!", "On my way", "Loot here", "Thanks!" or "Good game". Anyone within about 44 blocks hears you, and some lines ping a spot on their map.
 - **Assists.** Anyone who did 2 or more damage in the last 15 seconds gets an assist in the kill feed, and 20 coins if it's you.
@@ -267,7 +276,8 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | `js/items.js` | Item registry, drawn icons, inventory, armour, recipes |
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
 | `js/bikes.js` | Motorcycles: riding, jumps, crashes, running people over, explosions |
-| `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced), personalities, difficulty and alliances |
+| `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced), personalities, difficulty, tactics and alliances |
+| `js/botmind.js` | What bots notice (line of sight, noises, memory) and how they get around (pathfinding) |
 | `js/social.js` | Bot chat, rivals, emotes, quick chat and map pings |
 | `js/net.js` | Online play: lobby, private matches, spectating, rematches, state sync, host migration |
 | `js/scene3d.js` | Renderer, lights, terrain mesh, instanced scenery, tunnels |

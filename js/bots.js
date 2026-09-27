@@ -4,10 +4,13 @@
 // tower (pillars up and shoots from above), balanced.
 const STYLES = ['hunter', 'miner', 'miner', 'trapper', 'tower', 'tower', 'hunter', 'balanced'];
 // Difficulty: how fast bots react, how far they see, how well they aim, when they drink, how brave they are
+// hear: how far noises carry for them; mem: seconds they remember someone; lead: how well they aim ahead of a
+// moving target; retreatAt: health at which they back off to heal (0 = never); notice: how long a first sighting
+// takes to register (times their reaction time); backoff: step out of reach while the sword recharges
 const BOT_LVL = [
-  { name: 'Easy', react: [0.55, 0.85], sight: 0.75, jitter: 1.9, aim: 0.09, drinkAt: 6, brave: 1.25, kitCd: 2 },
-  { name: 'Normal', react: [0.3, 0.5], sight: 1, jitter: 1, aim: 0.03, drinkAt: 9, brave: 1, kitCd: 1 },
-  { name: 'Brutal', react: [0.16, 0.28], sight: 1.25, jitter: 0.45, aim: 0.008, drinkAt: 11.5, brave: 0.85, kitCd: 0.75 },
+  { name: 'Easy', react: [0.55, 0.85], sight: 0.75, jitter: 1.9, aim: 0.09, drinkAt: 6, brave: 1.25, kitCd: 2, hear: 0.7, mem: 8, lead: 0.2, retreatAt: 0, notice: 1.6, backoff: false },
+  { name: 'Normal', react: [0.3, 0.5], sight: 1, jitter: 1, aim: 0.03, drinkAt: 9, brave: 1, kitCd: 1, hear: 1, mem: 12, lead: 0.7, retreatAt: 7, notice: 1, backoff: true },
+  { name: 'Brutal', react: [0.16, 0.28], sight: 1.25, jitter: 0.45, aim: 0.008, drinkAt: 11.5, brave: 0.85, kitCd: 0.75, hear: 1.3, mem: 18, lead: 1, retreatAt: 9, notice: 0.6, backoff: true },
 ];
 const botLvl = () => BOT_LVL[G.botLevel ?? 1] || BOT_LVL[1];
 // Personalities, on top of the playstyle: cowards run, campers dig in and wait, rushers chase anyone, looters go for chests
@@ -44,30 +47,65 @@ function botThink(b) {
   if (b.style === 'trapper' && count(b, 'pitfall') < 2) craft(b, recipe('pitfall'));
   if (count(b, 'reed') >= 3 && count(b, 'hide') >= 1 && !count(b, 'charm')) craft(b, recipe('charm'));
 
-  let enemy = null, ed = 1e9, reach = true;
-  const sight = sightRange(b);
-  for (const o of G.fighters) {
-    if (o === b || !o.alive || o.layer !== b.layer || o.owner === b || allied(o, b)) continue;
-    const d = hyp(o.x - b.x, o.y - b.y);
-    if (o.hidden && d > 55) continue;
-    const reachable = Math.abs(o.z - b.z) < 45;
-    if (!reachable && !(canShoot(b) && d < 440)) continue;   // can't touch them: ignore
-    if (d < sight && d < ed) { enemy = o; ed = d; reach = reachable; }
-  }
+  // Look and listen (only what's in line of sight, plus noises), then pick a target
+  const L = botLvl(), was = b.plan && b.plan.type;
+  const ignore = b.ignore || (b.ignore = new Map());
+  const vis = perceive(b).filter(v => !(ignore.get(v.o) > G.t) && (v.reach || canShoot(b) || v.o.z > b.z)); // unreachable & below us: not worth it
   // Up a tower: keep building, or stay on top and pick people off
   const elevated = b.layer === 0 && b.z > heightAt(b.x, b.y) + 60;
   if (elevated && b.plan && b.plan.type === 'tower') return;
-  if (elevated && b.onGround && (b.towerDone || (b.plan && b.plan.type === 'perch'))) { b.plan = { type: 'perch', target: enemy }; return; }
-  if (enemy && pvpOn()) {
-    const brave = (b.style === 'hunter' ? 0.6 : b.style === 'trapper' ? 1.1 : 0.85) * (PERS[b.pers] || PERS.steady).brave * botLvl().brave;
-    const cornered = ed < 80 && b.hp > 5, was = b.plan && b.plan.type;
-    if (!reach) b.plan = { type: 'fight', target: enemy, ranged: true };
-    else if (b.pers === 'coward' && b.hp < 10 && !cornered && !G.pit) b.plan = { type: 'flee', target: enemy };
-    else b.plan = (power(b) >= power(enemy) * brave || cornered || G.pit || (b.rival && enemy === G.human)) ? { type: 'fight', target: enemy } : { type: 'flee', target: enemy };
-    if (b.plan.type !== was) botSay(b, b.plan.type === 'flee' ? 'flee' : 'engage', enemy);
-    return;
+  if (elevated && b.onGround && (b.towerDone || (b.plan && b.plan.type === 'perch'))) { b.plan = { type: 'perch', target: vis[0] && vis[0].o }; return; }
+  if (was === 'climb' && b.plan.target.alive && b.plan.target.z > b.z + 30 && blockStock(b)) return; // mid-climb: keep building
+  if (vis.length && pvpOn()) {
+    vis.sort((p, q) => targetScore(b, p) - targetScore(b, q));
+    const v = vis[0], enemy = v.o, ed = v.d, reach = v.reach;
+    const m = b.mem.get(enemy), fighting = b.plan && (b.plan.type === 'fight' || b.plan.type === 'retreat' || b.plan.type === 'climb') && b.plan.target === enemy;
+    // Just spotted: take a moment to react (longer on Easy)
+    if (!fighting && m && G.t - m.first < b.react * L.notice) { b.plan = { type: 'notice', target: enemy }; return; }
+    // Hurt, with potions: back off behind cover and drink, then come back
+    const pots = hotPots(b) + bagPots(b);
+    if (L.retreatAt && b.hp < L.retreatAt && pots > 0 && !G.pit && ed > 40 && b.pers !== 'rusher') {
+      if (was !== 'retreat') { b.plan = { type: 'retreat', target: enemy, until: G.t + 7, cover: coverPoint(b, enemy) }; botSay(b, 'flee', enemy); }
+      return;
+    }
+    if (was === 'retreat' && b.hp < 14 && pots > 0 && G.t < b.plan.until) return; // still healing up
+    // Out of reach up a tower: shoot, use a kit that reaches, pillar up next to them, or leave them to it
+    if (!reach && enemy.z > b.z + 40) {
+      if (canShoot(b) || ['lightning', 'sapper', 'trickster', 'fisherman', 'mage'].includes(b.kit)) { b.plan = { type: 'fight', target: enemy, ranged: true }; return; }
+      const need = Math.ceil((enemy.z - b.z) / B) + 1;
+      while (blockStock(b) < need && count(b, 'wood') > 0 && craft(b, recipe('plank')));
+      const spot = blockStock(b) >= need && climbSpot(b, enemy);
+      if (spot) { b.plan = { type: 'climb', target: enemy, spot }; if (was !== 'climb') botSay(b, 'engage', enemy); return; }
+      const tree = blockStock(b) < need && nearestResource(b, 'tree');
+      if (tree && hyp(tree.x - b.x, tree.y - b.y) < 450) { ignore.set(enemy, G.t + 5); b.plan = { type: 'gather', obj: tree, layer: 0 }; return; } // short of blocks: chop some wood and come back
+      ignore.set(enemy, G.t + 25); b.plan = null; // can't get at them: go do something else for a while
+    } else if (!reach) { b.plan = { type: 'fight', target: enemy, ranged: true }; return; }
+    else {
+      const brave = (b.style === 'hunter' ? 0.6 : b.style === 'trapper' ? 1.1 : 0.85) * (PERS[b.pers] || PERS.steady).brave * L.brave;
+      const cornered = ed < 80 && b.hp > 5;
+      let fight = power(b) >= power(enemy) * brave || cornered || G.pit || (b.rival && enemy === G.human);
+      // Outnumbered: two or more close enemies are only worth it if we're much stronger than them together
+      const near = vis.filter(q => q.d < 260 && q.reach);
+      if (near.length >= 2 && !cornered && !G.pit && power(b) < near.reduce((s, q) => s + power(q.o), 0) * 0.8 * brave) fight = false;
+      if (b.pers === 'coward' && b.hp < 10 && !cornered && !G.pit) fight = false;
+      b.plan = fight ? { type: 'fight', target: enemy } : { type: 'flee', target: enemy, away: coverPoint(b, enemy) };
+      if (b.plan.type !== was) botSay(b, b.plan.type === 'flee' ? 'flee' : 'engage', enemy);
+      return;
+    }
   }
   if (b.plan && b.plan.type === 'camp' && G.t < b.plan.until && b.layer === 0) return; // campers sit tight
+  if (was === 'retreat' && G.t < b.plan.until && b.hp < 14 && hotPots(b) + bagPots(b) > 0) return; // out of sight: keep healing
+  // Nothing in sight: check out where we last saw someone, or a noise we just heard
+  if (pvpOn() && !G.pit) {
+    const lk = lastKnown(b);
+    if (lk && lk.m.layer === b.layer && !(ignore.get(lk.o) > G.t)) {
+      const d = hyp(lk.m.x - b.x, lk.m.y - b.y), fresh = G.t - lk.m.t;
+      const chasing = was === 'fight' || was === 'notice' || was === 'search';
+      const keen = b.pers === 'rusher' || b.style === 'hunter' || power(b) > 45 || b.rival;
+      if (b.pers === 'coward' && d < 320 && fresh < 3) { b.plan = { type: 'flee', target: lk.o, away: coverPoint(b, lk.m) }; return; }
+      if (d > 40 && ((chasing && fresh < L.mem) || (!lk.m.seen && fresh < 2 && keen))) { b.plan = { type: 'search', x: lk.m.x, y: lk.m.y, layer: lk.m.layer, target: lk.o, until: G.t + 10 }; return; }
+    }
+  }
   // Rivals come looking for you
   if (b.rival && pvpOn() && G.human.alive && G.human.isFighter && hyp(G.human.x - b.x, G.human.y - b.y) > 350 && b.weapon >= 1) {
     b.plan = { type: 'go', x: G.human.x + rr(-150, 150), y: G.human.y + rr(-150, 150), layer: G.human.layer }; return;
@@ -333,6 +371,8 @@ function steer(b, x, y, layer, dt) {
     if (!b.path || b.pathGoal !== goal) { b.path = navPath(nearestNode(b.x, b.y), goal); b.pathGoal = goal; }
     while (b.path.length > 1 && hyp(world.nodes[b.path[0]].x - b.x, world.nodes[b.path[0]].y - b.y) < 30) b.path.shift();
     if (b.path.length > 1 || hyp(x - b.x, y - b.y) > 200) { const n = world.nodes[b.path[0]]; x = n.x; y = n.y; }
+  } else if (b.z < heightAt(b.x, b.y) + 20) { // on the surface: route around trees, rocks, walls and lava
+    const w = nextWaypoint(b, x, y); x = w.x; y = w.y;
   }
   let a = Math.atan2(y - b.y, x - b.x);
   // Walk around lava pools and poured lava
@@ -371,6 +411,15 @@ function pillarStep(b, type) {
 function aimPitch(b, t) {
   const d = hyp(t.x - b.x, t.y - b.y);
   return Math.atan2(t.z + 30 - (b.z + 46), d) + d * 0.00055 + rr(-1, 1) * botLvl().aim;
+}
+// Draw, and release at `full` charge, aimed where the target will be when the arrow gets there
+function botShoot(b, t, full) {
+  if (b.charge < 0) { b.charge = 0; return; }
+  if (b.charge <= full) return;
+  const p = leadPoint(b, t, b.charge);
+  b.face = Math.atan2(p.y - b.y, p.x - b.x) + rr(-0.02, 0.02) * botLvl().jitter;
+  shoot(b, b.charge, aimPitch(b, p));
+  b.charge = -1;
 }
 
 function botUpdate(b, dt) {
@@ -411,7 +460,9 @@ function botUpdate(b, dt) {
     return;
   }
   b.sneak = false;
-  if (b.hp < botLvl().drinkAt && hotPots(b) > 0 && b.drinkCd <= 0 && b.refillT <= 0) { if (drink(b)) b.drinkCd = rr(0.25, 0.5); }
+  // Drinking: bots that know how to retreat don't stand and drink in the middle of a fight unless it's an emergency
+  const inFight = (p.type === 'fight' || p.type === 'notice') && p.target && p.target.alive && hyp(p.target.x - b.x, p.target.y - b.y) < 260;
+  if (b.hp < botLvl().drinkAt && hotPots(b) > 0 && b.drinkCd <= 0 && b.refillT <= 0 && (!inFight || !botLvl().retreatAt || b.hp < 3.5)) { if (drink(b)) b.drinkCd = rr(0.25, 0.5); }
 
   if (p.type === 'tower') {
     const s = b.towerSpot, d = hyp(s.x - b.x, s.y - b.y);
@@ -430,12 +481,48 @@ function botUpdate(b, dt) {
     const d = hyp(t.x - b.x, t.y - b.y);
     b.face = Math.atan2(t.y - b.y, t.x - b.x);
     if (d < b.r + t.r + 30 && Math.abs(t.z - b.z) < 45) { b.swingWait = (b.swingWait || 0) - dt; if (b.swingWait <= 0) { swing(b); b.swingWait = b.react; } return; }
-    if (canShoot(b)) {
-      if (b.charge < 0) b.charge = 0;
-      else if (b.charge > 0.85) { shoot(b, b.charge, aimPitch(b, t) + rr(-0.03, 0.03)); b.charge = -1; }
-    }
+    if (canShoot(b)) botShoot(b, t, 0.85);
     if (b.kit === 'lightning') useKit(b, t.x, t.y);
     if (b.kit === 'mage' && d < 500) useKit(b, t.x, t.y);
+    return;
+  }
+  if (p.type === 'notice') { // just spotted someone: turn to look, freeze for a moment
+    const t = p.target;
+    if (!t || !t.alive) { b.plan = null; return; }
+    b.face += angDiff(b.face, Math.atan2(t.y - b.y, t.x - b.x)) * Math.min(1, dt * 8);
+    return;
+  }
+  if (p.type === 'search') { // go and look where they were last seen or heard
+    if (G.t > p.until || (p.target && !p.target.alive)) { b.plan = null; return; }
+    if (hyp(p.x - b.x, p.y - b.y) < 40 && b.layer === p.layer) { if (b.mem) b.mem.delete(p.target); b.plan = { type: 'lookaround', until: G.t + rr(1.2, 2.2) }; return; }
+    steer(b, p.x, p.y, p.layer, dt);
+    if (b.mx || b.my) b.face = Math.atan2(b.my, b.mx);
+    return;
+  }
+  if (p.type === 'lookaround') { b.face += dt * 2.4 * b.side2; if (G.t > p.until) b.plan = null; return; }
+  if (p.type === 'retreat') { // get behind cover, then drink up
+    const t = p.target;
+    const d = t && t.alive ? hyp(t.x - b.x, t.y - b.y) : 1e9;
+    if (d < 55 && t) { b.plan = { type: 'fight', target: t }; return; } // caught: fight back
+    const safe = d > 240 || (b.hidT > G.t) || (hyp(p.cover.x - b.x, p.cover.y - b.y) < 30 && !(b.seenT > G.t));
+    if ((b.losT || 0) < G.t && t) { b.losT = G.t + 0.3; if (!canSee(t, b)) b.hidT = G.t + 0.6; else b.seenT = G.t + 0.4; }
+    if (safe) {
+      if (hotPots(b) > 0) { if (b.drinkCd <= 0 && drink(b)) b.drinkCd = rr(0.3, 0.5); }
+      else if (bagPots(b) > 0 && b.refillT <= 0 && hotbarEmpty(b) >= 0) b.refillT = 0.22;
+      if (t) b.face = Math.atan2(t.y - b.y, t.x - b.x);
+    } else { steer(b, p.cover.x, p.cover.y, b.layer, dt); if (b.mx || b.my) b.face = Math.atan2(b.my, b.mx); }
+    if (b.hp >= 14 || G.t > p.until || hotPots(b) + bagPots(b) === 0) b.plan = t && t.alive ? { type: 'fight', target: t } : null;
+    return;
+  }
+  if (p.type === 'climb') { // pillar up right next to a tower camper, then fight them at the top
+    const t = p.target, s = p.spot, type = blockType(b);
+    if (!t.alive || !type || t.z < b.z + 20) { b.plan = t.alive ? { type: 'fight', target: t } : null; return; }
+    const d = hyp(s.x - b.x, s.y - b.y);
+    b.face = Math.atan2(t.y - b.y, t.x - b.x);
+    if (d > 8 && b.onGround && b.z < heightAt(s.x, s.y) + 20) { steer(b, s.x, s.y, 0, dt); return; }
+    if (d > 4 && b.onGround) { b.mx = (s.x - b.x) / d * 0.3; b.my = (s.y - b.y) / d * 0.3; }
+    pillarStep(b, type);
+    if (Math.abs(t.z - b.z) < 45 && hyp(t.x - b.x, t.y - b.y) < b.r + t.r + 40) { b.swingWait = (b.swingWait || 0) - dt; if (b.swingWait <= 0) { swing(b); b.swingWait = b.react; } }
     return;
   }
   if (p.type === 'fight' || p.type === 'flee') {
@@ -443,8 +530,10 @@ function botUpdate(b, dt) {
     if (!t.alive || t.layer !== b.layer) { b.plan = null; return; }
     const d = hyp(t.x - b.x, t.y - b.y), a = Math.atan2(t.y - b.y, t.x - b.x);
     b.face = a + rr(-0.12, 0.12) * botLvl().jitter;
-    if (p.type === 'flee') {
-      b.mx = -Math.cos(a) + Math.cos(a + Math.PI / 2) * 0.4 * b.side2; b.my = -Math.sin(a) + Math.sin(a + Math.PI / 2) * 0.4 * b.side2;
+    if (p.type === 'flee') { // run for cover, not just straight away
+      const aw = p.away || { x: b.x - Math.cos(a) * 300, y: b.y - Math.sin(a) * 300 };
+      if (hyp(aw.x - b.x, aw.y - b.y) < 30) p.away = coverPoint(b, t);
+      steer(b, aw.x, aw.y, b.layer, dt);
       if (['runner', 'jumper', 'faker'].includes(b.kit)) useKit(b, b.x - Math.cos(a) * 200, b.y - Math.sin(a) * 200);
       if (b.kit === 'hidden' && d > 220 && !b.hidden) useKit(b, b.x, b.y);
       if (b.kit === 'hidden' && b.hidden) { b.mx = b.my = 0; }
@@ -455,24 +544,21 @@ function botUpdate(b, dt) {
       // Target is up a tower (or we're up one): keep distance and shoot
       if (d < 150) { b.mx = -Math.cos(a); b.my = -Math.sin(a); }
       else if (d > 380) steer(b, t.x, t.y, t.layer, dt);
-      if (canShoot(b)) {
-        if (b.charge < 0) b.charge = 0;
-        else if (b.charge > 0.8) { shoot(b, b.charge, aimPitch(b, t)); b.charge = -1; }
-      }
+      if (canShoot(b)) botShoot(b, t, 0.8);
       if (b.kit === 'lightning') useKit(b, t.x, t.y);
       if (b.kit === 'fisherman' && d < 380) { b.pitch = aimPitch(b, t); useKit(b, t.x, t.y); }
       if (b.kit === 'trickster' && d < 420) { b.pitch = aimPitch(b, t) + 0.12; useKit(b, t.x, t.y); }
       if (b.kit === 'sapper' && d < 90 && t.z > b.z + 40) { b.sapTarget = { i: Math.floor(t.x / B), k: Math.floor(t.y / B) }; useKit(b, t.x, t.y); }
       return;
     }
-    // Melee: close in, circle-strafe, swing when lined up
+    // Melee: close in, circle-strafe, swing when lined up; better bots step back out of reach while the sword recharges
     const mreach = b.r + t.r + 34;
-    if (d > mreach) { steer(b, t.x, t.y, t.layer, dt); }
+    const backing = botLvl().backoff && b.swingWait > 0.12 && d < mreach + 12 && !(t.charge >= 0);
+    if (backing) { b.mx = -Math.cos(a) * 0.8 + Math.cos(a + Math.PI / 2) * b.side2 * 0.6; b.my = -Math.sin(a) * 0.8 + Math.sin(a + Math.PI / 2) * b.side2 * 0.6; }
+    else if (d > mreach) { steer(b, t.x, t.y, t.layer, dt); }
     else { b.mx = Math.cos(a + Math.PI / 2) * b.side2 * 0.8; b.my = Math.sin(a + Math.PI / 2) * b.side2 * 0.8; if (rng() < dt * 0.7) b.side2 *= -1; }
-    if (canShoot(b) && d > 190 && d < 420) {
-      if (b.charge < 0) b.charge = 0;
-      else if (b.charge > 0.7) { shoot(b, b.charge, aimPitch(b, t)); b.charge = -1; }
-    } else b.charge = -1;
+    if (canShoot(b) && d > 190 && d < 420) botShoot(b, t, 0.7);
+    else b.charge = -1;
     b.swingWait = (b.swingWait || 0) - dt;
     if (d < mreach + 8 && b.swingWait <= 0) { swing(b); b.swingWait = b.react; }
     if (rng() < dt * 0.4) jump(b);

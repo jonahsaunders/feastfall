@@ -142,6 +142,7 @@ function placeBlock(f, type, i, j, k) {
   BL.map.set(bkey(i, j, k), { type, owner: f.id });
   BL.ver++;
   if (f === G.human && G.stats) G.stats.blocks++;
+  noise((i + .5) * B, (k + .5) * B, 0, 300, f);
   NET.blk(BLOCKS[type].trap || BLOCKS[type].fake ? [i, j, k, BTYPES.indexOf(type), f.id] : [i, j, k, BTYPES.indexOf(type)]);
   Sfx.play('place', (i + .5) * B, (k + .5) * B, j * B);
   return true;
@@ -168,6 +169,7 @@ function breakBlock(i, j, k, f) {
   BL.map.delete(key); BL.ver++;
   NET.blk([i, j, k, -1]);
   if (f === G.human && G.stats) G.stats.broken++;
+  if (f) noise((i + .5) * B, (k + .5) * B, 0, 300, f);
   if (f) { const l = give(f, b.type, 1); if (l) dropStacks(f, [{ id: b.type, n: 1 }]); }
   addFx('chip', (i + .5) * B, (k + .5) * B, 0, { col: BLOCKS[b.type].color, z: j * B + 12 });
   Sfx.play('break', (i + .5) * B, (k + .5) * B, j * B);
