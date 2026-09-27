@@ -769,6 +769,8 @@ function drawMap(mctx, W, ms, big) {
   if (h.layer) {
     mctx.strokeStyle = '#8b6b48'; mctx.lineWidth = 3; mctx.lineCap = 'round';
     for (const line of world.tunnels) { mctx.beginPath(); line.forEach((p, i) => i ? mctx.lineTo(p.x * S, p.y * S) : mctx.moveTo(p.x * S, p.y * S)); mctx.stroke(); }
+    mctx.fillStyle = '#8b6b48'; // passages people have dug
+    for (const d of world.digs || []) { mctx.beginPath(); mctx.arc(d.x * S, d.y * S, Math.max(1.5, d.r * S * 0.8), 0, 7); mctx.fill(); }
   }
   mctx.fillStyle = '#e8c27a'; mctx.strokeStyle = '#3a2a14'; mctx.lineWidth = 1.5;
   for (const r of world.ruins) { mctx.beginPath(); mctx.rect(r.x * S - 4, r.y * S - 4, 8, 8); mctx.fill(); mctx.stroke(); }
@@ -935,7 +937,8 @@ const STAIRS_GEO = mergeGeos([new T.BoxGeometry(B, B / 2, B).translate(0, B / 4,
 const ROT_DIR = [[1, 0], [0, 1], [-1, 0], [0, -1]]; // rot -> sim (x, y) direction
 const TURF_COL = ['#3d5a2e', '#c29c57', '#dbe3e8', '#3a5143'];
 const blockMeshes = {};
-let blockVer = -1;
+let blockVer = -1, blockLayer = -1;
+const TUNNEL_FLOOR = '#4b3a2d';
 function syncBlocks() {
   if (!Object.keys(blockMeshes).length) {
     for (const [type, def] of Object.entries(BLOCKS)) {
@@ -958,25 +961,28 @@ function syncBlocks() {
     for (const m of Object.values(blockMeshes)) { m.castShadow = true; m.receiveShadow = true; m.count = 0; m.frustumCulled = false; scene.add(m); }
     blockMeshes.water.castShadow = blockMeshes.lava.castShadow = false;
   }
-  for (const m of Object.values(blockMeshes)) m.visible = (VIEW.focus || G.human).layer === 0;
+  // Only the blocks on the layer you're looking at (surface or tunnels) are drawn
+  const L = (VIEW.focus || G.human).layer ? 1 : 0;
   LAVA_MAT.emissive.setRGB(0.72 + Math.sin(G.t * 2.6) * 0.1, 0.2 + Math.sin(G.t * 3.7) * 0.04, 0);
-  if (BL.ver === blockVer) return;
-  blockVer = BL.ver;
+  if (BL.ver === blockVer && L === blockLayer) return;
+  blockVer = BL.ver; blockLayer = L;
   const n = {}, col = new T.Color();
   for (const k of Object.keys(blockMeshes)) n[k] = 0;
   for (const [key, b] of BL.map) {
     const [i, j, k] = key.split(',').map(Number), cx = (i + .5) * B, cz = (k + .5) * B;
+    if (cellLayer(j) !== L) continue;
+    const jy = cellZ(j), ground = floorAt(cx, cz, L), turfCol = L ? TUNNEL_FLOOR : TURF_COL[biomeAt(cx, cz)];
     if (BLOCKS[b.type].pit) {
       if (n.pitfall >= 600) continue;
       const mine = b.owner && b.owner === G.human.id;
-      dummy.position.set(cx, Math.max(j * B, heightAt(cx, cz) - 2.2), cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 0.6, 1); dummy.updateMatrix();
+      dummy.position.set(cx, Math.max(jy, ground - 2.2), cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 0.6, 1); dummy.updateMatrix();
       blockMeshes.pitfall.setMatrixAt(n.pitfall, dummy.matrix);
-      blockMeshes.pitfall.setColorAt(n.pitfall++, col.set(mine ? BLOCKS.pitfall.color : TURF_COL[biomeAt(cx, cz)]).offsetHSL(0, 0, mine ? 0 : -0.035));
+      blockMeshes.pitfall.setColorAt(n.pitfall++, col.set(mine ? BLOCKS.pitfall.color : turfCol).offsetHSL(0, 0, mine ? 0 : -0.035));
       continue;
     }
     if (BLOCKS[b.type].trap) {
       if (n[b.type] >= 600) continue;
-      const y = Math.max(j * B, heightAt(cx, cz) - 1);
+      const y = Math.max(jy, ground - 1);
       dummy.position.set(cx, y, cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
       blockMeshes[b.type].setMatrixAt(n[b.type]++, dummy.matrix);
       if (b.type === 'blast') blockMeshes.blastCaps.setMatrixAt(n.blastCaps++, dummy.matrix);
@@ -989,14 +995,14 @@ function syncBlocks() {
     if (BLOCKS[b.type].liquid) { // full cells in a falling column, a shallow layer where it has spread
       if (n[b.type] >= 1500) continue;
       const above = blockAt(i, j + 1, k), hgt = b.lvl ? 0.5 : above && above.type === b.type ? 1 : 0.82;
-      dummy.position.set(cx, j * B, cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, hgt, 1); dummy.updateMatrix();
+      dummy.position.set(cx, jy, cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, hgt, 1); dummy.updateMatrix();
       blockMeshes[b.type].setMatrixAt(n[b.type]++, dummy.matrix);
       continue;
     }
     if (b.type === 'ladder') {
       if (n.ladder >= 2000) continue;
       const w = ladderWall(i, j, k), off = B / 2 - 2.5;
-      dummy.position.set(cx + (w === 0 ? off : w === 1 ? -off : 0), j * B, cz + (w === 2 ? off : w === 3 ? -off : 0));
+      dummy.position.set(cx + (w === 0 ? off : w === 1 ? -off : 0), jy, cz + (w === 2 ? off : w === 3 ? -off : 0));
       dummy.rotation.set(0, w === 0 || w === 1 ? Math.PI / 2 : 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
       blockMeshes.ladder.setMatrixAt(n.ladder++, dummy.matrix);
       continue;
@@ -1005,7 +1011,7 @@ function syncBlocks() {
     if (def.door || def.half || def.stairs) {
       const r = b.rot || 0, key2 = def.door && b.open ? b.type + 'Open' : b.type;
       if (n[key2] >= 1500) continue;
-      let px = cx, pz = cz, py = j * B, ry = -r * Math.PI / 2;
+      let px = cx, pz = cz, py = jy, ry = -r * Math.PI / 2;
       if (def.hatch) {
         if (b.open) { const [dx, dy] = ROT_DIR[r]; px += dx * (B / 2 - 1.75); pz += dy * (B / 2 - 1.75); } // swung up against the far side
         else if (b.up) py += B - 3.5;
@@ -1017,12 +1023,12 @@ function syncBlocks() {
       continue;
     }
     const m = blockMeshes[b.type];
-    dummy.position.set(cx, j * B, cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
+    dummy.position.set(cx, jy, cz); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix();
     m.setMatrixAt(n[b.type], dummy.matrix);
     // small per-block shade shift so individual blocks read in a wall
     const h = ((i * 73856093) ^ (j * 19349663) ^ (k * 83492791)) >>> 0;
     // Snare Turf takes the colour of the ground it sits on, so it passes for terrain
-    col.set(b.type === 'turf' ? TURF_COL[biomeAt(cx, cz)] : BLOCKS[b.type].color).offsetHSL(0, 0, ((h % 100) / 100 - 0.5) * (b.type === 'turf' ? 0.03 : 0.08));
+    col.set(b.type === 'turf' ? turfCol : BLOCKS[b.type].color).offsetHSL(0, 0, ((h % 100) / 100 - 0.5) * (b.type === 'turf' ? 0.03 : 0.08));
     m.setColorAt(n[b.type]++, col);
   }
   for (const [k, m] of Object.entries(blockMeshes)) {
@@ -1038,23 +1044,23 @@ scene.add(aimBox, ghost);
 function syncAim() {
   const a = G.aim, h = G.human;
   aimBox.visible = ghost.visible = false;
-  if (!a || G.mode !== 'play' || !h.alive || h.layer) return;
+  if (!a || G.mode !== 'play' || !h.alive) return;
   if (a.hit === 'block') {
     aimBox.visible = true;
     const d = BLOCKS[a.b.type], hgt = a.b.type === 'spike' || (d.hatch && !a.b.open) ? 0.2 : d.half ? 0.5 : 1;
     aimBox.scale.set(1, hgt, 1);
-    aimBox.position.set((a.i + .5) * B, a.j * B + (d.hatch && a.b.up && !a.b.open ? B * (1 - hgt / 2) : B * hgt / 2), (a.k + .5) * B);
+    aimBox.position.set((a.i + .5) * B, cellZ(a.j) + (d.hatch && a.b.up && !a.b.open ? B * (1 - hgt / 2) : B * hgt / 2), (a.k + .5) * B);
   }
   const held = heldId(h), type = held && ITEMS[held].block ? held : null, pour = held && ITEMS[held].bucket;
   if (type && a.pi !== null && count(h, type) > 0 && canPlace(type, a.pi, a.pj, a.pk)) {
     ghost.visible = true;
     const d = BLOCKS[type], up = d.hatch && hatchUp(a), hgt = type === 'spike' || type === 'pitfall' || d.hatch ? 0.2 : d.half ? 0.5 : d.door ? 2 : 1;
-    ghost.position.set((a.pi + .5) * B, a.pj * B + (up ? B * 0.9 : B * hgt / 2), (a.pk + .5) * B);
+    ghost.position.set((a.pi + .5) * B, cellZ(a.pj) + (up ? B * 0.9 : B * hgt / 2), (a.pk + .5) * B);
     ghost.scale.set(1, hgt, 1);
     ghost.material.color.set(BLOCKS[type].color);
   } else if (pour && a.pi !== null && !solidAt(a.pi, a.pj, a.pk)) {
     ghost.visible = true;
-    ghost.position.set((a.pi + .5) * B, a.pj * B + B * 0.41, (a.pk + .5) * B);
+    ghost.position.set((a.pi + .5) * B, cellZ(a.pj) + B * 0.41, (a.pk + .5) * B);
     ghost.scale.set(1, 0.82, 1);
     ghost.material.color.set(BLOCKS[pour].color);
   }

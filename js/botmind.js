@@ -18,8 +18,12 @@ function canSee(a, o) {
   if (a.layer !== o.layer) return false;
   const dx = o.x - a.x, dy = o.y - a.y, d = hyp(dx, dy);
   if (d < 60) return true;
-  if (a.layer === 1) { // underground: the whole line has to stay inside the tunnels
-    for (let t = 30; t < d; t += 30) if (!walkUnder(a.x + dx * t / d, a.y + dy * t / d, 2)) return false;
+  if (a.layer === 1) { // underground: the whole line has to stay inside the tunnels, and walls of blocks hide you
+    for (let t = 30; t < d; t += 30) {
+      const x = a.x + dx * t / d, y = a.y + dy * t / d;
+      if (!walkUnder(x, y, 2)) return false;
+      if (BL.map.size) { const b = blockAt(Math.floor(x / B), UJ + 1, Math.floor(y / B)); if (blockSolid(b) && !BLOCKS[b.type].glass) return false; }
+    }
     return true;
   }
   const z0 = EYE_Z(a), z1 = CHEST_Z(o);

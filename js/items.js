@@ -181,7 +181,7 @@ function dropStacks(f, stacks, kind = 'drop') {
   if (!stacks.length) return;
   const a = f.face || 0, d = kind === 'drop' ? 34 : 0;
   const x = f.x + Math.cos(a) * d, y = f.y + Math.sin(a) * d;
-  const z = f.layer ? 0 : supportAt(x, y, f.z + 10, 4, 0);
+  const z = supportAt(x, y, f.z + 10, 4, f.layer);
   addItem({ kind: stacks.length > 1 && kind === 'drop' ? 'bag' : kind, x, y, z, layer: f.layer, stacks, noPick: f.id, noPickT: G.t + 1.2 });
 }
 
@@ -290,7 +290,7 @@ function iconURL(id, kit) { const k = id + (id === 'kit' ? kit : ''); return ICO
 // Weapons reuse the item icons; everything else gets a small drawing of its own
 const FEED_ITEM = { w1: 'sword1', w2: 'sword2', w3: 'sword3', w4: 'sword4', w5: 'maul', bow: 'bow', pitfall: 'pitfall', spike: 'spike', blast: 'blast' };
 const FEED_NAME = { w0: 'fists', w1: 'Wood Sword', w2: 'Stone Sword', w3: 'Iron Sword', w4: 'Feast Blade', w5: 'Quake Maul', bow: 'Bow', fall: 'fall', lava: 'fire', pitfall: 'pitfall', spike: 'spike trap',
-  blast: 'blast trap', bolt: 'lightning', crash: 'crash', bike: 'exploding motorcycle', ram: 'run over', poison: 'poison', rat: 'rats', stomp: 'Titan stomp', gun: 'chain gun', rocket: 'rocket', heli: 'helicopter', skull: '' };
+  blast: 'blast trap', bolt: 'lightning', crash: 'crash', bike: 'exploding motorcycle', ram: 'run over', poison: 'poison', rat: 'rats', stomp: 'Titan stomp', gun: 'chain gun', rocket: 'rocket', heli: 'helicopter', cavein: 'cave-in', skull: '' };
 const FEED_CACHE = {};
 function feedIconURL(kind) {
   if (FEED_ITEM[kind]) return iconURL(FEED_ITEM[kind]);
@@ -313,6 +313,7 @@ function feedIconURL(kind) {
     case 'gun': for (const y of [7, 12, 17]) { P([[4, y - 1.6], [15, y - 1.6], [19, y], [15, y + 1.6], [4, y + 1.6]], '#e6b84a', '#8a6a1c', 0.6); } break;
     case 'rocket': P([[3, 10], [15, 10], [21, 12], [15, 14], [3, 14]], '#9aa0a3', '#4a4e50', 0.6); P([[3, 10], [1, 7], [6, 10]], '#4a4e50'); P([[3, 14], [1, 17], [6, 14]], '#4a4e50'); O(2, 12, 1.6, '#ff9a3c'); break;
     case 'heli': L([[2, 5], [22, 5]], '#2a2a2a', 1.4); L([[12, 5], [12, 8]], '#2a2a2a', 1.4); P([[6, 8], [16, 8], [19, 12], [16, 15], [6, 15]], '#4b5320', '#2c3018', 0.6); L([[6, 11], [1, 10]], '#4b5320', 2); O(18, 19, 3.5, '#ff7a1f'); O(18, 19, 1.6, '#ffd24a'); break;
+    case 'cavein': P([[2, 21], [6, 13], [10, 16], [14, 9], [19, 14], [22, 21]], '#6b5f52', '#3a322a', 0.6); O(8, 5, 2.4, '#8a7a68'); O(15, 3.5, 1.8, '#8a7a68'); O(19, 7, 1.4, '#8a7a68'); break;
     case 'stomp': P([[5, 21], [5, 10], [9, 6], [16, 6], [19, 10], [19, 21]], '#b88a5a', '#6b4a2e'); L([[2, 22], [22, 22]], '#e6b84a', 1.6); break;
     default: P([[6, 10], [7, 5], [12, 3], [17, 5], [18, 10], [16, 14], [16, 18], [8, 18], [8, 14]], '#e8e1cf'); O(9.5, 10, 2, '#1a1a1a'); O(14.5, 10, 2, '#1a1a1a'); L([[10, 18], [10, 15.5]], '#1a1a1a', 0.8); L([[14, 18], [14, 15.5]], '#1a1a1a', 0.8);
   }

@@ -92,7 +92,7 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
     for (const c of world.caves) addItem({ kind: 'chest', x: c.x, y: c.y, z: 0, layer: 1, stacks: caveLoot() });
     for (const m of world.landmarks) addItem({ kind: 'relic', x: m.x, y: m.y, z: m.chestZ, layer: m.layer, stacks: [{ id: LANDMARKS[m.id].item, n: 1 }, { id: 'pot', n: 2 }] });
   }
-  spawnBikes(); spawnHelis();
+  spawnBikes(); spawnHelis(); resetDigs();
   for (const o of world.objs) o.a0 = o.amt; // so a spectator joining late can be told what's been used up
   for (const o of world.ores) o.a0 = o.amt;
   NET.blkLog = new Map();
@@ -480,7 +480,7 @@ function humanInput(dt) {
   h.pitch = VIEW.pitch;
   const cp = Math.cos(VIEW.pitch);
   const big = h.size || 1;
-  G.aim = h.layer ? null : rayPick(h.x, h.y, h.z + EYE * big - (h.sneak ? 9 : 0), Math.cos(h.face) * cp, Math.sin(h.face) * cp, Math.sin(VIEW.pitch), REACH * (big > 1.5 ? 1.6 : 1));
+  G.aim = rayPick(h.x, h.y, h.z + EYE * big - (h.sneak ? 9 : 0), Math.cos(h.face) * cp, Math.sin(h.face) * cp, Math.sin(VIEW.pitch), REACH * (big > 1.5 ? 1.6 : 1), false, h.layer);
   if (busy) return;
   const item = heldId(h), def = item ? ITEMS[item] : null, hand = !def || def.tier || def.block || def.cat === 'mat' || def.cat === 'armor';
   // Hold left click on a block to break it (it goes back into your inventory)
@@ -491,6 +491,10 @@ function humanInput(dt) {
     h.breakT += dt;
     h.breakNeed = BLOCKS[a.b.type].hard * (def && def.tier === 5 ? 0.02 : def && def.tier >= 2 ? 0.6 : 1); // the Quake Maul breaks anything in one swing
     if (h.breakT >= h.breakNeed) { breakBlock(a.i, a.j, a.k, h); h.breakKey = null; h.breakT = 0; }
+  } else if (mouse.down && hand && canDig(h, a)) { // in the tunnels: hold on the rock to dig a stride forward
+    if (h.breakKey !== 'dig') { h.breakKey = 'dig'; h.breakT = 0; }
+    h.breakT += dt; h.breakNeed = digTime(def);
+    if (h.breakT >= h.breakNeed) { digWall(h); h.breakKey = null; h.breakT = 0; }
   } else { h.breakKey = null; h.breakT = 0; }
   if (mouse.down && hand && swing(h, !!(def && def.tier))) hitMark();
   // Hold right click with a block to keep placing: jump and look down to tower up
@@ -499,6 +503,8 @@ function humanInput(dt) {
     if (placeBlock(h, item, a.pi, a.pj, a.pk, { up: hatchUp(a) })) { h.placeCd = 0.16; h.swingT = 0.1; }
   }
 }
+// Close enough to the tunnel wall to dig it (the wall is within the next stride)
+const canDig = (h, a) => !!a && h.layer === 1 && a.hit === 'wall' && a.t * Math.cos(VIEW.pitch) < DIG_R + 12;
 const aimDoor = () => { const a = G.aim; return a && a.hit === 'block' && BLOCKS[a.b.type].door ? a : null; };
 let hitT;
 function hitMark() { const c = $('#cross'); c.classList.add('hit'); clearTimeout(hitT); hitT = setTimeout(() => c.classList.remove('hit'), 140); }
@@ -555,7 +561,7 @@ function footsteps(dt) {
     const moved = hyp(f.x - (f.stepX ?? f.x), f.y - (f.stepY ?? f.y));
     f.stepX = f.x; f.stepY = f.y;
     if (!f.alive || f.layer !== L.layer || f.hidden || moved > 60 || moved < 0.2 || f.pitT > 0 || f.bike || f.heli) continue;
-    const grounded = f.remote ? f.z - (f.layer ? 0 : heightAt(f.x, f.y)) < 4 || !!blockAt(Math.floor(f.x / B), Math.floor((f.z - 1) / B), Math.floor(f.y / B)) : f.onGround;
+    const grounded = f.remote ? f.z - (f.layer ? 0 : heightAt(f.x, f.y)) < 4 || !!blockAt(Math.floor(f.x / B), lj(f.z - 1, f.layer), Math.floor(f.y / B)) : f.onGround;
     if (!grounded || (f.remote ? f.net.sn : f.sneak)) continue;
     const size = f.size || 1;
     if ((f.stepAcc = (f.stepAcc || 0) + moved) < 56 * size) continue;
@@ -828,8 +834,10 @@ function updateHud() {
   else if (h.alive && aimDoor()) p = `<kbd>E</kbd> or <kbd>Right click</kbd> ${aimDoor().b.open ? 'Shut' : 'Open'} the ${aimDoor().b.type === 'trapdoor' ? 'trapdoor' : 'door'}`;
   else if (world.entrances.some(e => hyp(e.x - h.x, e.y - h.y) < 46) && !G.pit) p = h.layer ? '<kbd>E</kbd> Climb out' : '<kbd>E</kbd> Go down into the tunnels';
   else { const o = gatherTarget(h); if (o) p = `Hold <kbd>E</kbd> ${{ tree: 'Chop tree for wood', rock: 'Break rock for stone', reed: 'Cut reeds', ore: 'Mine iron ore (slow)' }[o.kind]}`; }
+  if (!p && h.alive && canDig(h, G.aim)) p = `Hold <kbd>Left click</kbd> Dig through the rock`;
+  if (!p && h.alive && G.aim && G.aim.hit === 'block' && G.aim.b.type === 'rubble') p = `Hold <kbd>Left click</kbd> Dig out the rubble`;
   const held = heldId(h);
-  if (!p && held && ITEMS[held].block && !h.layer) p = `<kbd>Right click</kbd> Place · hold to keep placing · <kbd>Space</kbd> + look down to tower`;
+  if (!p && held && ITEMS[held].block) p = `<kbd>Right click</kbd> Place · hold to keep placing · <kbd>Space</kbd> + look down to tower`;
   if (!p && held === 'bucket' && !h.layer) p = `<kbd>Right click</kbd> Fill from swamp water, a lava pool, or poured water or lava`;
   if (!p && held === 'bucket_water' && !h.layer) p = `<kbd>Right click</kbd> Pour · pour it under you just before you land: no fall damage`;
   if (!p && held === 'bucket_lava' && !h.layer) p = `<kbd>Right click</kbd> Pour lava · it burns whoever’s in it`;
@@ -946,6 +954,7 @@ const TIPS = [
   { id: 'team', when: () => G.teams && G.teams.length > 0, text: 'Bots sometimes team up (matching colour squares by their names). Sooner or later one turns on the other.' },
   { id: 'bike', when: h => !!nearBike(h, 200) || !!h.bike, text: 'Motorcycles are fast and fragile. Hit a tree at full speed and it can kill you, getting off at speed hurts, and a smoking bike is about to explode. Space brakes.' },
   { id: 'heli', when: h => !!nearHeli(h, 400) || !!h.heli, text: 'Helicopters seat two: a pilot, and a gunner with a chain gun and rockets. Fuel only burns in the air, and if it runs dry up there the helicopter explodes, so land in time. Helipads (the H on your map) refuel it, and rearm it while the gunner seat is empty.' },
+  { id: 'dig', when: h => h.layer === 1 && G.t > 5, text: 'In the tunnels you can build, set traps and dig: hold left click against the rock to cut a new passage. Blast traps and the Sapper bring the roof down in a cave-in.' },
   { id: 'pitfall', when: h => count(h, 'pitfall') > 0, text: 'Pitfalls look like the ground. Place them where people walk: whoever steps on one is stuck in a hole for a couple of seconds.' },
   { id: 'near', when: () => NEAR_ELS.some(el => +el.style.opacity > 0), text: 'The red arrows around your crosshair point at people close by but out of view. Turn to face them.' },
   { id: 'map', when: () => G.t > 40, text: 'Press M for the full map, with a grid and the names of landmarks. Esc or M closes it.' },

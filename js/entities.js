@@ -22,7 +22,7 @@ const KITS = {
   trickster: { name: 'Trickster', desc: 'Throw a snowball: you swap places with whoever it hits. Pull a tower camper down to your spot and take theirs.', cd: 12, item: 'Swap Snowball' },
   jinx:      { name: 'Jinx',      desc: 'Hex the enemy in front of you: their hotbar gets shuffled with their backpack, potions and sword included.', cd: 18, item: 'Hex Charm' },
   bulwark:   { name: 'Bulwark',   desc: 'Arrows, hooks, Mage pulls, swaps, hexes and duels don’t work on you.', passive: true },
-  sapper:    { name: 'Sapper',    desc: 'Use on a block to bring down its whole column at once. Five charges. Built for toppling towers.', uses: 5, item: 'Charges' },
+  sapper:    { name: 'Sapper',    desc: 'Use on a block to bring down its whole column at once, or underground to bring the tunnel roof down ahead of you. Five charges.', uses: 5, item: 'Charges' },
   tripwire:  { name: 'Tripwire',  desc: 'Start with 4 Blast Traps (and a recipe for more): they blow apart nearby blocks and launch whoever steps on them.', passive: true, start: [['blast', 4]] },
   snare:     { name: 'Snare',     desc: 'Start with 16 Snare Turf and 2 spike traps. Turf looks like ground but vanishes under anyone but you: hide spikes under it, or build fake floors.', passive: true, start: [['turf', 16], ['spike', 2]] },
   blight:    { name: 'Blight',    desc: 'One hit in three poisons the target (damage over 4 seconds) or slows them.', passive: true },
@@ -83,7 +83,7 @@ const fighterById = id => G.fighters.find(f => f.id === id && !f.isClone);
 
 // ---- damage and death ----
 // What did the damage, for the kill feed icon: set around a hurt() call with withKind
-// (w0-w5 fists and weapons by tier, bow, fall, lava, pitfall, spike, blast, bolt, crash, bike, ram, poison, rat, stomp, gun, rocket, heli)
+// (w0-w5 fists and weapons by tier, bow, fall, lava, pitfall, spike, blast, bolt, crash, bike, ram, poison, rat, stomp, gun, rocket, heli, cavein)
 function withKind(kind, fn) { const p = G.hitKind; G.hitKind = kind; try { return fn(); } finally { G.hitKind = p; } }
 const hitKindOf = (t, src) => G.hitKind || t.diedTo || (src && src.isFighter ? 'w' + Math.min(5, weaponTier(src)) : 'skull');
 function hurt(t, amt, src, ang, kb, up = 0) {
@@ -191,7 +191,7 @@ function announceKill(t, killer, fell, assists = [], kind = 'skull') {
   if (G.bounty === t) claimBounty(t, killer);
   if (t === G.human) {
     G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : { lava: 'lava', pitfall: 'a pitfall', crash: 'a motorcycle crash', bike: 'an exploding motorcycle', fall: 'a long fall',
-      rat: 'rats', poison: 'poison', spike: 'a spike trap', blast: 'a blast trap', bolt: 'lightning', ram: 'a motorcycle', heli: 'an exploding helicopter', gun: 'a helicopter’s chain gun', rocket: 'a rocket' }[t.diedTo || kind] || 'the pit';
+      rat: 'rats', poison: 'poison', spike: 'a spike trap', blast: 'a blast trap', bolt: 'lightning', ram: 'a motorcycle', heli: 'an exploding helicopter', cavein: 'a cave-in', gun: 'a helicopter’s chain gun', rocket: 'a rocket' }[t.diedTo || kind] || 'the pit';
     replaySnapDeath();
     if (G.duo && squadAlive(t)) humanDown(); else endGame(false);
   } else if (G.duo && t.squad && t.squad === G.human.squad && G.human.isFighter) {
@@ -204,7 +204,7 @@ function announceKill(t, killer, fell, assists = [], kind = 'skull') {
 // A gravestone where someone died (the newest 60 are kept)
 function addGrave(t, killer, kind) {
   if (t.isClone || !G.graves) return;
-  const z = t.layer ? 0 : supportAt(t.x, t.y, t.z + 10, 4, 0);
+  const z = supportAt(t.x, t.y, t.z + 10, 4, t.layer);
   G.graves.push({ id: t.id, x: t.x, y: t.y, z, layer: t.layer, face: t.face || 0, name: t.name, by: killer ? killer.name : '', kind, t: G.t, reviveUntil: t.reviveUntil || 0 });
   if (G.graves.length > 60) G.graves.shift();
 }
@@ -223,6 +223,7 @@ function streakCallout(k, t, fell) {
   else if (t.diedTo === 'bike') calls.push('Wrecked');
   else if (t.lastKind === 'heli') calls.push('Shot down');
   else if (t.lastKind === 'rocket') calls.push('Rocket');
+  else if (t.lastKind === 'cavein') calls.push('Buried');
   else if (fell) calls.push('Knocked off');
   else if (t.diedTo === 'lava') calls.push('Burned');
   else if (hyp(k.x - t.x, k.y - t.y) > 750) calls.push('Long shot');
@@ -390,6 +391,16 @@ function useKit(f, ax, ay) {
       break;
     }
     case 'sapper': {
+      if (f.layer) { // underground: bring the tunnel roof down a few strides ahead
+        const c = Math.cos(f.face), sn = Math.sin(f.face);
+        let d = 90;
+        while (d > 40 && !walkUnder(f.x + c * d, f.y + sn * d, 0)) d -= 10;
+        if (!walkUnder(f.x + c * d, f.y + sn * d, 0)) { if (f === G.human) toast('Face along the tunnel to bring the roof down'); return false; }
+        caveIn(f.x + c * d, f.y + sn * d, f);
+        f.uses--;
+        if (f === G.human) toast('Tunnel collapsed');
+        break;
+      }
       const a = f === G.human ? G.aim : f.sapTarget;
       if (!a || f.layer) return false;
       if (!sapColumn(a.i, a.k)) { if (f === G.human) toast('Aim at a block to bring its column down'); return false; }
@@ -543,21 +554,22 @@ function addFx(kind, x, y, layer, o = {}) { G.fx.push({ kind, x, y, layer, t: o.
 
 // Tripwire's blast trap: blows apart blocks nearby and launches everyone close
 function detonate(i, j, k, owner) {
-  const x = (i + .5) * B, y = (k + .5) * B, z = j * B;
+  const x = (i + .5) * B, y = (k + .5) * B, z = cellZ(j), layer = cellLayer(j);
   if (blockAt(i, j, k)) breakBlock(i, j, k, null);
   for (let di = -2; di <= 2; di++) for (let dj = -1; dj <= 2; dj++) for (let dk = -2; dk <= 2; dk++) {
     const b = blockAt(i + di, j + dj, k + dk);
     if (b && !BLOCKS[b.type].unbreakable && di * di + dk * dk + dj * dj <= 6) breakBlock(i + di, j + dj, k + dk, null);
   }
   for (const t of G.fighters) {
-    if (!t.alive || t.layer !== 0 || t.isClone || hyp(t.x - x, t.y - y) > 75 || Math.abs(t.z - z) > 80) continue;
+    if (!t.alive || t.layer !== layer || t.isClone || hyp(t.x - x, t.y - y) > 75 || Math.abs(t.z - z) > 80) continue;
     if (owner && t === owner) continue;
     withKind('blast', () => hurt(t, 5, owner || null, Math.atan2(t.y - y, t.x - x), 480, 330));
   }
-  addFx('puff', x, y, 0, { col: '#e2733b', big: true, z: z + 20 }); addFx('bolt', x, y, 0, { t: 0.2 });
-  noise(x, y, 0, 900, owner);
-  NET.fx({ k: 'boom', x: Math.round(x), y: Math.round(y), z: Math.round(z) });
+  addFx('puff', x, y, layer, { col: '#e2733b', big: true, z: z + 20 }); addFx('bolt', x, y, layer, { t: 0.2 });
+  noise(x, y, layer, 900, owner);
+  NET.fx({ k: 'boom', x: Math.round(x), y: Math.round(y), z: Math.round(z), l: layer });
   Sfx.play('bolt', x, y, z);
+  if (layer) caveIn(x, y, owner, 50); // underground, the blast brings the roof down
 }
 // Landing: fall damage, hay bales, feather charms and the Faller kit
 function land(f, fall, onType) {
@@ -602,8 +614,8 @@ function fallInPit(f, tr) {
   const owner = fighterById(tr.b.owner), x = (tr.i + .5) * B, y = (tr.k + .5) * B;
   breakBlock(tr.i, tr.j, tr.k, null);
   Object.assign(f, { pitT: 2.5, gather: null, kbx: 0, kby: 0, hidden: false, x, y });
-  addFx('hole', x, y, 0, { t: 6, z: f.z + 0.6 });
-  NET.fx({ k: 'hole', x: Math.round(x), y: Math.round(y), z: Math.round(f.z) });
+  addFx('hole', x, y, f.layer, { t: 6, z: f.z + 0.6 });
+  NET.fx({ k: 'hole', x: Math.round(x), y: Math.round(y), z: Math.round(f.z), l: f.layer });
   Sfx.play('fall', x, y, f.z);
   if (f === G.human) toast('You fell into a pitfall! Stuck for a moment');
   else if (owner === G.human) toast(`${f.name} fell into your pitfall`);
@@ -709,26 +721,28 @@ function updateFighter(f, dt) {
   f.kbx *= fr; f.kby *= fr;
   let nx = f.x + (mx * sp + f.kbx) * dt, ny = f.y + (my * sp + f.kby) * dt;
 
-  if (f.layer === 1) {
-    if (walkUnder(nx, ny, f.r)) { f.x = nx; f.y = ny; }
-    else if (walkUnder(nx, f.y, f.r)) { f.x = nx; f.kby *= 0.3; }
-    else if (walkUnder(f.x, ny, f.r)) { f.y = ny; f.kbx *= 0.3; }
-    else { f.kbx = f.kby = 0; }
-    f.z = 0; f.vz = 0; f.onGround = true;
-  } else {
+  {
+    const ox = f.x, oy = f.y, L = f.layer;
+    if (L === 1) { // tunnels: the rock walls hold you in
+      if (walkUnder(nx, ny, f.r)) {}
+      else if (walkUnder(nx, f.y, f.r)) { ny = f.y; f.kby *= 0.3; }
+      else if (walkUnder(f.x, ny, f.r)) { nx = f.x; f.kbx *= 0.3; }
+      else { nx = f.x; ny = f.y; f.kbx = f.kby = 0; }
+    }
     // Sneaking keeps you from walking off an edge
     if (f.sneak && f.onGround) {
-      const ok = (x, y) => supportAt(x, y, f.z, f.r, 0) >= f.z - 6;
+      const ok = (x, y) => supportAt(x, y, f.z, f.r, L) >= f.z - 6;
       if (!ok(nx, ny)) { if (ok(nx, f.y)) ny = f.y; else if (ok(f.x, ny)) nx = f.x; else { nx = f.x; ny = f.y; } }
     }
     f.x = nx; f.y = ny;
-    if (f.z < heightAt(f.x, f.y) + 60) for (const o of nearObjs(f.x, f.y, 50)) {
+    if (!L && f.z < heightAt(f.x, f.y) + 60) for (const o of nearObjs(f.x, f.y, 50)) {
       if (o.kind === 'reed' || (o.amt <= 0 && o.kind === 'tree')) continue;
       const d = hyp(f.x - o.x, f.y - o.y), m = o.r + f.r;
       if (d < m && d > 0.01) { f.x = o.x + (f.x - o.x) / d * m; f.y = o.y + (f.y - o.y) / d * m; }
     }
     collideBlocks(f);
-    pushFromHelis(f);
+    if (L && !walkUnder(f.x, f.y, f.r)) { f.x = ox; f.y = oy; } // a block can't push you into the rock
+    if (!L) pushFromHelis(f);
     if (G.pit) {
       const d = hyp(f.x - PIT.x, f.y - PIT.y), m = PIT.r - f.r - 6;
       if (d > m) { f.x = PIT.x + (f.x - PIT.x) / d * m; f.y = PIT.y + (f.y - PIT.y) / d * m; }
@@ -749,7 +763,7 @@ function updateFighter(f, dt) {
       else if (!f.onGround) f.vz = Math.max(f.vz, -110);
     } else if (f.inLiq === 'lava' && !f.onGround) f.vz = Math.max(f.vz, -160);
     // Vertical: stand, step, fall, land
-    const sup = supportAt(f.x, f.y, f.z, f.r, 0), supType = SUP_TYPE;
+    const sup = supportAt(f.x, f.y, f.z, f.r, L), supType = SUP_TYPE;
     if (f.onGround) {
       if (f.z - sup > 6) { f.onGround = false; f.vz = 0; f.peakZ = f.z; }
       else f.z = sup;
@@ -770,21 +784,21 @@ function updateFighter(f, dt) {
       if (f.onGround && !(f.padCd > G.t)) {
         f.padCd = G.t + 0.6; jump(f, 900);
         if (trap.owner === f.id) f.noFallT = 6;
-        addFx('ring', f.x, f.y, 0, { col: '#4fb3a9', big: true, z: f.z + 2 }); Sfx.play('shoot', f.x, f.y, f.z);
+        addFx('ring', f.x, f.y, L, { col: '#4fb3a9', big: true, z: f.z + 2 }); Sfx.play('shoot', f.x, f.y, f.z);
       }
     } else if (trap && trap.owner !== f.id && f.spikeCd <= 0) {
       f.spikeCd = 0.9;
       if (trap.type === 'blast') detonate(tr.i, tr.j, tr.k, fighterById(trap.owner));
       else {
         f.slowT = 1.5;
-        addFx('ring', f.x, f.y, 0, { col: '#c63d3d', z: f.z + 2 });
+        addFx('ring', f.x, f.y, L, { col: '#c63d3d', z: f.z + 2 });
         Sfx.play('spike', f.x, f.y, f.z);
         if (f === G.human) toast('Spike trap!');
         if (pvpOn() || !trap.owner) withKind('spike', () => hurtRaw(f, 4, fighterById(trap.owner)));
       }
     }
     const turf = !f.isClone && turfUnder(f);
-    if (turf) { breakBlock(turf[0], turf[1], turf[2], null); addFx('puff', f.x, f.y, 0, { col: '#6b8a4a', z: f.z + 10 }); if (f === G.human) toast('The ground gave way: Snare Turf!'); }
+    if (turf) { breakBlock(turf[0], turf[1], turf[2], null); addFx('puff', f.x, f.y, L, { col: L ? '#4b3a2d' : '#6b8a4a', z: f.z + 10 }); if (f === G.human) toast('The ground gave way: Snare Turf!'); }
   }
   burnTick(f, dt);
   if (!f.alive) return;
@@ -875,7 +889,7 @@ function updateRats(dt) {
       else { a = Math.atan2(nest.y - r.y, nest.x - r.x) + Math.sin(G.t * 4 + r.x) * 1.4; sp = hyp(nest.x - r.x, nest.y - r.y) > 60 ? 90 : 40; }
       r.a = a;
       const nx = r.x + (Math.cos(a) * sp + r.kbx) * dt, ny = r.y + (Math.sin(a) * sp + r.kby) * dt;
-      if (walkUnder(nx, ny, 7)) { r.x = nx; r.y = ny; }
+      if (walkUnder(nx, ny, 7) && !solidAt(Math.floor(nx / B), UJ, Math.floor(ny / B))) { r.x = nx; r.y = ny; }
       continue;
     }
     let tn = world.nodes[r.node];
@@ -885,7 +899,7 @@ function updateRats(dt) {
     r.a = a;
     r.kbx *= Math.exp(-8 * dt); r.kby *= Math.exp(-8 * dt);
     const nx = r.x + (Math.cos(a) * sp + r.kbx) * dt, ny = r.y + (Math.sin(a) * sp + r.kby) * dt;
-    if (walkUnder(nx, ny, 7)) { r.x = nx; r.y = ny; } else r.node = pick(world.nodes[r.node].adj);
+    if (walkUnder(nx, ny, 7) && !solidAt(Math.floor(nx / B), UJ, Math.floor(ny / B))) { r.x = nx; r.y = ny; } else r.node = pick(world.nodes[r.node].adj);
   }
 }
 function updateProj(dt) {
@@ -895,7 +909,7 @@ function updateProj(dt) {
     if (p.kind === 'swap') p.vz -= 700 * dt;
     if (p.kind === 'rocket') { p.vz -= 80 * dt; if ((p.trailT = (p.trailT || 0) - dt) <= 0) { p.trailT = 0.05; addFx('puff', p.x, p.y, 0, { col: '#cfc9bd', z: p.z - 14, t: 0.7 }); } }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
-    if (p.layer === 1) { if (!walkUnder(p.x, p.y, 2) || p.z < 0 || p.z > 112) p.life = 0; }
+    if (p.layer === 1) { if (!walkUnder(p.x, p.y, 2) || p.z < 0 || p.z > TUN_H || solidAt(Math.floor(p.x / B), lj(p.z, 1), Math.floor(p.y / B))) p.life = 0; }
     else {
       const g = heightAt(p.x, p.y);
       if (p.z < g) p.life = 0;

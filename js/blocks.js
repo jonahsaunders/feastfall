@@ -1,6 +1,8 @@
 'use strict';
-// Placeable blocks on a 25-unit grid (surface only): towers, walls, bunkers, traps.
+// Placeable blocks on a 25-unit grid: towers, walls, bunkers, traps, on the surface and in the tunnels.
 // Cell (i, j, k): i = floor(x / B), k = floor(y / B) horizontally, j = floor(z / B) vertically.
+// Underground cells are stored UJ rows up (j = UJ + floor(z / B)), so the two layers share one map (and one set
+// of network messages) without ever sharing a cell. cellZ and cellLayer turn a row back into a height and a layer.
 const B = 25, FH = 62, STEP = 13, GRAV = 1100, JUMP_V = 285, REACH = 130, MAX_BLOCKS = 8000; // STEP: slabs and stairs are walkable, full blocks need a jump
 const BLOCKS = {
   plank:  { name: 'Planks',      solid: true,  hard: 0.5,  color: '#a2774a' },
@@ -22,7 +24,14 @@ const BLOCKS = {
   trapdoor: { name: 'Trapdoor',  solid: true,  hard: 0.4,  color: '#9a6a3a', door: true, hatch: true },
   slab:     { name: 'Slab',      solid: true,  hard: 0.8,  color: '#9a9c98', half: true },
   stairs:   { name: 'Stairs',    solid: true,  hard: 0.5,  color: '#a2774a', stairs: true },
+  // A cave-in: loose rock that fills a tunnel. Dig through it (you get stone).
+  rubble:   { name: 'Rubble',    solid: true,  hard: 0.9,  color: '#6a6e70', drop: 'stone' },
 };
+const UJ = 400, TUN_H = 112; // underground row offset; the tunnel roof
+const cellLayer = j => j >= UJ / 2 ? 1 : 0;
+const cellZ = j => (j >= UJ / 2 ? j - UJ : j) * B;          // the bottom of a cell, as a height on its own layer
+const lj = (z, layer) => Math.floor(z / B) + (layer ? UJ : 0); // the row for height z on a layer
+const floorAt = (x, y, layer) => layer ? 0 : heightAt(x, y);
 const BL = { map: new Map(), ver: 0 };
 const bkey = (i, j, k) => i + ',' + j + ',' + k;
 const blockAt = (i, j, k) => BL.map.get(bkey(i, j, k));
@@ -30,14 +39,14 @@ const blockSolid = b => !!b && BLOCKS[b.type].solid && !(BLOCKS[b.type].door && 
 function solidAt(i, j, k) { return blockSolid(BL.map.get(bkey(i, j, k))); }
 // How high a block's top is at (x, y): slabs are half height; stairs are half height at the front and full at the back
 function blockTop(b, i, j, k, x, y) {
-  const d = BLOCKS[b.type];
-  if (d.half) return j * B + B / 2;
-  if (d.hatch) return b.up ? (j + 1) * B : j * B + 4; // a thin plate at the bottom (or top) of its cell
+  const d = BLOCKS[b.type], z = cellZ(j);
+  if (d.half) return z + B / 2;
+  if (d.hatch) return b.up ? z + B : z + 4; // a thin plate at the bottom (or top) of its cell
   if (d.stairs) {
     const fx = x / B - i, fy = y / B - k, r = b.rot || 0;
-    return j * B + ((r === 0 ? fx > .5 : r === 1 ? fy > .5 : r === 2 ? fx < .5 : fy < .5) ? B : B / 2);
+    return z + ((r === 0 ? fx > .5 : r === 1 ? fy > .5 : r === 2 ? fx < .5 : fy < .5) ? B : B / 2);
   }
-  return (j + 1) * B;
+  return z + B;
 }
 // Does this cell stop someone standing at height z? (low enough slabs and stair steps can be walked onto)
 function blocksWay(i, j, k, x, y, z) { const b = blockAt(i, j, k); return blockSolid(b) && blockTop(b, i, j, k, x, y) > z + STEP; }
@@ -49,14 +58,14 @@ const fh = f => FH * (f.size || 1);
 let SUP_TYPE = null;
 function supportAt(x, y, z, r, layer) {
   SUP_TYPE = null;
-  if (layer === 1) return 0;
-  let s = heightAt(x, y);
+  let s = floorAt(x, y, layer);
+  if (layer && !BL.map.size) return s;
   const hr = r * 0.7;
   const i0 = Math.floor((x - hr) / B), i1 = Math.floor((x + hr) / B);
   const k0 = Math.floor((y - hr) / B), k1 = Math.floor((y + hr) / B);
-  const jTop = Math.floor((z + STEP) / B);
+  const jTop = lj(z + STEP, layer), jMin = layer ? UJ : -1e9;
   for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
-    for (let j = jTop; (j + 1) * B > s; j--) {
+    for (let j = jTop; j >= jMin && cellZ(j) + B > s; j--) {
       const b = blockAt(i, j, k);
       if (!blockSolid(b)) continue;
       const top = blockTop(b, i, j, k, clamp(x, i * B, (i + 1) * B - 0.01), clamp(y, k * B, (k + 1) * B - 0.01));
@@ -73,7 +82,7 @@ function collideBlocks(f) {
   if (!BL.map.size) return;
   const i0 = Math.floor((f.x - f.r) / B), i1 = Math.floor((f.x + f.r) / B);
   const k0 = Math.floor((f.y - f.r) / B), k1 = Math.floor((f.y + f.r) / B);
-  const j0 = Math.floor((f.z + STEP) / B), j1 = Math.floor((f.z + fh(f) - 1) / B);
+  const j0 = lj(f.z + STEP, f.layer), j1 = lj(f.z + fh(f) - 1, f.layer);
   for (let j = j0 - 1; j <= j1; j++) for (let i = i0; i <= i1; i++) for (let k = k0; k <= k1; k++) {
     const qx = clamp(f.x, i * B, (i + 1) * B), qy = clamp(f.y, k * B, (k + 1) * B);
     if (!blocksWay(i, j, k, qx, qy, f.z)) continue; // slabs and stair steps you can walk onto don't push you back
@@ -89,23 +98,29 @@ function collideBlocks(f) {
   }
 }
 function headBlocked(f) {
-  const j = Math.floor((f.z + fh(f)) / B), hr = f.r * 0.7;
+  const j = lj(f.z + fh(f), f.layer), hr = f.r * 0.7;
+  if (f.layer && f.z + fh(f) > TUN_H) return TUN_H - fh(f); // the tunnel roof
   for (const [ox, oy] of [[-hr, -hr], [hr, -hr], [-hr, hr], [hr, hr]])
-    if (solidAt(Math.floor((f.x + ox) / B), j, Math.floor((f.y + oy) / B))) return j * B - fh(f);
+    if (solidAt(Math.floor((f.x + ox) / B), j, Math.floor((f.y + oy) / B))) return cellZ(j) - fh(f);
   return null;
 }
 
-// March a ray from the eye; returns the first block or ground it hits within reach.
+// March a ray from the eye; returns the first block or ground it hits within reach. In the tunnels it can also hit
+// the rock wall ('wall', which you can dig) or the roof.
 // Water and lava are looked through unless `liquids` is set (buckets aim at them).
-function rayPick(ox, oy, oz, dx, dy, dz, reach, liquids = false) {
+function rayPick(ox, oy, oz, dx, dy, dz, reach, liquids = false, layer = 0) {
   let pi = null, pj = null, pk = null;
   for (let t = 0; t <= reach; t += 2) {
     const x = ox + dx * t, y = oy + dy * t, z = oz + dz * t;
-    const i = Math.floor(x / B), j = Math.floor(z / B), k = Math.floor(y / B);
+    const i = Math.floor(x / B), j = lj(z, layer), k = Math.floor(y / B);
     const b = blockAt(i, j, k);
     if (b && (liquids || !BLOCKS[b.type].liquid)) return { hit: 'block', i, j, k, b, pi, pj, pk, t, z };
-    if (z <= heightAt(x, y)) {
-      const cj = Math.floor(heightAt((i + .5) * B, (k + .5) * B) / B);
+    if (layer) {
+      if (!walkUnder(x, y, 0)) return { hit: 'wall', x, y, z, t, pi, pj, pk };
+      if (z >= TUN_H) return pi === null ? null : { hit: 'roof', i, j, k, pi, pj, pk, t, z };
+    }
+    if (z <= floorAt(x, y, layer)) {
+      const cj = layer ? UJ : Math.floor(heightAt((i + .5) * B, (k + .5) * B) / B);
       return { hit: 'ground', i, j: cj, k, pi: i, pj: cj, pk: k, t };
     }
     pi = i; pj = j; pk = k;
@@ -115,26 +130,32 @@ function rayPick(ox, oy, oz, dx, dy, dz, reach, liquids = false) {
 
 function cellBlockedByBody(i, j, k) {
   for (const f of G.fighters) {
-    if (!f.alive || f.layer !== 0) continue;
+    if (!f.alive || f.layer !== cellLayer(j)) continue;
     const qx = clamp(f.x, i * B, (i + 1) * B), qy = clamp(f.y, k * B, (k + 1) * B);
     if (hyp(f.x - qx, f.y - qy) >= f.r - 1) continue;
-    if (f.z >= (j + 1) * B - 0.5 || f.z + fh(f) <= j * B) continue;
+    if (f.z >= cellZ(j) + B - 0.5 || f.z + fh(f) <= cellZ(j)) continue;
     return true;
   }
   return false;
 }
 function canPlace(type, i, j, k) {
-  if (i < 1 || k < 1 || i >= WORLD / B - 1 || k >= WORLD / B - 1 || j > 60) return false;
+  if (i < 1 || k < 1 || i >= WORLD / B - 1 || k >= WORLD / B - 1) return false;
+  if (cellLayer(j) ? !underCellOk(i, j, k) || BLOCKS[type].liquid : j > 60) return false;
   const ex = blockAt(i, j, k); // a block can go into water or lava, replacing it
   if ((ex && !(BLOCKS[ex.type].liquid && !BLOCKS[type].liquid)) || BL.map.size >= MAX_BLOCKS) return false;
   if (BLOCKS[type].solid && cellBlockedByBody(i, j, k)) return false;
-  const below = blockAt(i, j - 1, k), g = heightAt((i + .5) * B, (k + .5) * B);
-  const grounded = solidAt(i, j - 1, k) || g >= j * B - 4 || (type === 'turf' && below && BLOCKS[below.type].trap); // turf can hide a trap
+  const below = blockAt(i, j - 1, k), g = floorAt((i + .5) * B, (k + .5) * B, cellLayer(j));
+  const grounded = solidAt(i, j - 1, k) || g >= cellZ(j) - 4 || (type === 'turf' && below && BLOCKS[below.type].trap); // turf can hide a trap
   if (BLOCKS[type].ladder) { // ladders lean on a wall, sit on the ground, or continue a ladder below
     const b = blockAt(i, j - 1, k);
     if (!grounded && !(b && b.type === 'ladder') && !ladderWall(i, j, k)) return false;
   } else if (!BLOCKS[type].solid && !grounded) return false; // traps sit on something
   return true;
+}
+// In the tunnels a block has to be inside the passage, under the roof, and clear of the shafts up to the surface
+function underCellOk(i, j, k) {
+  const x = (i + .5) * B, y = (k + .5) * B, z = cellZ(j);
+  return z >= 0 && z + B <= TUN_H && walkUnder(x, y, -6) && !world.entrances.some(e => hyp(e.x - x, e.y - y) < 45);
 }
 // Which side of a ladder cell has a wall to lean on: 0 +x, 1 -x, 2 +y, 3 -y (null if none)
 // Prefers a wall whose opposite side is open, so the ladder faces the way you climb it.
@@ -149,9 +170,9 @@ function ladderWall(i, j, k) {
 }
 // Standing in a ladder cell (anywhere from the feet to the chest)
 function ladderAt(f) {
-  if (f.layer || !BL.map.size) return false;
+  if (!BL.map.size) return false;
   const hr = f.r * 0.7;
-  for (let j = Math.floor(f.z / B); j <= Math.floor((f.z + FH * 0.5) / B); j++)
+  for (let j = lj(f.z, f.layer); j <= lj(f.z + FH * 0.5, f.layer); j++)
     for (const [ox, oy] of [[0, 0], [-hr, -hr], [hr, -hr], [-hr, hr], [hr, hr]]) {
       const b = blockAt(Math.floor((f.x + ox) / B), j, Math.floor((f.y + oy) / B));
       if (b && b.type === 'ladder') return true;
@@ -186,14 +207,14 @@ function placeBlock(f, type, i, j, k, opt = {}) {
   }
   BL.ver++;
   if (f === G.human && G.stats) G.stats.blocks++;
-  noise((i + .5) * B, (k + .5) * B, 0, 300, f);
+  noise((i + .5) * B, (k + .5) * B, cellLayer(j), 300, f);
   NET.blk(shaped(type) ? blkOp(i, j, k, b) : d.trap || d.fake ? [i, j, k, BTYPES.indexOf(type), f.id] : [i, j, k, BTYPES.indexOf(type)]);
-  Sfx.play('place', (i + .5) * B, (k + .5) * B, j * B);
+  Sfx.play('place', (i + .5) * B, (k + .5) * B, cellZ(j));
   return true;
 }
 // A trapdoor goes in the top of its cell when you aim at the underside of a block, or at the upper half of a
 // block's side (so one placed against the edge of a hole sits flush with the floor and covers it)
-const hatchUp = a => !!a && a.hit === 'block' && ((a.pi === a.i && a.pk === a.k && a.pj === a.j - 1) || (a.pj === a.j && a.z - a.j * B > B / 2));
+const hatchUp = a => !!a && a.hit === 'block' && ((a.pi === a.i && a.pk === a.k && a.pj === a.j - 1) || (a.pj === a.j && a.z - cellZ(a.j) > B / 2));
 // Open or shut a door or trapdoor (both halves of a door swing together)
 function doorCells(i, j, k) {
   const b = blockAt(i, j, k);
@@ -214,8 +235,8 @@ function toggleDoor(i, j, k, f, open) {
   }
   BL.ver++;
   const [a, c, e] = cells[0];
-  Sfx.play(now ? 'door_open' : 'door_shut', (a + .5) * B, (e + .5) * B, c * B);
-  if (f) noise((a + .5) * B, (e + .5) * B, 0, 260, f);
+  Sfx.play(now ? 'door_open' : 'door_shut', (a + .5) * B, (e + .5) * B, cellZ(c));
+  if (f) noise((a + .5) * B, (e + .5) * B, cellLayer(c), 260, f);
   return true;
 }
 // Block changes made on another player's machine
@@ -231,7 +252,7 @@ function applyBlockOps(ops) {
     } else if (shaped(type)) {
       const ex = blockAt(i, j, k), fl = unpackFlags(lvl || 0);
       if (ex && ex.type === type && BLOCKS[type].door && ex.open !== fl.open)
-        Sfx.play(fl.open ? 'door_open' : 'door_shut', (i + .5) * B, (k + .5) * B, j * B);
+        Sfx.play(fl.open ? 'door_open' : 'door_shut', (i + .5) * B, (k + .5) * B, cellZ(j));
       BL.map.set(bkey(i, j, k), { type, owner: owner || null, ...fl });
     } else BL.map.set(bkey(i, j, k), { type, owner: owner || null });
     if (type === 'arena') arenaSeen.set(bkey(i, j, k), G.t);
@@ -249,33 +270,34 @@ function breakBlock(i, j, k, f) {
   BL.map.delete(key); BL.ver++;
   NET.blk([i, j, k, -1]);
   if (f === G.human && G.stats) G.stats.broken++;
-  if (f) noise((i + .5) * B, (k + .5) * B, 0, 300, f);
-  if (f) { const l = give(f, b.type, 1); if (l) dropStacks(f, [{ id: b.type, n: 1 }]); }
-  addFx('chip', (i + .5) * B, (k + .5) * B, 0, { col: BLOCKS[b.type].color, z: j * B + 12 });
-  Sfx.play('break', (i + .5) * B, (k + .5) * B, j * B);
+  if (f) noise((i + .5) * B, (k + .5) * B, cellLayer(j), 300, f);
+  const item = BLOCKS[b.type].drop || b.type;
+  if (f) { const l = give(f, item, 1); if (l) dropStacks(f, [{ id: item, n: 1 }]); }
+  addFx('chip', (i + .5) * B, (k + .5) * B, cellLayer(j), { col: BLOCKS[b.type].color, z: cellZ(j) + 12 });
+  Sfx.play('break', (i + .5) * B, (k + .5) * B, cellZ(j));
 }
-// Lightning and similar: wipe every block in a vertical cylinder.
+// Lightning and similar: wipe every block in a vertical cylinder (on the surface: the tunnels below are safe)
 function strikeBlocks(x, y, rad) {
   let n = 0;
   for (const [key, b] of BL.map) {
     const [i, j, k] = key.split(',').map(Number);
-    if (BLOCKS[b.type].unbreakable) continue;
+    if (BLOCKS[b.type].unbreakable || cellLayer(j)) continue;
     if (hyp((i + .5) * B - x, (k + .5) * B - y) < rad) { BL.map.delete(key); NET.blk([i, j, k, -1]); n++; if (n % 3 === 0) addFx('chip', (i + .5) * B, (k + .5) * B, 0, { col: BLOCKS[b.type].color, z: j * B }); }
   }
   if (n) BL.ver++;
   return n;
 }
 function trapAt(f) {
-  if (f.layer || !BL.map.size) return null;
-  const i = Math.floor(f.x / B), k = Math.floor(f.y / B), j = Math.floor((f.z + 1) / B);
+  if (!BL.map.size) return null;
+  const i = Math.floor(f.x / B), k = Math.floor(f.y / B), j = lj(f.z + 1, f.layer);
   const b = blockAt(i, j, k);
   return b && BLOCKS[b.type].trap ? { b, i, j, k } : null;
 }
 // Snare Turf under or around someone other than its owner: returns the cell, which then gives way
 function turfUnder(f) {
-  if (f.layer || !BL.map.size) return null;
+  if (!BL.map.size) return null;
   const hr = f.r * 0.7;
-  for (let j = Math.floor((f.z - 2) / B); j <= Math.floor((f.z + 30) / B); j++)
+  for (let j = lj(f.z - 2, f.layer); j <= lj(f.z + 30, f.layer); j++)
     for (const [ox, oy] of [[0, 0], [-hr, -hr], [hr, -hr], [-hr, hr], [hr, hr]]) {
       const i = Math.floor((f.x + ox) / B), k = Math.floor((f.y + oy) / B), b = blockAt(i, j, k);
       if (b && b.type === 'turf' && b.owner !== f.id) return [i, j, k];
@@ -287,7 +309,7 @@ function sapColumn(i, k) {
   let n = 0;
   for (const key of [...BL.map.keys()]) {
     const [bi, bj, bk] = key.split(',').map(Number);
-    if (bi !== i || bk !== k || BLOCKS[BL.map.get(key).type].unbreakable) continue;
+    if (bi !== i || bk !== k || cellLayer(bj) || BLOCKS[BL.map.get(key).type].unbreakable) continue;
     breakBlock(bi, bj, bk, null); n++;
   }
   return n;

@@ -43,7 +43,7 @@ function noteHighlight(t, k, fell, kind) {
   const why = [];
   if (k.multi >= 2) { score += 15 * (k.multi - 1); why.push(MULTI[Math.min(5, k.multi)]); }
   if (k.streak >= 3) { score += 4 * Math.min(k.streak, 10); why.push(`${k.streak} in a row`); }
-  const special = { pitfall: 'Pitfall', ram: 'Road kill', bike: 'Wrecked', stomp: 'Titan stomp', bolt: 'Lightning', lava: 'Burned', blast: 'Blast trap', heli: 'Shot down', rocket: 'Rocket' }[kind];
+  const special = { pitfall: 'Pitfall', ram: 'Road kill', bike: 'Wrecked', stomp: 'Titan stomp', bolt: 'Lightning', lava: 'Burned', blast: 'Blast trap', heli: 'Shot down', rocket: 'Rocket', cavein: 'Buried' }[kind];
   if (special) { score += 12; why.push(special); } else if (fell) { score += 12; why.push('Knocked off'); }
   const d = hyp(k.x - t.x, k.y - t.y);
   if (d > 750) { score += 15; why.push('Long shot'); }

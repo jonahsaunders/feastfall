@@ -109,9 +109,44 @@ function makePad(p) {
   return m;
 }
 
+// ---- the tunnel walls, which digging reshapes ----
+const WALL = { mesh: null, floor: null, list: [], grid: new Map() };
+const FLOOR_DISC = new T.CircleGeometry(1, 16).rotateX(-Math.PI / 2);
+const wallKey = (x, y) => Math.floor(x / 60) + ',' + Math.floor(y / 60);
+function addWallBoulder(x, y, rand = (a, b) => a + Math.random() * (b - a)) {
+  if (WALL.mesh.count >= WALL.mesh.instanceMatrix.count) return;
+  const r = rand(18, 28), b = { x, y, i: WALL.mesh.count++, on: true, s: { x, y: rand(10, 40), z: y, sx: r, sy: r * rand(2.2, 3.2), sz: r, ry: rand(0, 6) } };
+  setInst(WALL.mesh, b.i, b.s);
+  WALL.mesh.setColorAt(b.i, hsl(24, rand(8, 16), rand(16, 24)));
+  WALL.list.push(b);
+  const k = wallKey(x, y);
+  if (!WALL.grid.has(k)) WALL.grid.set(k, []);
+  WALL.grid.get(k).push(b);
+}
+// A new dig: floor under it, the boulders it opened up gone, and new ones around its edge where it meets rock
+function tunnelDug(d) {
+  if (!WALL.mesh || builtWorld !== world) return; // not drawn yet: build3D picks it up
+  setInst(WALL.floor, WALL.floor.count++, { x: d.x, y: 0.08, z: d.y, sx: d.r, sy: 1, sz: d.r });
+  WALL.floor.instanceMatrix.needsUpdate = true;
+  const near = (x, y, r) => {
+    const out = [];
+    for (let a = Math.floor((x - r) / 60); a <= Math.floor((x + r) / 60); a++) for (let c = Math.floor((y - r) / 60); c <= Math.floor((y + r) / 60); c++) for (const b of WALL.grid.get(a + ',' + c) || []) out.push(b);
+    return out;
+  };
+  for (const b of near(d.x, d.y, d.r + 40)) if (b.on && walkUnder(b.x, b.y, -6)) { b.on = false; setInst(WALL.mesh, b.i, b.s, 0); }
+  const ring = d.r + 20, step = 26 / ring;
+  for (let a = Math.random() * step; a < Math.PI * 2; a += step) {
+    const off = d.r + 16 + Math.random() * 10, x = d.x + Math.cos(a) * off, y = d.y + Math.sin(a) * off;
+    if (walkUnder(x, y, -6) || near(x, y, 16).some(b => b.on && hyp(b.x - x, b.y - y) < 16)) continue;
+    addWallBoulder(x, y);
+  }
+  WALL.mesh.instanceMatrix.needsUpdate = true;
+  if (WALL.mesh.instanceColor) WALL.mesh.instanceColor.needsUpdate = true;
+}
+
 function disposeGroup(g) {
   g.traverse(o => {
-    if (o.geometry && !SHARED.has(o.geometry)) o.geometry.dispose();
+    if (o.geometry && !SHARED.has(o.geometry) && o.geometry !== FLOOR_DISC) o.geometry.dispose();
     if (o.material && o.material !== WHITE && o.material !== LAVA_MAT) (Array.isArray(o.material) ? o.material : [o.material]).forEach(m => m.dispose());
   });
 }
@@ -268,16 +303,23 @@ function build3D() {
   }
   const uspec = {};
   const uadd = (key, o, s, c, role) => (uspec[key] = uspec[key] || []).push({ o, s, c, role });
+  // Rock walls: boulders along every passage, in one mesh that digging changes (tunnelDug)
+  const walls = [];
   for (const s of world.segs) {
     const L = hyp(s.bx - s.ax, s.by - s.ay), nx = -(s.by - s.ay) / L, ny = (s.bx - s.ax) / L;
     for (let d = 0; d < L; d += 30) for (const side of [-1, 1]) {
       const t = d / L, off = TUN_R + 16 + rr(0, 10);
       const x = s.ax + (s.bx - s.ax) * t + nx * off * side, y = s.ay + (s.by - s.ay) * t + ny * off * side;
-      if (walkUnder(x, y, -6)) continue;
-      const r = rr(18, 28);
-      uadd('boulder', null, { x, y: rr(10, 40), z: y, sx: r, sy: r * rr(2.2, 3.2), sz: r, ry: rr(0, 6) }, hsl(24, rr(8, 16), rr(16, 24)));
+      if (!walkUnder(x, y, -6)) walls.push([x, y]);
     }
   }
+  WALL.mesh = new T.InstancedMesh(GEO.boulder, WHITE, walls.length + 16000);
+  WALL.floor = new T.InstancedMesh(FLOOR_DISC, lam('#4b3a2d'), MAX_DIGS);
+  WALL.list = []; WALL.grid = new Map(); WALL.floor.count = 0; WALL.mesh.count = 0;
+  for (const [x, y] of walls) addWallBoulder(x, y, rr);
+  for (const m of [WALL.mesh, WALL.floor]) { m.frustumCulled = false; underGroup.add(m); }
+  WALL.floor.receiveShadow = true;
+  for (const d of world.digs || []) tunnelDug(d); // passages dug before this world was drawn (a spectator catching up)
   for (const o of world.ores) {
     const ry = rr(0, 6);
     uadd('rock', o, { x: o.x, y: 10, z: o.y, sx: 16, sy: 14, sz: 16, ry }, hsl(25, 8, 30), -1);

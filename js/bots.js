@@ -386,23 +386,21 @@ function steer(b, x, y, layer, dt) {
   }
   if (b.detourT > 0) { b.detourT -= dt; a += b.side * 1.3; }
   b.mx = Math.cos(a); b.my = Math.sin(a);
-  // Doors: open a shut one that's in the way
-  if (b.layer === 0 && BL.map.size && !(b.doorCd > G.t)) {
-    const i = Math.floor((b.x + b.mx * (b.r + 12)) / B), j = Math.floor((b.z + 10) / B), k = Math.floor((b.y + b.my * (b.r + 12)) / B), d = blockAt(i, j, k);
+  // Doors: open a shut one that's in the way (on either layer)
+  if (BL.map.size && !(b.doorCd > G.t)) {
+    const i = Math.floor((b.x + b.mx * (b.r + 12)) / B), j = lj(b.z + 10, b.layer), k = Math.floor((b.y + b.my * (b.r + 12)) / B), d = blockAt(i, j, k);
     if (d && BLOCKS[d.type].door && !BLOCKS[d.type].hatch && !d.open) { b.doorCd = G.t + 0.6; toggleDoor(i, j, k, b, true); }
   }
   // Unstick: hop, break a block in the way, or walk sideways for a moment
   const moved = hyp(b.x - (b.lx ?? b.x), b.y - (b.ly ?? b.y));
   b.lx = b.x; b.ly = b.y;
   b.stuck = moved < 40 * dt ? (b.stuck || 0) + dt : 0;
-  if (b.stuck > 0.3 && b.layer === 0) jump(b);
-  if (b.stuck > 0.7) {
-    if (b.layer === 0) {
-      const fx = b.x + Math.cos(a) * (b.r + 8), fy = b.y + Math.sin(a) * (b.r + 8);
-      for (const dz of [10, 40]) {
-        const i = Math.floor(fx / B), j = Math.floor((b.z + dz) / B), k = Math.floor(fy / B);
-        if (solidAt(i, j, k) && !BLOCKS[blockAt(i, j, k).type].unbreakable) { b.face = a; b.swingT = 0.14; breakBlock(i, j, k, null); }
-      }
+  if (b.stuck > 0.3) jump(b);
+  if (b.stuck > 0.7) { // a wall, a barricade or a cave-in in the way: break through
+    const fx = b.x + Math.cos(a) * (b.r + 8), fy = b.y + Math.sin(a) * (b.r + 8);
+    for (const dz of [10, 40]) {
+      const i = Math.floor(fx / B), j = lj(b.z + dz, b.layer), k = Math.floor(fy / B);
+      if (solidAt(i, j, k) && !BLOCKS[blockAt(i, j, k).type].unbreakable) { b.face = a; b.swingT = 0.14; breakBlock(i, j, k, null); }
     }
     b.detourT = 0.8; b.side = rng() < 0.5 ? -1 : 1; b.stuck = 0; b.path = null;
   }

@@ -89,7 +89,7 @@ A 60-minute match runs from dawn to night. How long that takes in real time is u
 </table>
 
 - **Bounties.** Once someone has 3 or more kills and leads the match, everyone's map shows where they are every 30 seconds, and killing them pays 50 coins plus 25 per kill they had.
-- **Kill streaks.** Double and triple kills, killing sprees and special kills (Knocked off, Burned, Long shot, Pitfall, Road kill, Shot down, Rocket) are called out. Your own earn bonus coins.
+- **Kill streaks.** Double and triple kills, killing sprees and special kills (Knocked off, Burned, Long shot, Pitfall, Road kill, Shot down, Rocket, Buried) are called out. Your own earn bonus coins.
 - **Assists.** Anyone who did 2 or more damage in the last 15 seconds gets an assist in the kill feed, and 20 coins if it's you.
 - **See who's around.** Red markers float over anyone within about 50 blocks. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and disguises still hide you.
 - **Motorcycles** are parked around the map (orange on the minimap when you're close). Swamp, sand and snow slow them down, spike traps shred the tyres, launch pads send them flying and pitfalls wreck them. Bots ride them too.
@@ -122,6 +122,7 @@ A 60-minute match runs from dawn to night. How long that takes in real time is u
 
 - **Ladders.** Lean them against a wall and climb. No fall damage while you're on one.
 - **Spike traps** anyone can make; Tripwire, Snare and Updraft get blast traps, fake ground and launch pads.
+- **The tunnels are yours to change.** Build, put up doors and set traps underground just like on the surface: wall off a passage, hide a pitfall in a dark corner, or fort up in a dead end. Hold left click against the rock to dig a new passage a stride at a time (you get stone as you go), to cut a shortcut, flank someone or tunnel into a cave. A blast trap going off underground, or the Sapper's charge, brings the roof down in a **cave-in**: rubble seals the tunnel and hurts anyone under it. Dig or break your way back through. Dug passages show on your map.
 
 ### Play together
 
@@ -168,7 +169,7 @@ Bots fill out every match and play by the same rules you do. Choose Easy, Normal
 <tr>
 <td width="50%" valign="top">
 <img src="docs/screenshots/graves.jpg" alt="Gravestones with names, and a kill feed with weapon icons">
-<p><b>Kill feed icons and gravestones.</b> The feed shows how each person died: the weapon, a bow, a fall, fire, a pitfall, a trap, lightning, a motorcycle, a chain gun, a rocket, a helicopter and more. A gravestone marks where they fell, with who got them.</p>
+<p><b>Kill feed icons and gravestones.</b> The feed shows how each person died: the weapon, a bow, a fall, fire, a pitfall, a trap, lightning, a motorcycle, a chain gun, a rocket, a helicopter, a cave-in and more. A gravestone marks where they fell, with who got them.</p>
 </td>
 <td width="50%" valign="top">
 <img src="docs/screenshots/spectate.jpg" alt="Third-person spectator camera following a bot through the forest">
@@ -294,6 +295,7 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 | Tab | Inventory and crafting |
 | Q · F · R | Kit ability · drink · refill the hotbar with potions from your backpack |
 | E | Open or shut a door or trapdoor, get on or off a motorcycle, get in or out of a helicopter, enter or leave a tunnel; hold to chop, mine or cut reeds, or to revive your partner in duos |
+| Left click in the tunnels | Hold against the rock wall to dig forward, or on rubble to clear it |
 | M | Full-screen map (M or Esc closes it) |
 | On a motorcycle | W · S throttle and brake/reverse, A · D steer, Space hard brake, mouse looks around, E gets off |
 | Flying a helicopter | W · S forward and back, A · D strafe, mouse turns, Space up, Shift down, X to the gunner seat (if it's free), E gets out (in the air, you drop) |
@@ -332,17 +334,18 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | `index.html` | Page, HUD, menus and styles |
 | `config.js` | Where online play connects |
 | `js/world.js` | Seeded map: map types, biomes, trees, rocks, reeds, tunnels, caves, lava pools, supply drop sites, helipads |
-| `js/blocks.js` | Placeable blocks, doors, slabs and stairs, collision, fall support, raycasting, poured water and lava |
+| `js/blocks.js` | Placeable blocks (on the surface and in the tunnels), doors, slabs and stairs, rubble, collision, fall support, raycasting, poured water and lava |
 | `js/items.js` | Item registry, drawn icons, inventory, armour, recipes |
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
 | `js/bikes.js` | Motorcycles: riding, jumps, crashes, running people over, explosions |
+| `js/tunnels.js` | Digging new passages and cave-ins |
 | `js/helis.js` | Attack helicopters: seats, flying, fuel, the chain gun and rockets, damage and explosions, bot gunners |
 | `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced), personalities, difficulty, tactics and alliances |
 | `js/botmind.js` | What bots notice (line of sight, noises, memory) and how they get around (pathfinding) |
 | `js/social.js` | Bot chat, rivals, emotes, quick chat and map pings |
 | `js/squads.js` | Duos: squads, partners, revives |
 | `js/net.js` | Online play: lobby, private matches, spectating, rematches, state sync, host migration |
-| `js/scene3d.js` | Renderer, lights, terrain mesh, instanced scenery, tunnels |
+| `js/scene3d.js` | Renderer, lights, terrain mesh, instanced scenery, helipads, tunnels and the rock walls digging reshapes |
 | `js/view3d.js` | Per-frame 3D: players, markers, items, gravestones, effects, supply drops, first-person held item, minimap and full-screen map |
 | `js/replay.js` | Records the last few seconds, for the death replay and the play of the match |
 | `js/audio.js` | Generated ambient and combat music, the announcer, positional stereo sound effects and footsteps |
@@ -363,6 +366,8 @@ Because the clients are trusted, a modified client could cheat. That's fine for 
 - Rivals only come back in solo matches.
 - The announcer uses your system's speech voice, so it sounds different on each computer.
 - Rats in the tunnels are separate for each player (their hide drops are real).
+- Bots find their way along the original tunnels, not the ones people dig (they break through barricades and rubble in their way).
+- Water and lava can't be poured underground.
 - Bots don't fly helicopters. In duos they ride along as your gunner.
 - On a bad connection a block edit or hit can occasionally be lost.
 - 99 bots needs a fast computer. Turn shadows off in Options if it runs slowly.

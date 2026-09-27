@@ -111,7 +111,7 @@ function psd(px, py, s) {
 }
 function walkUnder(x, y, r) {
   for (const s of world.segs) if (psd(x, y, s) < TUN_R - r) return true;
-  return false;
+  return digAt(x, y, r); // passages people have dug (tunnels.js)
 }
 function nearestNode(x, y) {
   let best = 0, bd = 1e12;
