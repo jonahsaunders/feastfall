@@ -80,7 +80,7 @@ const WHEEL = [...EMOTES.map((e, i) => ({ kind: 'emote', i, label: e.name })), .
 const HEAR = 1100; // quick chat carries about 44 blocks
 function startEmote(f, i) {
   const e = EMOTES[i];
-  if (!e || !f.alive || f.bike) return false;
+  if (!e || !f.alive || f.bike || f.heli) return false;
   f.emote = i; f.emoteT = e.t; f.gather = null;
   f.sayText = e.say; f.sayT = e.t;
   return true;
@@ -155,7 +155,7 @@ function updateSocial(dt) {
     if (f.sayT > 0) f.sayT -= dt;
     if (f.emoteT > 0 && !f.remote) {
       f.emoteT -= dt;
-      if (hyp(f.mx, f.my) > 0.1 || f.swingT > 0 || f.hurtT > 0.15 || f.bike || !f.alive) stopEmote(f); // moving or fighting cancels it
+      if (hyp(f.mx, f.my) > 0.1 || f.swingT > 0 || f.hurtT > 0.15 || f.bike || f.heli || !f.alive) stopEmote(f); // moving or fighting cancels it
     }
   }
   for (const p of G.qpings) p.t -= dt;

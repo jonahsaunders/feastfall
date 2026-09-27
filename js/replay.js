@@ -1,14 +1,15 @@
 'use strict';
 // Replays: the death replay (the last few seconds before you died, filmed over your killer's shoulder) and the
 // play of the match (the best kill anyone made, filmed over the shoulder of whoever made it).
-// Every fighter, motorcycle and projectile is recorded 20 times a second, and the last 8 seconds are kept.
+// Every fighter, motorcycle, helicopter and projectile is recorded 20 times a second, and the last 8 seconds are kept.
 // When you die, or a kill scores higher than the current play of the match, that stretch is kept as a clip.
 // Playback swaps the recorded values into the live objects just for the render, then puts them back,
 // so an online match keeps running underneath.
 const REPLAY = { buf: [], acc: 0, t: 0, t0: 0, t1: 0, hold: 0, clip: null, view: null, cam: null, saved: null, proxies: new Map(), onDone: null, death: null, best: null, pending: null };
 const RP_KEEP = 8, RP_HZ = 20, RP_LEN = 5;
-const RP_F = ['x', 'y', 'z', 'face', 'hp', 'swingT', 'hurtT', 'mx', 'my', 'sneak', 'hidden', 'disguise', 'size', 'layer', 'invuln', 'punchT', 'charge', 'burnT', 'burnNet', 'gather', 'bike', 'pitT', 'pitNet'];
+const RP_F = ['x', 'y', 'z', 'face', 'hp', 'swingT', 'hurtT', 'mx', 'my', 'sneak', 'hidden', 'disguise', 'size', 'layer', 'invuln', 'punchT', 'charge', 'burnT', 'burnNet', 'gather', 'bike', 'pitT', 'pitNet', 'heli', 'seat'];
 const RP_K = ['x', 'y', 'z', 'face', 'speed', 'steer', 'air', 'vz', 'wheel', 'gone']; // motorcycles
+const RP_H = ['x', 'y', 'z', 'face', 'tilt', 'roll', 'rotor', 'blade', 'tail', 'gone', 'pilot', 'gunner']; // helicopters
 
 function replayReset() { Object.assign(REPLAY, { buf: [], acc: 0, death: null, best: null, pending: null, clip: null }); REPLAY.proxies.clear(); }
 
@@ -20,7 +21,8 @@ function replayRecord(dt) {
   const fs = [];
   for (const f of G.fighters) if (f.alive) fs.push([f, RP_F.map(k => f[k])]);
   const ks = (G.bikes || []).filter(k => !k.gone).map(k => [k, RP_K.map(n => k[n])]);
-  REPLAY.buf.push({ t: G.t, fs, ks, ps: G.proj.map(p => [p, p.x, p.y, p.z, p.vx, p.vy, p.vz]) });
+  const hs = (G.helis || []).filter(h => !h.gone).map(h => [h, RP_H.map(n => h[n])]);
+  REPLAY.buf.push({ t: G.t, fs, ks, hs, ps: G.proj.map(p => [p, p.x, p.y, p.z, p.vx, p.vy, p.vz]) });
   while (REPLAY.buf.length && REPLAY.buf[0].t < G.t - RP_KEEP) REPLAY.buf.shift();
   // A highlight is kept a moment after the kill, so the clip shows what happened next
   const P = REPLAY.pending;
@@ -41,7 +43,7 @@ function noteHighlight(t, k, fell, kind) {
   const why = [];
   if (k.multi >= 2) { score += 15 * (k.multi - 1); why.push(MULTI[Math.min(5, k.multi)]); }
   if (k.streak >= 3) { score += 4 * Math.min(k.streak, 10); why.push(`${k.streak} in a row`); }
-  const special = { pitfall: 'Pitfall', ram: 'Road kill', bike: 'Wrecked', stomp: 'Titan stomp', bolt: 'Lightning', lava: 'Burned', blast: 'Blast trap' }[kind];
+  const special = { pitfall: 'Pitfall', ram: 'Road kill', bike: 'Wrecked', stomp: 'Titan stomp', bolt: 'Lightning', lava: 'Burned', blast: 'Blast trap', heli: 'Shot down', rocket: 'Rocket' }[kind];
   if (special) { score += 12; why.push(special); } else if (fell) { score += 12; why.push('Knocked off'); }
   const d = hyp(k.x - t.x, k.y - t.y);
   if (d > 750) { score += 15; why.push('Long shot'); }
@@ -96,11 +98,16 @@ function replayApply(dt) {
   while (i < b.length - 2 && b[i + 1].t <= R.t) i++;
   const A = b[i], Bf = b[Math.min(i + 1, b.length - 1)], k = Bf.t > A.t ? clamp((R.t - A.t) / (Bf.t - A.t), 0, 1) : 0;
   const next = new Map(Bf.fs), shown = new Set();
-  R.saved = { fighters: G.fighters.map(f => [f, RP_F.map(n => f[n]), f.alive]), bikes: (G.bikes || []).map(k => [k, RP_K.map(n => k[n])]), proj: G.proj, fx: G.fx };
+  R.saved = { fighters: G.fighters.map(f => [f, RP_F.map(n => f[n]), f.alive]), bikes: (G.bikes || []).map(k => [k, RP_K.map(n => k[n])]), helis: (G.helis || []).map(h => [h, RP_H.map(n => h[n])]), proj: G.proj, fx: G.fx };
   const nk = new Map(Bf.ks || []);
   for (const [bk, va] of A.ks || []) {
     const vb = nk.get(bk) || va;
     RP_K.forEach((n, q) => { let v = va[q]; if (typeof v === 'number' && typeof vb[q] === 'number') v = n === 'face' ? v + angDiff(v, vb[q]) * k : v + (vb[q] - v) * k; bk[n] = v; });
+  }
+  const nh = new Map(Bf.hs || []);
+  for (const [hh, va] of A.hs || []) {
+    const vb = nh.get(hh) || va;
+    RP_H.forEach((n, q) => { let v = va[q]; if (typeof v === 'number' && typeof vb[q] === 'number') v = n === 'face' ? v + angDiff(v, vb[q]) * k : v + (vb[q] - v) * k; hh[n] = v; });
   }
   for (const [f, va] of A.fs) {
     const vb = next.get(f) || va;
@@ -147,6 +154,7 @@ function replayRestore() {
   if (!s) return;
   for (const [f, vals, alive] of s.fighters) { RP_F.forEach((n, q) => { f[n] = vals[q]; }); f.alive = alive; }
   for (const [k, vals] of s.bikes) RP_K.forEach((n, q) => { k[n] = vals[q]; });
+  for (const [h, vals] of s.helis) RP_H.forEach((n, q) => { h[n] = vals[q]; });
   G.proj = s.proj; G.fx = s.fx; REPLAY.saved = null;
 }
 const replayReady = () => !!(REPLAY.death && REPLAY.death.frames.length >= 20);

@@ -89,6 +89,9 @@ function squadPlan(b) {
     return false;
   }
   if (!p.alive || p.layer !== b.layer) return false;
+  // The partner's in a helicopter on the ground with the gunner seat free: go and get in
+  const hl = p.heli;
+  if (hl && p.seat === 'pilot' && !hl.gunner && !hl.air && !b.layer && hyp(hl.x - b.x, hl.y - b.y) < 900) { if (!b.plan || b.plan.type !== 'heli') b.plan = { type: 'heli', h: hl }; return true; }
   const foe = p.plan && p.plan.type === 'fight' && p.plan.target ? p.plan.target : G.t - p.lastHitT < 5 ? p.lastHitBy : null;
   if (foe && foe.alive && !allied(foe, b) && pvpOn() && hyp(p.x - b.x, p.y - b.y) < 600) { b.plan = { type: 'fight', target: foe }; return true; }
   if (hyp(p.x - b.x, p.y - b.y) > 300 && !G.pit) { b.plan = { type: 'go', x: p.x + rr(-70, 70), y: p.y + rr(-70, 70), layer: p.layer }; return true; }

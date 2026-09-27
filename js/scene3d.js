@@ -87,6 +87,28 @@ function syncObjParts(o) {
   o._amt = o.amt;
 }
 
+// Helipad: a square of concrete draped over the ground, yellow border, white H in a circle
+let PAD_TEX = null;
+function padTexture() {
+  if (PAD_TEX) return PAD_TEX;
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#8d8f88'; g.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 700; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(0,0,0,.06)' : 'rgba(255,255,255,.06)'; g.fillRect(Math.random() * 256, Math.random() * 256, 4, 4); }
+  g.strokeStyle = '#e6c94a'; g.lineWidth = 10; g.strokeRect(9, 9, 238, 238);
+  g.strokeStyle = '#f2ead6'; g.lineWidth = 11; g.beginPath(); g.arc(128, 128, 90, 0, Math.PI * 2); g.stroke();
+  g.fillStyle = '#f2ead6'; g.fillRect(86, 72, 22, 112); g.fillRect(148, 72, 22, 112); g.fillRect(86, 117, 84, 22);
+  return (PAD_TEX = new T.CanvasTexture(c));
+}
+function makePad(p) {
+  const S = 150, geo = new T.PlaneGeometry(S, S, 8, 8).rotateX(-Math.PI / 2), pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) { const x = p.x + pos.getX(i), y = p.y + pos.getZ(i); pos.setXYZ(i, x, heightAt(x, y) + 2, y); }
+  geo.computeVertexNormals();
+  const m = new T.Mesh(geo, lam(0xffffff, { map: padTexture(), polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+  m.receiveShadow = true;
+  return m;
+}
+
 function disposeGroup(g) {
   g.traverse(o => {
     if (o.geometry && !SHARED.has(o.geometry)) o.geometry.dispose();
@@ -160,6 +182,9 @@ function build3D() {
       r.castShadow = true; surfaceGroup.add(r);
     }
   }
+
+  // helipads: a concrete square laid over the ground, with a painted H in a circle
+  for (const p of world.helis || []) surfaceGroup.add(makePad(p));
 
   // --- trees, cacti, rocks ---
   const specs = {};

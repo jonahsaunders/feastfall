@@ -92,7 +92,7 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
     for (const c of world.caves) addItem({ kind: 'chest', x: c.x, y: c.y, z: 0, layer: 1, stacks: caveLoot() });
     for (const m of world.landmarks) addItem({ kind: 'relic', x: m.x, y: m.y, z: m.chestZ, layer: m.layer, stacks: [{ id: LANDMARKS[m.id].item, n: 1 }, { id: 'pot', n: 2 }] });
   }
-  spawnBikes();
+  spawnBikes(); spawnHelis();
   for (const o of world.objs) o.a0 = o.amt; // so a spectator joining late can be told what's been used up
   for (const o of world.ores) o.a0 = o.amt;
   NET.blkLog = new Map();
@@ -223,6 +223,7 @@ function phases() {
     alive.forEach((f, i) => {
       if (f.remote) return;
       if (f.bike) dismountBike(f, true);
+      if (f.heli) leaveHeli(f, true);
       const a = i / alive.length * 6.28, x = PIT.x + Math.cos(a) * 250, y = PIT.y + Math.sin(a) * 250;
       Object.assign(f, { layer: 0, x, y, z: heightAt(x, y), vz: 0, onGround: true, gather: null, plan: null, path: null, hidden: false });
     });
@@ -287,6 +288,11 @@ document.addEventListener('mousemove', e => {
   if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
   const k = SENS * G.settings.sens;
   if (G.human.bike) { VIEW.lookYaw = clamp((VIEW.lookYaw || 0) + e.movementX * k, -2.6, 2.6); VIEW.lookT = performance.now(); } // riding: the mouse swings the camera
+  else if (G.human.heli && G.human.seat === 'gunner') { // the gunner turns the chin gun, which only swings so far either side of the nose
+    G.human.aimYaw = clamp((G.human.aimYaw || 0) + e.movementX * k, -TURRET, TURRET);
+    VIEW.pitch = clamp(VIEW.pitch - e.movementY * k, -1.35, 0.3);
+    return;
+  }
   else G.human.face += e.movementX * k;
   VIEW.pitch = clamp(VIEW.pitch - e.movementY * k, -1.45, 1.3);
 });
@@ -326,20 +332,22 @@ addEventListener('keydown', e => {
   if (keys.has(k)) return;
   keys.add(k);
   if (k >= '1' && k <= '9') selectSlot(+k - 1);
-  else if (k === ' ' && h.alive && !h.bike) jump(h);
+  else if (k === ' ' && h.alive && !h.bike && !h.heli) jump(h);
   else if (k === 'escape') pause();
   else if (k === 'tab' || k === 'i') toggleInv();
   else if (k === 'q' && h.alive) { const a = aimWorld(); if (!useKit(h, a.x, a.y)) kitFail(h); }
   else if (k === 'r' && canRefill(h) && h.refillT <= 0) h.refillT = 0.22;
   else if (k === 'f') drink(h);
-  else if (k === 'g' && h.alive) dropHeld(h, e.ctrlKey);
+  else if (k === 'g' && h.alive && !h.heli) dropHeld(h, e.ctrlKey);
+  else if (k === 'x' && h.alive && h.heli) switchSeat(h);
   else if (k === 't' && NET.on) openChat();
   else if (k === 'e' && h.alive) {
     const d = aimDoor();
     if (h.bike) dismountBike(h);
+    else if (h.heli) leaveHeli(h);
     else if (d) toggleDoor(d.i, d.j, d.k, h);
     else if (reviveTarget(h)) h.reviving = 0; // hold E by your partner's grave
-    else if (!mountBike(h, nearBike(h)) && !toggleLayer(h)) { const o = gatherTarget(h); if (o) { h.gather = o; h.gatherT = 0; } }
+    else if (!mountBike(h, nearBike(h)) && !boardHeli(h, nearHeli(h)) && !toggleLayer(h)) { const o = gatherTarget(h); if (o) { h.gather = o; h.gatherT = 0; } }
   }
 });
 addEventListener('keyup', e => {
@@ -358,6 +366,12 @@ cv.addEventListener('mousedown', e => {
   if (G.invOpen) { toggleInv(); return; }
   if (!locked && !noLock && !freeLook) { lockPointer(); return; }
   if (G.human.bike) return; // hands on the handlebars
+  if (G.human.heli) { // the gunner: hold left click for the chain gun, right click for a rocket. The pilot's hands are full.
+    if (G.human.seat !== 'gunner') return;
+    if (e.button === 0) mouse.down = true;
+    else if (e.button === 2) fireRocket(G.human);
+    return;
+  }
   const h = G.human, item = heldId(h), bucket = item === 'bucket' || !!(item && ITEMS[item].bucket);
   const door = aimDoor();
   if (e.button === 2 && door && !h.sneak) { toggleDoor(door.i, door.j, door.k, h); return; } // right click opens doors (sneak to place against one)
@@ -416,6 +430,7 @@ function useBucket(h) {
 function kitFail(h) {
   const K = KITS[h.kit];
   if (h.bike) toast('Get off the motorcycle to use your kit');
+  else if (h.heli) toast('Get out of the helicopter to use your kit');
   else if (!K.item) toast(`${K.name} is a passive kit.`);
   else if (K.uses && h.uses <= 0) toast(`${K.item} is used up.`);
   else if (h.kitCd > 0) toast(`${K.item} recharging: ${Math.ceil(h.kitCd)}s`);
@@ -431,6 +446,19 @@ function humanInput(dt) {
     k.brake = !busy && keys.has(' ');
     if (performance.now() - (VIEW.lookT || 0) > 700) VIEW.lookYaw = (VIEW.lookYaw || 0) * Math.exp(-3 * dt);
     h.mx = h.my = 0; h.pitch = VIEW.pitch; G.aim = null;
+    return;
+  }
+  if (h.heli) { // pilot: W/S forward and back, A/D strafe, Space up, Shift down, the mouse turns the nose. Gunner: hold to fire.
+    const hl = h.heli, busy = G.invOpen || G.chatOpen || G.mode !== 'play', key = (...ks) => !busy && ks.some(q => keys.has(q));
+    if (h.seat === 'pilot') {
+      if (freeLook && !busy) { if (mouse.x < innerWidth * 0.06) h.face -= dt * 2.2; else if (mouse.x > innerWidth * 0.94) h.face += dt * 2.2; }
+      if (key('arrowleft')) h.face -= dt * 2;
+      if (key('arrowright')) h.face += dt * 2;
+      hl.ctl.fw = (key('w', 'arrowup') ? 1 : 0) - (key('s', 'arrowdown') ? 1 : 0);
+      hl.ctl.st = (key('d') ? 1 : 0) - (key('a') ? 1 : 0);
+      hl.ctl.up = (key(' ') ? 1 : 0) - (key('shift') ? 1 : 0);
+    } else if (mouse.down && !busy) fireGun(h);
+    h.mx = h.my = 0; h.pitch = VIEW.pitch; G.aim = null; h.sneak = false;
     return;
   }
   if (freeLook && !G.invOpen && !G.chatOpen && G.mode === 'play') {
@@ -526,7 +554,7 @@ function footsteps(dt) {
   for (const f of G.fighters) {
     const moved = hyp(f.x - (f.stepX ?? f.x), f.y - (f.stepY ?? f.y));
     f.stepX = f.x; f.stepY = f.y;
-    if (!f.alive || f.layer !== L.layer || f.hidden || moved > 60 || moved < 0.2 || f.pitT > 0 || f.bike) continue;
+    if (!f.alive || f.layer !== L.layer || f.hidden || moved > 60 || moved < 0.2 || f.pitT > 0 || f.bike || f.heli) continue;
     const grounded = f.remote ? f.z - (f.layer ? 0 : heightAt(f.x, f.y)) < 4 || !!blockAt(Math.floor(f.x / B), Math.floor((f.z - 1) / B), Math.floor(f.y / B)) : f.onGround;
     if (!grounded || (f.remote ? f.net.sn : f.sneak)) continue;
     const size = f.size || 1;
@@ -546,6 +574,10 @@ function engineSounds() {
     .sort((a, b) => hyp(a.x - L.x, a.y - L.y) - hyp(b.x - L.x, b.y - L.y)).slice(0, 3)
     .map(k => ({ id: k.id, x: k.x, y: k.y, z: k.z, speed: k.speed, mine: k.rider === G.human.id }));
   Sfx.engines(list);
+  // Helicopter rotors carry much further (the two nearest that are turning)
+  Sfx.rotors(!on || !L ? [] : (G.helis || []).filter(h => !h.gone && h.rotor > 0.02 && hyp(h.x - L.x, h.y - L.y) < 1800)
+    .sort((a, b) => hyp(a.x - L.x, a.y - L.y) - hyp(b.x - L.x, b.y - L.y)).slice(0, 2)
+    .map(h => ({ id: h.id, x: h.x, y: h.y, z: h.z, rotor: h.rotor, mine: G.human.heli === h })));
 }
 
 // ---------- bounty: the top killer (3+ kills) shows on everyone's map every 30 seconds ----------
@@ -662,7 +694,7 @@ function step(dt) {
   for (const f of G.fighters) if (f.alive && !f.remote) updateFighter(f, dt);
   netInterp(dt);
   // keep bodies from stacking (only move the ones we simulate)
-  const al = G.fighters.filter(f => f.alive && !f.hidden);
+  const al = G.fighters.filter(f => f.alive && !f.hidden && !f.heli);
   for (let i = 0; i < al.length; i++) for (let j = i + 1; j < al.length; j++) {
     const a = al[i], b = al[j];
     if (a.layer !== b.layer || Math.abs(a.z - b.z) > FH - 10) continue;
@@ -676,7 +708,7 @@ function step(dt) {
   G.fighters = G.fighters.filter(f => f.alive || !f.isClone);
   updateDuels(dt); clearStaleArenas();
   pickups();
-  updateRats(dt); updateProj(dt); updateFx(dt); coolLava(); updateBikes(dt); updateSocial(dt);
+  updateRats(dt); updateProj(dt); updateFx(dt); coolLava(); updateBikes(dt); updateHelis(dt); updateSocial(dt);
   if (G.mode !== 'menu' && G.mode !== 'options') { updateAlliances(dt); updateBounty(dt); }
   potT += dt;
   if (potT > 3) {
@@ -765,7 +797,20 @@ function updateHud() {
   // Motorcycle: speedometer and damage while riding
   const bk = h.bike;
   $('#bikehud').hidden = !bk;
-  $('#cross').hidden = !!bk;
+  const hl = h.alive && h.heli, gunner = hl && h.seat === 'gunner';
+  $('#cross').hidden = !!bk || !!(hl && !gunner);
+  $('#helihud').hidden = !hl; $('#hud').classList.toggle('heli', !!hl);
+  if (hl) {
+    const fuel = Math.max(0, hl.fuel / HELI.fuel), hull = Math.max(0, hl.hp / HELI.hp);
+    $('#hh-fuel').style.width = `${(fuel * 100).toFixed(0)}%`; $('#hh-hp').style.width = `${(hull * 100).toFixed(0)}%`;
+    $('#hh-fuelpct').textContent = `${Math.ceil(fuel * 100)}%`;
+    $('#hh-alt').textContent = Math.max(0, Math.round((hl.z - heliGround(hl)) / B));
+    $('#hh-speed').textContent = kmhOf(hl);
+    $('#hh-ammo').textContent = hl.ammo; $('#hh-rk').textContent = hl.rockets;
+    const hud = $('#helihud');
+    hud.classList.toggle('lowfuel', hl.fuel < 30); hud.classList.toggle('critical', hl.fuel < 12 || hl.dead); hud.classList.toggle('wreck', hl.hp < HELI.hp * 0.3);
+    hud.classList.toggle('dry', hl.ammo <= 0); hud.classList.toggle('dryrk', hl.rockets <= 0);
+  }
   if (bk) {
     $('#bk-speed').textContent = kmh(bk.speed);
     const hp = Math.max(0, bk.hp / BIKE.hp);
@@ -774,6 +819,9 @@ function updateHud() {
   }
   let p = '';
   if (bk) p = `<kbd>W</kbd><kbd>S</kbd> Throttle · <kbd>A</kbd><kbd>D</kbd> Steer · <kbd>Space</kbd> Brake · <kbd>E</kbd> Get off (hurts at speed)`;
+  else if (hl && gunner) p = `<kbd>Left click</kbd> Chain gun · <kbd>Right click</kbd> Rocket · <kbd>X</kbd> ${hl.pilot ? 'Pilot seat (taken)' : 'Take the controls'} · <kbd>E</kbd> Get out`;
+  else if (hl) p = `<kbd>W</kbd><kbd>S</kbd> Forward · back · <kbd>A</kbd><kbd>D</kbd> Strafe · Mouse to turn · <kbd>Space</kbd> Up · <kbd>Shift</kbd> Down · <kbd>X</kbd> ${hl.gunner ? 'Gunner seat (taken)' : 'Gunner seat'} · <kbd>E</kbd> Get out`;
+  else if (h.alive && nearHeli(h)) { const n = nearHeli(h); p = isTitan(h) ? 'Too big for the cockpit while you’re a Titan' : `<kbd>E</kbd> ${n.pilot ? 'Get in as the gunner' : 'Fly the helicopter'}${n.fuel < 15 && !onPad(n) ? ' · almost out of fuel' : ''}`; }
   else if (h.alive && nearBike(h)) p = isTitan(h) ? 'Too big to ride while you’re a Titan' : `<kbd>E</kbd> Ride the motorcycle`;
   else if (h.refillT > 0) p = 'Refilling hotbar…';
   else if (h.alive && reviveTarget(h)) p = `Hold <kbd>E</kbd> Revive ${escapeHTML(reviveTarget(h).p.name)}`;
@@ -796,6 +844,17 @@ function updateHud() {
   if (h.speedT > 0) st.push('Sprinting');
   if (h.titanT > 0) st.push(`Titan · ${Math.ceil(h.titanT)}s`);
   if (bk && bk.hp < 35) st.push('Your bike is smoking: it’s about to blow');
+  if (hl) {
+    const other = hl[gunner ? 'pilot' : 'gunner'], mate = other && fighterById(other);
+    if (hl.dead) st.push('Engine out: bail out!');
+    else if (hl.fuel < 12 && hl.air) st.push('FUEL CRITICAL: land now');
+    else if (hl.fuel < 30 && hl.air) st.push('Low fuel');
+    if (!gunner && !hl.air && hl.rotor < 1 && !hl.dead) st.push(`Rotors spinning up · ${Math.round(hl.rotor * 100)}%`);
+    if (onPad(hl) && hl.fuel < HELI.fuel) st.push('Refuelling');
+    if (onPad(hl) && (hl.ammo < HELI.ammo || hl.rockets < HELI.rockets)) st.push(hl.gunner ? 'Rearms once the gunner seat is empty' : 'Rearming');
+    if (hl.hp < HELI.hp * 0.3) st.push('Hull failing');
+    st.push(mate ? `${gunner ? 'Pilot' : 'Gunner'}: ${mate.name}` : gunner ? (hl.air ? 'Nobody flying: sinking' : 'Pilot seat empty') : 'Gunner seat empty');
+  }
   if (h.burnT > 0) st.push('On fire');
   else if (h.inLiq === 'water') st.push('In water');
   if (h.punchT > 0) st.push('Punch charged');
@@ -886,6 +945,7 @@ const TIPS = [
   { id: 'bounty', when: () => !!G.bounty && G.bounty !== G.human, text: 'The top killer has a bounty: the gold star on your map is where they were last seen. Take them down for bonus coins.' },
   { id: 'team', when: () => G.teams && G.teams.length > 0, text: 'Bots sometimes team up (matching colour squares by their names). Sooner or later one turns on the other.' },
   { id: 'bike', when: h => !!nearBike(h, 200) || !!h.bike, text: 'Motorcycles are fast and fragile. Hit a tree at full speed and it can kill you, getting off at speed hurts, and a smoking bike is about to explode. Space brakes.' },
+  { id: 'heli', when: h => !!nearHeli(h, 400) || !!h.heli, text: 'Helicopters seat two: a pilot, and a gunner with a chain gun and rockets. Fuel only burns in the air, and if it runs dry up there the helicopter explodes, so land in time. Helipads (the H on your map) refuel it, and rearm it while the gunner seat is empty.' },
   { id: 'pitfall', when: h => count(h, 'pitfall') > 0, text: 'Pitfalls look like the ground. Place them where people walk: whoever steps on one is stuck in a hole for a couple of seconds.' },
   { id: 'near', when: () => NEAR_ELS.some(el => +el.style.opacity > 0), text: 'The red arrows around your crosshair point at people close by but out of view. Turn to face them.' },
   { id: 'map', when: () => G.t > 40, text: 'Press M for the full map, with a grid and the names of landmarks. Esc or M closes it.' },

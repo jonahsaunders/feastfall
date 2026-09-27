@@ -89,10 +89,11 @@ A 60-minute match runs from dawn to night. How long that takes in real time is u
 </table>
 
 - **Bounties.** Once someone has 3 or more kills and leads the match, everyone's map shows where they are every 30 seconds, and killing them pays 50 coins plus 25 per kill they had.
-- **Kill streaks.** Double and triple kills, killing sprees and special kills (Knocked off, Burned, Long shot, Pitfall, Road kill) are called out. Your own earn bonus coins.
+- **Kill streaks.** Double and triple kills, killing sprees and special kills (Knocked off, Burned, Long shot, Pitfall, Road kill, Shot down, Rocket) are called out. Your own earn bonus coins.
 - **Assists.** Anyone who did 2 or more damage in the last 15 seconds gets an assist in the kill feed, and 20 coins if it's you.
 - **See who's around.** Red markers float over anyone within about 50 blocks. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and disguises still hide you.
 - **Motorcycles** are parked around the map (orange on the minimap when you're close). Swamp, sand and snow slow them down, spike traps shred the tyres, launch pads send them flying and pitfalls wreck them. Bots ride them too.
+- **Attack helicopters** wait on helipads (the H on your map: one on Standard maps, two on Large, three on Huge). Each seats two: the **pilot** flies it and the **gunner** sits in the nose with a chain gun (150 rounds) and 6 rockets that blow holes in towers. Fuel only burns in the air, and it lasts about a minute and a half. If the tank runs dry up there the engine quits and the helicopter drops out of the sky and explodes, killing anyone still aboard, so land before it hits zero. A helipad refuels it, and rearms it while the gunner seat is empty. Shots at the crew hit the armoured hull instead: arrows, swords, bullets and rockets can bring it down, and hard landings, crashes, and flying into trees or walls damage it too. Flying solo, press X to jump into the gunner seat: with nobody at the controls it hovers and slowly sinks. In duos a bot partner hops in as your gunner.
 
 ### Build and trap
 
@@ -132,7 +133,7 @@ A 60-minute match runs from dawn to night. How long that takes in real time is u
 </td>
 <td width="50%" valign="top">
 <img src="docs/screenshots/bigmap.jpg" alt="The full-screen map with a grid, landmark names, a duos partner and a supply drop">
-<p><b>Full-screen map.</b> Press M for the whole map with a grid (A–H, 1–8), landmark and feast names, your partner, supply drops, lava and bikes. Handy for calling out where to meet.</p>
+<p><b>Full-screen map.</b> Press M for the whole map with a grid (A–H, 1–8), landmark and feast names, your partner, supply drops, lava, bikes, helipads and helicopters. Handy for calling out where to meet.</p>
 </td>
 </tr>
 </table>
@@ -145,7 +146,7 @@ A 60-minute match runs from dawn to night. How long that takes in real time is u
 
 Bots fill out every match and play by the same rules you do. Choose Easy, Normal or Brutal.
 
-- **They play fair.** They only see what's in their line of sight: hills, trees, rocks and walls hide you. They hear swings, fights, arrows, building, chopping, explosions, engines and footsteps, but not sneaking. They take a moment to react when they first spot you.
+- **They play fair.** They only see what's in their line of sight: hills, trees, rocks and walls hide you. They hear swings, fights, arrows, building, chopping, explosions, engines, helicopters and footsteps, but not sneaking. They take a moment to react when they first spot you.
 - **They think.** They remember where they last saw you and come to check, find their way around obstacles and through doors, aim ahead of you when you're moving, back off behind cover to drink when they're hurt, and avoid being outnumbered. Camp up a tower and they shoot you down or build their own pillar next to it.
 - **They have personalities.** Cowards run, campers dig in near places people visit, rushers chase whoever's closest, looters go for chests and death bags. They talk too, in speech bubbles and the feed.
 - **Rivals.** A bot that kills you remembers you. It comes back in your next solo matches with a ☠ by its name and hunts you down. Beat it for 75 bonus coins; beat it twice and it's gone.
@@ -167,7 +168,7 @@ Bots fill out every match and play by the same rules you do. Choose Easy, Normal
 <tr>
 <td width="50%" valign="top">
 <img src="docs/screenshots/graves.jpg" alt="Gravestones with names, and a kill feed with weapon icons">
-<p><b>Kill feed icons and gravestones.</b> The feed shows how each person died: the weapon, a bow, a fall, fire, a pitfall, a trap, lightning, a motorcycle and more. A gravestone marks where they fell, with who got them.</p>
+<p><b>Kill feed icons and gravestones.</b> The feed shows how each person died: the weapon, a bow, a fall, fire, a pitfall, a trap, lightning, a motorcycle, a chain gun, a rocket, a helicopter and more. A gravestone marks where they fell, with who got them.</p>
 </td>
 <td width="50%" valign="top">
 <img src="docs/screenshots/spectate.jpg" alt="Third-person spectator camera following a bot through the forest">
@@ -292,9 +293,11 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 | 1–9 · wheel | Select a hotbar slot |
 | Tab | Inventory and crafting |
 | Q · F · R | Kit ability · drink · refill the hotbar with potions from your backpack |
-| E | Open or shut a door or trapdoor, get on or off a motorcycle, enter or leave a tunnel; hold to chop, mine or cut reeds, or to revive your partner in duos |
+| E | Open or shut a door or trapdoor, get on or off a motorcycle, get in or out of a helicopter, enter or leave a tunnel; hold to chop, mine or cut reeds, or to revive your partner in duos |
 | M | Full-screen map (M or Esc closes it) |
 | On a motorcycle | W · S throttle and brake/reverse, A · D steer, Space hard brake, mouse looks around, E gets off |
+| Flying a helicopter | W · S forward and back, A · D strafe, mouse turns, Space up, Shift down, X to the gunner seat (if it's free), E gets out (in the air, you drop) |
+| Helicopter gunner | Mouse aims the chin gun, hold left click for the chain gun, right click fires a rocket, X takes the controls (if the pilot seat is free), E gets out |
 | G · Ctrl+G | Drop one of the held item · drop the whole stack |
 | P (hold) | Scoreboard |
 | C (hold) | Emote and quick-chat wheel: move the mouse toward an option and let go |
@@ -328,11 +331,12 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | --- | --- |
 | `index.html` | Page, HUD, menus and styles |
 | `config.js` | Where online play connects |
-| `js/world.js` | Seeded map: map types, biomes, trees, rocks, reeds, tunnels, caves, lava pools, supply drop sites |
+| `js/world.js` | Seeded map: map types, biomes, trees, rocks, reeds, tunnels, caves, lava pools, supply drop sites, helipads |
 | `js/blocks.js` | Placeable blocks, doors, slabs and stairs, collision, fall support, raycasting, poured water and lava |
 | `js/items.js` | Item registry, drawn icons, inventory, armour, recipes |
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
 | `js/bikes.js` | Motorcycles: riding, jumps, crashes, running people over, explosions |
+| `js/helis.js` | Attack helicopters: seats, flying, fuel, the chain gun and rockets, damage and explosions, bot gunners |
 | `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced), personalities, difficulty, tactics and alliances |
 | `js/botmind.js` | What bots notice (line of sight, noises, memory) and how they get around (pathfinding) |
 | `js/social.js` | Bot chat, rivals, emotes, quick chat and map pings |
@@ -349,7 +353,7 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 
 ### Multiplayer model
 
-Each player's browser runs their own character and shares its state about 10 times a second. The player who hosts a match also runs the bots, the clock, potions, feast chests and item pickups. Hits, block edits, deaths and item changes are sent as messages, and the browser that runs a fighter applies damage to it. If the host leaves, the next player takes over the bots and the match continues. The server only relays messages between players in the same room; it knows nothing about the game.
+Each player's browser runs their own character and shares its state about 10 times a second. The player who hosts a match also runs the bots, the clock, potions, feast chests and item pickups. Hits, block edits, deaths and item changes are sent as messages, and the browser that runs a fighter applies damage to it. A motorcycle or helicopter is simulated by whoever is driving or flying it; a helicopter's gunner fires from their own browser, which owns the ammo and decides what the shots hit. If the host leaves, the next player takes over the bots and the match continues. The server only relays messages between players in the same room; it knows nothing about the game.
 
 Because the clients are trusted, a modified client could cheat. That's fine for playing with friends. A public server would need the game rules to move onto the server.
 
@@ -359,6 +363,7 @@ Because the clients are trusted, a modified client could cheat. That's fine for 
 - Rivals only come back in solo matches.
 - The announcer uses your system's speech voice, so it sounds different on each computer.
 - Rats in the tunnels are separate for each player (their hide drops are real).
+- Bots don't fly helicopters. In duos they ride along as your gunner.
 - On a bad connection a block edit or hit can occasionally be lost.
 - 99 bots needs a fast computer. Turn shadows off in Options if it runs slowly.
 - Money purchases in the kit store aren't implemented. Kits unlock with coins earned in matches.

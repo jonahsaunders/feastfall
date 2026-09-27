@@ -175,6 +175,22 @@
   #bikehud.wreck #bk-hp { background: var(--blood); }
   #bikehud.wreck { animation: blink 0.6s infinite; }
   @media (prefers-reduced-motion: reduce) { #bikehud.wreck { animation: none; } }
+  /* Helicopter: fuel and hull bars, altitude and speed; the gunner's rounds and rockets */
+  #hud.heli #prompt { bottom: calc(216px + env(safe-area-inset-bottom, 0px)); }
+  #helihud { display: flex; align-items: flex-end; gap: 16px; background: rgba(12,17,14,.8); padding: 5px 14px; }
+  #helihud .hh { display: flex; flex-direction: column; gap: 3px; }
+  #helihud small { font: 600 11px var(--ui); color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
+  #helihud b { font: 700 24px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  #helihud b small { margin-left: 3px; }
+  .hh-bar { width: 110px; height: 7px; background: rgba(0,0,0,.6); }
+  .hh-bar i { display: block; height: 100%; background: var(--steel); }
+  #hh-fuel { background: #e6c94a; }
+  #helihud.lowfuel #hh-fuel { background: var(--ember); }
+  #helihud.critical #hh-fuel { background: var(--blood); }
+  #helihud.critical .hh-fuel { animation: blink 0.5s infinite; }
+  #helihud.wreck #hh-hp { background: var(--blood); }
+  #helihud.dry #hh-ammo, #helihud.dryrk #hh-rk { color: var(--blood); }
+  @media (prefers-reduced-motion: reduce) { #helihud.critical .hh-fuel { animation: none; } }
   #near i { position: absolute; left: 50%; top: 50%; width: 22px; height: 13px; opacity: 0; background: #ff5a48; clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%); filter: drop-shadow(0 0 2px rgba(0,0,0,.8)); transition: opacity .12s; }
   #hud.spec #near { display: none; }
   /* Kill feed: killer, how (an icon), victim */
@@ -366,8 +382,9 @@
         <dt><kbd>1</kbd>–<kbd>9</kbd> · wheel</dt><dd>Select hotbar slot</dd>
         <dt><kbd>Tab</kbd></dt><dd>Inventory and crafting</dd>
         <dt><kbd>Q</kbd> · <kbd>F</kbd> · <kbd>R</kbd></dt><dd>Kit ability · drink · refill hotbar with potions from your backpack</dd>
-        <dt><kbd>E</kbd></dt><dd>Open or shut a door or trapdoor, get on or off a motorcycle, enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron, or to revive your partner in duos</dd>
+        <dt><kbd>E</kbd></dt><dd>Open or shut a door or trapdoor, get on or off a motorcycle, get in or out of a helicopter, enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron, or to revive your partner in duos</dd>
         <dt><kbd>M</kbd></dt><dd>Full-screen map</dd>
+        <dt>Helicopter</dt><dd>Pilot: <kbd>W</kbd> <kbd>S</kbd> forward and back, <kbd>A</kbd> <kbd>D</kbd> strafe, mouse turns, <kbd>Space</kbd> up, <kbd>Shift</kbd> down. Gunner: left click chain gun, right click rocket. <kbd>X</kbd> swaps seats if the other one is free</dd>
         <dt><kbd>G</kbd> · <kbd>Ctrl</kbd>+<kbd>G</kbd></dt><dd>Drop one of the held item · drop the whole stack</dd>
         <dt><kbd>P</kbd> (hold)</dt><dd>Scoreboard</dd>
         <dt><kbd>C</kbd> (hold)</dt><dd>Emotes and quick chat: move the mouse toward one and let go. People within about 44 blocks hear you, and some lines ping their map</dd>
@@ -463,6 +480,14 @@
   <input id="chat" maxlength="80" placeholder="Say something · Enter to send" autocomplete="off" hidden>
   <div class="bottom">
     <div id="bikehud" hidden><b id="bk-speed">0</b><small>km/h</small><div class="bk-hp" title="Bike damage"><i id="bk-hp"></i></div></div>
+    <div id="helihud" hidden>
+      <div class="hh hh-fuel"><small>Fuel <span id="hh-fuelpct">100%</span></small><div class="hh-bar"><i id="hh-fuel"></i></div></div>
+      <div class="hh"><small>Hull</small><div class="hh-bar"><i id="hh-hp"></i></div></div>
+      <div class="hh"><small>Altitude</small><b><span id="hh-alt">0</span><small>m</small></b></div>
+      <div class="hh"><small>Speed</small><b><span id="hh-speed">0</span><small>km/h</small></b></div>
+      <div class="hh"><small>Rounds</small><b id="hh-ammo">150</b></div>
+      <div class="hh"><small>Rockets</small><b id="hh-rk">6</b></div>
+    </div>
     <div id="status"></div>
     <div class="bars"><div id="armor" title="Armour"></div><div id="hp" title="Health"></div></div>
     <div id="hotbar"></div>
@@ -478,7 +503,7 @@
   <div class="bm-legend">
     <span style="--c:#e2733b">You</span><span style="--c:#6fe08a">Duos partner</span><span style="--c:#ff5a48">Seen recently</span><span style="--c:#e8c27a">Ruin</span>
     <span style="--c:#ffd24a">Landmark · bounty</span><span style="--c:#e6b84a">Feast</span><span style="--c:#6fb8ff">Supply drop</span><span style="--c:#5fe0f0">Quick-chat ping</span>
-    <span style="--c:#ff7a1f">Lava</span><span style="--c:#ff9a3c">Motorcycle</span><span style="--c:#e6dfcc">Tunnel entrance</span><span style="--c:#b7aea2">Cave</span>
+    <span style="--c:#ff7a1f">Lava</span><span style="--c:#ff9a3c">Motorcycle</span><span style="--c:#e6c94a">Helipad · helicopter</span><span style="--c:#e6dfcc">Tunnel entrance</span><span style="--c:#b7aea2">Cave</span>
   </div>
 </section>
 
@@ -516,6 +541,7 @@
 <script src="js/items.js"></script>
 <script src="js/entities.js"></script>
 <script src="js/bikes.js"></script>
+<script src="js/helis.js"></script>
 <script src="js/bots.js"></script>
 <script src="js/botmind.js"></script>
 <script src="js/net.js"></script>

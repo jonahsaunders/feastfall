@@ -32,6 +32,7 @@ const canShoot = b => b.bow && b.arrows > 0;
 
 function botThink(b) {
   // On a motorcycle: keep riding unless someone's close, then stop and get off to fight
+  if (b.heli) return; // riding along as a gunner (helis.js)
   if (b.bike) {
     const foe = G.fighters.find(o => o !== b && o.alive && !o.isClone && o.layer === 0 && !allied(o, b) && hyp(o.x - b.x, o.y - b.y) < 260);
     if ((foe && pvpOn()) || !b.plan || b.plan.type !== 'bike') b.plan = { ...(b.plan || {}), type: 'bike', k: b.bike, stop: true };
@@ -50,7 +51,8 @@ function botThink(b) {
   // Look and listen (only what's in line of sight, plus noises), then pick a target
   const L = botLvl(), was = b.plan && b.plan.type;
   const ignore = b.ignore || (b.ignore = new Map());
-  const vis = perceive(b).filter(v => !(ignore.get(v.o) > G.t) && (v.reach || canShoot(b) || v.o.z > b.z)); // unreachable & below us: not worth it
+  const vis = perceive(b).filter(v => !(ignore.get(v.o) > G.t) && (v.reach || canShoot(b) || v.o.z > b.z) // unreachable & below us: not worth it
+    && !(v.o.heli && v.o.heli.air && !canShoot(b))); // a helicopter overhead: only worth it with a bow
   // Up a tower: keep building, or stay on top and pick people off
   const elevated = b.layer === 0 && b.z > heightAt(b.x, b.y) + 60;
   if (elevated && b.plan && b.plan.type === 'tower') return;
@@ -443,12 +445,14 @@ function botUpdate(b, dt) {
     const ws = b.slots.findIndex(s => s && s.id === 'bucket_water'), sup = supportAt(b.x, b.y, b.z, b.r, 0);
     if (ws >= 0 && b.z - sup < 70) pourBucket(b, ws, Math.floor(b.x / B), Math.floor((sup + 1) / B), Math.floor(b.y / B));
   }
+  if (b.heli) { botGunner(b, dt); return; }
   b.thinkT = (b.thinkT || 0) - dt;
   if (b.thinkT <= 0) { b.thinkT = rr(0.3, 0.45); botThink(b); }
   if (b.bike) { botDrive(b, dt); return; }
   const p = b.plan;
   if (!p) return;
   if (p.type === 'revive') { botRevive(b, dt); return; }
+  if (p.type === 'heli') { botBoard(b, dt); return; }
   if (p.type === 'bike') { // walk to the bike and get on
     const k = p.k;
     if (!k || k.gone || k.rider || !bikeStill(k)) { b.plan = null; return; }

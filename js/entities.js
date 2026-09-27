@@ -83,13 +83,14 @@ const fighterById = id => G.fighters.find(f => f.id === id && !f.isClone);
 
 // ---- damage and death ----
 // What did the damage, for the kill feed icon: set around a hurt() call with withKind
-// (w0-w5 fists and weapons by tier, bow, fall, lava, pitfall, spike, blast, bolt, crash, bike, ram, poison, rat, stomp)
+// (w0-w5 fists and weapons by tier, bow, fall, lava, pitfall, spike, blast, bolt, crash, bike, ram, poison, rat, stomp, gun, rocket, heli)
 function withKind(kind, fn) { const p = G.hitKind; G.hitKind = kind; try { return fn(); } finally { G.hitKind = p; } }
 const hitKindOf = (t, src) => G.hitKind || t.diedTo || (src && src.isFighter ? 'w' + Math.min(5, weaponTier(src)) : 'skull');
 function hurt(t, amt, src, ang, kb, up = 0) {
   if (!t.alive || t.invuln > 0) return false;
   if (t.isFighter && src && src.isFighter && !pvpOn()) return false;
   if (G.duo && src && src.isFighter && t !== (src.owner || src) && allied(t, src.owner || src)) return false; // no friendly fire in duos
+  if (t.heli && src && src.isFighter) return damageHeli(t.heli, amt, src); // the crew sit behind armour: the helicopter takes it
   if (t.isClone) { t.alive = false; addFx('puff', t.x, t.y, t.layer, { col: t.color, z: t.z + 30 }); return true; }
   const byMe = src && (src.owner || src) === G.human && t !== G.human && G.stats;
   if (src && src.isFighter) (src.owner || src).dealtT = G.t;
@@ -138,6 +139,7 @@ function applyHit(t, m) {
   if (src) { t.lastHitBy = src; t.lastHitT = G.t; }
   if (m.shrink) shrinkNow(t);
   if (m.tp && t.bike) dismountBike(t, true);
+  if (m.tp && t.heli) leaveHeli(t, true);
   if (m.tp) Object.assign(t, { x: m.tp[0], y: m.tp[1], z: m.tp[2], vz: 0, onGround: false, peakZ: m.tp[2], kbx: 0, kby: 0, gather: null });
   if (m.pull) {
     t.kbx = Math.cos(m.pull[0]) * m.pull[1]; t.kby = Math.sin(m.pull[0]) * m.pull[1]; t.gather = null; t.hidden = false;
@@ -151,6 +153,7 @@ function applyHit(t, m) {
 function killFighter(t, src) {
   if (t.deadDone) return;
   if (t.bike) dismountBike(t, true); // the bike rolls on without you
+  if (t.heli) leaveHeli(t, true);
   t.alive = false; t.hp = 0; t.deadDone = true;
   let killer = src && src.isFighter && (src.owner || src) !== t ? (src.owner || src) : null;
   if (!killer && t.lastHitBy && G.t - t.lastHitT < 8) killer = t.lastHitBy;
@@ -173,7 +176,7 @@ function announceKill(t, killer, fell, assists = [], kind = 'skull') {
     if (!killer.remote && killer.kit === 'leech' && killer.alive) killer.hp = Math.min(killer.maxHp, killer.hp + 8);
     if (killer === G.human) { G.coinsEarned += 50; Sfx.play('kill'); toast(`You eliminated ${t.name}`); G.killFlash = 0.6; }
   }
-  const how = fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : t.diedTo === 'crash' ? 'crashed' : 'died';
+  const how = fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : t.diedTo === 'crash' ? 'crashed' : kind === 'heli' ? 'went down with a helicopter' : 'died';
   const help = assists.length ? ` + ${assists.map(a => a.name).join(', ')}` : '';
   G.feed.unshift({ txt: killer ? `${killer.name}${help} ⟶ ${t.name}` : `${t.name} ${how}${help ? ` (${help.slice(3)} helped)` : ''}`, t: 7, you: t === G.human || killer === G.human || assists.includes(G.human),
     kill: { a: killer ? killer.name : '', v: t.name, icon: kind, help: assists.map(a => a.name), ac: killer && killer.color, vc: t.color } });
@@ -188,7 +191,7 @@ function announceKill(t, killer, fell, assists = [], kind = 'skull') {
   if (G.bounty === t) claimBounty(t, killer);
   if (t === G.human) {
     G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : { lava: 'lava', pitfall: 'a pitfall', crash: 'a motorcycle crash', bike: 'an exploding motorcycle', fall: 'a long fall',
-      rat: 'rats', poison: 'poison', spike: 'a spike trap', blast: 'a blast trap', bolt: 'lightning', ram: 'a motorcycle' }[t.diedTo || kind] || 'the pit';
+      rat: 'rats', poison: 'poison', spike: 'a spike trap', blast: 'a blast trap', bolt: 'lightning', ram: 'a motorcycle', heli: 'an exploding helicopter', gun: 'a helicopter’s chain gun', rocket: 'a rocket' }[t.diedTo || kind] || 'the pit';
     replaySnapDeath();
     if (G.duo && squadAlive(t)) humanDown(); else endGame(false);
   } else if (G.duo && t.squad && t.squad === G.human.squad && G.human.isFighter) {
@@ -218,6 +221,8 @@ function streakCallout(k, t, fell) {
   if (t.diedTo === 'pitfall') calls.push('Pitfall');
   else if (t.diedTo === 'ram') calls.push('Road kill');
   else if (t.diedTo === 'bike') calls.push('Wrecked');
+  else if (t.lastKind === 'heli') calls.push('Shot down');
+  else if (t.lastKind === 'rocket') calls.push('Rocket');
   else if (fell) calls.push('Knocked off');
   else if (t.diedTo === 'lava') calls.push('Burned');
   else if (hyp(k.x - t.x, k.y - t.y) > 750) calls.push('Long shot');
@@ -310,7 +315,7 @@ function drink(f) {
 }
 function spawnProj(p, ghost) {
   G.proj.push(p);
-  if (!ghost) NET.fx({ k: 'p', t: p.kind, o: p.owner.id, l: p.layer, v: [p.x, p.y, p.z, p.vx, p.vy, p.vz].map(Math.round) });
+  if (!ghost) NET.fx({ k: 'p', t: p.kind, o: p.owner.id, l: p.layer, v: [p.x, p.y, p.z, p.vx, p.vy, p.vz].map(Math.round), h: p.heli });
 }
 function shoot(f, charge, pitch = 0) {
   if (!f.bow || !take(f, 'arrow', 1)) return;
@@ -321,7 +326,7 @@ function shoot(f, charge, pitch = 0) {
 }
 function useKit(f, ax, ay) {
   const K = KITS[f.kit];
-  if (!K.item || f.kitCd > 0 || (K.uses && f.uses <= 0) || f.bike) return false;
+  if (!K.item || f.kitCd > 0 || (K.uses && f.uses <= 0) || f.bike || f.heli) return false;
   const aim = Math.atan2(ay - f.y, ax - f.x);
   switch (f.kit) {
     case 'mage': {
@@ -414,7 +419,7 @@ function useKit(f, ax, ay) {
 }
 // Skyhook: grapple to whatever the crosshair is on, up to 22 blocks away
 function fireSkyhook(f, pitch) {
-  if (f.skyCd > 0 || f.layer || f.bike) return false;
+  if (f.skyCd > 0 || f.layer || f.bike || f.heli) return false;
   const cp = Math.cos(pitch), eye = f.z + EYE * (f.size || 1), dx = Math.cos(f.face) * cp, dy = Math.sin(f.face) * cp, dz = Math.sin(pitch);
   const a = rayPick(f.x, f.y, eye, dx, dy, dz, 550);
   if (!a) return false;
@@ -516,7 +521,7 @@ function spawnClone(f, dir) {
 }
 function toggleLayer(f) {
   const e = world.entrances.find(e => hyp(e.x - f.x, e.y - f.y) < 46);
-  if (!e || G.pit || !f.onGround || f.bike) return false;
+  if (!e || G.pit || !f.onGround || f.bike || f.heli) return false;
   if (!f.layer && f.z > heightAt(e.x, e.y) + 20) return false;
   if ((f.size || 1) > 1.2) { if (f === G.human) toast('You’re too big to fit down the tunnel'); return false; }
   f.layer = 1 - f.layer; f.x = e.x; f.y = e.y; f.z = f.layer ? 0 : heightAt(e.x, e.y); f.vz = 0; f.onGround = true;
@@ -684,6 +689,8 @@ function updateFighter(f, dt) {
   }
   // On a motorcycle, the bike does the moving (bikes.js)
   if (f.bike) { rideBike(f, dt); burnTick(f, dt); return; }
+  // In a helicopter, it carries you (helis.js)
+  if (f.heli && rideHeli(f)) { burnTick(f, dt); return; }
   if (f.speedT > 0) sp *= 1.8;
   if (f.sneak) sp *= 0.35;
   if (f.slowT > 0) sp *= 0.45;
@@ -721,6 +728,7 @@ function updateFighter(f, dt) {
       if (d < m && d > 0.01) { f.x = o.x + (f.x - o.x) / d * m; f.y = o.y + (f.y - o.y) / d * m; }
     }
     collideBlocks(f);
+    pushFromHelis(f);
     if (G.pit) {
       const d = hyp(f.x - PIT.x, f.y - PIT.y), m = PIT.r - f.r - 6;
       if (d > m) { f.x = PIT.x + (f.x - PIT.x) / d * m; f.y = PIT.y + (f.y - PIT.y) / d * m; }
@@ -885,6 +893,7 @@ function updateProj(dt) {
     p.life -= dt;
     if (p.kind === 'arrow') p.vz -= 520 * dt;
     if (p.kind === 'swap') p.vz -= 700 * dt;
+    if (p.kind === 'rocket') { p.vz -= 80 * dt; if ((p.trailT = (p.trailT || 0) - dt) <= 0) { p.trailT = 0.05; addFx('puff', p.x, p.y, 0, { col: '#cfc9bd', z: p.z - 14, t: 0.7 }); } }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     if (p.layer === 1) { if (!walkUnder(p.x, p.y, 2) || p.z < 0 || p.z > 112) p.life = 0; }
     else {
@@ -892,14 +901,16 @@ function updateProj(dt) {
       if (p.z < g) p.life = 0;
       else if (solidAt(Math.floor(p.x / B), Math.floor(p.z / B), Math.floor(p.y / B))) p.life = 0;
       else if (p.z < g + 90 && nearObjs(p.x, p.y, 30).some(o => o.amt > 0 && o.kind !== 'reed' && hyp(o.x - p.x, o.y - p.y) < o.r)) p.life = 0;
+      else if (p.kind === 'rocket' && rocketHitsHeli(p)) p.life = 0;
     }
     // Only the shooter's machine decides hits; everyone else just draws the arrow
-    if (p.ghost || p.owner.remote) { for (const t of G.fighters) if (p.life > 0 && t !== p.owner && t.alive && t.layer === p.layer && hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + fh(t) + 4) p.life = 0; continue; }
+    if (p.ghost || p.owner.remote) { for (const t of G.fighters) if (p.life > 0 && t !== p.owner && !(p.heli && t.heli && t.heli.id === p.heli) && t.alive && t.layer === p.layer && hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + fh(t) + 4) p.life = 0; continue; }
     for (const t of G.fighters) {
-      if (p.life <= 0 || t === p.owner || !t.alive || t.layer !== p.layer || t.owner === p.owner || allied(t, p.owner)) continue;
+      if (p.life <= 0 || t === p.owner || !t.alive || t.layer !== p.layer || t.owner === p.owner || allied(t, p.owner) || (p.heli && t.heli && t.heli.id === p.heli)) continue;
       if (hyp(t.x - p.x, t.y - p.y) < t.r + 5 && p.z > t.z - 4 && p.z < t.z + fh(t) + 4) {
         const a = Math.atan2(p.vy, p.vx);
-        if (resists(t)) { addFx('ring', t.x, t.y, t.layer, { col: '#8fa3a8', z: t.z + 30 }); }
+        if (p.kind === 'rocket') {} // it goes off below
+        else if (resists(t)) { addFx('ring', t.x, t.y, t.layer, { col: '#8fa3a8', z: t.z + 30 }); }
         else if (p.kind === 'arrow') withKind('bow', () => hurt(t, p.dmg, p.owner, a, p.kb));
         else if (p.kind === 'swap') { if (pvpOn() && t.invuln <= 0 && !t.isClone) swapPlaces(p.owner, t); }
         else if (pvpOn() && t.invuln <= 0) {
@@ -910,6 +921,7 @@ function updateProj(dt) {
         p.life = 0;
       }
     }
+    if (p.kind === 'rocket' && p.life <= 0 && !p.boomed) { p.boomed = true; rocketBlast(p.x, p.y, Math.max(p.z, heightAt(p.x, p.y) + 2), p.owner, p.heli); }
     if (p.kind === 'arrow' && p.layer === 1) for (const r of G.rats) if (!r.dead && p.life > 0 && hyp(r.x - p.x, r.y - p.y) < 10 && p.z < 16) { hitRat(r, 2, p.owner, Math.atan2(p.vy, p.vx)); p.life = 0; }
   }
   G.proj = G.proj.filter(p => p.life > 0);

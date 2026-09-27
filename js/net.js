@@ -143,7 +143,7 @@ function wireMatch(m) {
     res: d => { for (const [t, i, a] of d.r || []) { const o = (t ? world.ores : world.objs)[i]; if (o && a < o.amt) o.amt = a; } },
     fx: (d, msg) => {
       const o = fighterById(d.o);
-      if (d.k === 'p' && o) { const v = d.v; noise(v[0], v[1], d.l, 480, o); G.proj.push({ kind: d.t, x: v[0], y: v[1], z: v[2], vx: v[3], vy: v[4], vz: v[5], owner: o, layer: d.l, life: d.t === 'hook' ? 0.6 : 2, ghost: true }); }
+      if (d.k === 'p' && o) { const v = d.v; noise(v[0], v[1], d.l, 480, o); G.proj.push({ kind: d.t, x: v[0], y: v[1], z: v[2], vx: v[3], vy: v[4], vz: v[5], owner: o, layer: d.l, life: d.t === 'hook' ? 0.6 : d.t === 'rocket' ? 2.2 : 2, heli: typeof d.h === 'string' ? d.h : undefined, ghost: true }); }
       if (d.k === 's') addFx('strike', d.x, d.y, d.l, { t: 0.6, ghost: true });
       if (d.k === 'c' && o) for (const dd of [-0.7, 0.7]) spawnClone(o, d.f + dd);
       if (d.k === 'ping') G.pings.push({ x: d.x, y: d.y, layer: 1, t: 12, src: fighterById(msg.peer) });
@@ -151,6 +151,14 @@ function wireMatch(m) {
       if (d.k === 'bk' && typeof d.i === 'string') applyBikeMsg(d);
       if (d.k === 'bkx') { const k = bikeById(d.i); if (k && !k.gone) { k.gone = true; const r = riderOf(k); if (r && r.bike === k) { if (r.remote) r.bike = null; else dismountBike(r, true); } } bikeBoomFx(d.x, d.y, d.z); }
       if (d.k === 'bsay' && o && typeof d.t === 'string') showSay(o, d.t);
+      if (typeof d.i === 'string' && d.i[0] === 'h') { // helicopters: seats, flight, ammo, hits, explosions
+        if (d.k === 'hl') applyHeliMsg(d);
+        if (d.k === 'hs') applyHeliState(d);
+        if (d.k === 'ha') applyHeliAmmo(d);
+        if (d.k === 'hd') { const h = heliById(d.i); if (h && heliMine(h) && typeof d.d === 'number') damageHeli(h, Math.min(20, d.d), fighterById(d.by)); }
+        if (d.k === 'hx') applyHeliBoom(d);
+      }
+      if (d.k === 'tr') applyTracers(d);
       if (d.k === 'qc' && o && QUICK[d.q]) hearQuick(o, d.q, Array.isArray(d.p) ? { x: d.p[0], y: d.p[1], layer: d.p[2] ? 1 : 0 } : null);
       if (d.k === 'hole') addFx('hole', d.x, d.y, 0, { t: 6, z: d.z + 0.6 });
       if (d.k === 'team' && Array.isArray(d.ids)) announceTeam(d.ids, typeof d.c === 'string' ? d.c : null);
@@ -199,6 +207,7 @@ function sendSnap(to) {
     cfg: NET.cfg, t: G.t, res, dead: G.fighters.filter(f => !f.alive && !f.isClone).map(f => f.id),
     kills: G.fighters.filter(f => !f.isClone && f.kills).map(f => [f.id, f.kills]),
     bikes: (G.bikes || []).map(k => [k.id, ...[k.x, k.y, k.z, k.face * 100, k.hp].map(Math.round), k.rider, k.gone ? 1 : 0]),
+    helis: (G.helis || []).map(h => [h.id, heliState(h), h.pilot, h.gunner, h.owner, h.ammo, h.rockets, h.gone ? 1 : 0]),
     drops: (world.drops || []).map(d => d.st), feast: G.feast ? [FEAST_SITES.indexOf(G.feast.site), G.feast.state] : null,
     pit: G.pit, bounty: G.bounty ? G.bounty.id : null,
   };
@@ -235,6 +244,12 @@ function startWatch(cfg, parts = []) {
     for (const id of head.dead || []) { const f = fighterById(id); if (f) { f.alive = false; f.deadDone = true; } }
     for (const [id, n] of head.kills || []) { const f = fighterById(id); if (f) f.kills = n; }
     for (const [id, x, y, z, fc, hp, r, gone] of head.bikes || []) { const k = bikeById(id); if (k) Object.assign(k, { x, y, z, face: fc / 100, hp, rider: r || null, gone: !!gone }); }
+    for (const [id, st, p, g, o, a, rk, gone] of head.helis || []) {
+      const h = heliById(id);
+      if (!h) continue;
+      readState(h, st); Object.assign(h, { pilot: p || null, gunner: g || null, owner: o || null, ammo: a, rockets: rk, gone: !!gone });
+      for (const seat of SEATS) { const f = h[seat] && fighterById(h[seat]); if (f) { f.heli = h; f.seat = seat; } }
+    }
     (head.drops || []).forEach((st, i) => { if (world.drops[i]) world.drops[i].st = st; });
     if (head.feast && FEAST_SITES[head.feast[0]]) G.feast = { site: FEAST_SITES[head.feast[0]], state: head.feast[1] };
     G.pit = !!head.pit; G.graceDone = G.clockMin >= G.grace;

@@ -134,15 +134,15 @@ function updFighter(m, f, dt) {
   const u = m.userData;
   u.sink = (u.sink || 0) + (((f.pitT > 0 || f.pitNet) ? 34 : 0) - (u.sink || 0)) * Math.min(1, dt * 10); // chest-deep in a pitfall
   m.position.set(f.x, f.z - u.sink, f.y);
-  m.scale.setScalar(f.size || 1);
+  m.scale.setScalar((f.size || 1) * (f.heli ? 0.55 : 1)); // a helicopter's crew fit in the cockpit
   u.body.scale.y = f.sneak ? 0.86 : 1;
-  m.rotation.y = -f.face;
+  m.rotation.y = -(f.heli ? f.heli.face : f.face);
   const moving = hyp(f.mx, f.my) > 0.1 && !f.gather && f.refillT <= 0;
   u.walk = moving ? u.walk + dt * 11 : u.walk * 0.8;
   u.legL.rotation.z = Math.sin(u.walk) * 0.6; u.legR.rotation.z = -Math.sin(u.walk) * 0.6;
   u.arm.rotation.z = f.swingT > 0 ? 2.4 - (1 - f.swingT / 0.14) * 2.3 : f.gather ? 1.4 + Math.sin(G.t * 11) * 0.7 : 1.0 + Math.sin(u.walk) * 0.15;
   u.body.rotation.y = 0;
-  if (f.bike) { u.legL.rotation.z = u.legR.rotation.z = 1.25; u.arm.rotation.z = 1.35; u.body.position.set(-6, 8, 0); } // seated, hands on the bars
+  if (f.bike || f.heli) { u.legL.rotation.z = u.legR.rotation.z = 1.25; u.arm.rotation.z = 1.35; u.body.position.set(-6, 8, 0); } // seated, hands on the bars
   else if (f.emoteT > 0 && f.emote >= 0) { // emotes
     const t = G.t, id = EMOTES[f.emote] && EMOTES[f.emote].id;
     u.body.position.set(0, 0, 0);
@@ -250,6 +250,10 @@ function makeProj(p) {
 const tmpV = new T.Vector3();
 FG.hole = new T.CircleGeometry(15, 9).rotateX(-Math.PI / 2);
 function makeFx(e) {
+  if (e.kind === 'tracer') {
+    const l = new T.Line(new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), new T.LineBasicMaterial({ color: 0xffd98a, transparent: true, fog: false }));
+    l.frustumCulled = false; return l;
+  }
   if (e.kind === 'hole') return new T.Mesh(FG.hole, new T.MeshBasicMaterial({ color: 0x0c0906, transparent: true }));
   if (e.kind === 'puff' || e.kind === 'chip') return new T.Mesh(FG.puff, new T.MeshBasicMaterial({ color: e.col, transparent: true }));
   if (e.kind === 'ring' || e.kind === 'strike') return new T.Mesh(FG.flatRing, new T.MeshBasicMaterial({ color: e.kind === 'strike' ? 0xbfe3ff : e.col, transparent: true, side: T.DoubleSide }));
@@ -268,6 +272,12 @@ function makeFx(e) {
   return g;
 }
 function updFx(m, e) {
+  if (e.kind === 'tracer') {
+    const a = m.geometry.attributes.position;
+    a.setXYZ(0, e.x, e.z, e.y); a.setXYZ(1, e.x2, e.z2, e.y2); a.needsUpdate = true;
+    m.material.opacity = e.t / e.max;
+    return;
+  }
   const k = 1 - e.t / e.max, hz = e.z !== undefined, base = hz ? e.z : e.layer ? 0 : heightAt(e.x, e.y);
   if (e.kind === 'hole') { m.position.set(e.x, base, e.y); m.material.opacity = Math.min(0.92, e.t); }
   else if (e.kind === 'puff' || e.kind === 'chip') { m.position.set(e.x, base + (hz ? 0 : 20) + k * 20, e.y); m.scale.setScalar((e.big ? 30 : e.kind === 'chip' ? 6 : 14) * (0.4 + k)); m.material.opacity = 1 - k; }
@@ -405,6 +415,65 @@ function updBike(g, k) {
 }
 function syncBikes(L) {
   for (const k of G.bikes || []) if (!k.gone) sync(k, makeBike, updBike, L === 0 && hyp(k.x - camera.position.x, k.y - camera.position.z) < 1300);
+}
+
+// ---- attack helicopters: olive drab, tandem glass cockpit (gunner in front, pilot behind and higher), stub wings
+// with rocket pods, a chin gun that follows the gunner's aim, four main blades and a tail rotor ----
+const HMAT = { paint: lam('#66733c'), dark: lam('#3a4020'), rotor: lam('#26241f'), glass: lam('#9fc3d6', { transparent: true, opacity: 0.4, depthWrite: false }) };
+FG.blade = new T.BoxGeometry(HELI.rotorR, 1.6, 9).translate(HELI.rotorR / 2, 0, 0);
+FG.tailBlade = new T.BoxGeometry(3, 34, 1.5);
+FG.rotorDisc = new T.CircleGeometry(HELI.rotorR, 32).rotateX(-Math.PI / 2);
+FG.heliWheel = new T.CylinderGeometry(6, 6, 4, 10).rotateX(Math.PI / 2);
+function makeHeli() {
+  const g = new T.Group(), body = new T.Group(); g.add(body);
+  const m = (geo, mat, x, y, z, parent = body) => { const o = new T.Mesh(geo, mat); o.position.set(x, y, z); o.castShadow = true; parent.add(o); return o; };
+  const { paint, dark, rotor: rm, glass } = HMAT;
+  m(new T.BoxGeometry(96, 30, 26), paint, 14, 38, 0);                              // fuselage
+  m(new T.BoxGeometry(34, 22, 20), paint, 76, 32, 0).rotation.z = -0.12;           // nose
+  m(new T.BoxGeometry(12, 12, 14), dark, 95, 29, 0);                               // sensor turret
+  m(new T.BoxGeometry(30, 18, 22), glass, 48, 58, 0);                              // gunner's canopy
+  m(new T.BoxGeometry(30, 22, 22), glass, 16, 62, 0);                              // pilot's canopy
+  for (const s of [-1, 1]) {
+    m(new T.CylinderGeometry(7, 8, 44, 8).rotateZ(Math.PI / 2), dark, -4, 54, 17 * s); // engines
+    m(new T.CylinderGeometry(5.5, 5.5, 28, 8).rotateZ(Math.PI / 2), dark, 14, 25, 31 * s); // rocket pods
+    m(new T.BoxGeometry(3, 16, 3), dark, 40, 12, 16 * s);                          // main gear
+    m(FG.heliWheel, rm, 40, 6, 17 * s);
+  }
+  m(new T.BoxGeometry(16, 3, 74), dark, 12, 32, 0);                                // stub wings
+  m(new T.BoxGeometry(128, 13, 11), paint, -98, 44, 0);                            // tail boom
+  m(new T.BoxGeometry(24, 42, 3), paint, -160, 62, 0).rotation.z = 0.25;           // fin
+  m(new T.BoxGeometry(14, 3, 46), paint, -148, 42, 0);                             // stabiliser
+  m(new T.BoxGeometry(3, 34, 3), dark, -150, 22, 0);                               // tail wheel strut
+  m(FG.heliWheel, rm, -150, 6, 0);
+  m(new T.CylinderGeometry(3, 4, 14, 6), dark, 8, 66, 0);                          // mast
+  const rotor = new T.Group(); rotor.position.set(8, 74, 0); body.add(rotor);
+  for (let q = 0; q < 4; q++) { const b = m(FG.blade, rm, 0, 0, 0, rotor); b.rotation.y = q * Math.PI / 2; }
+  m(new T.SphereGeometry(5, 8, 5), dark, 0, 0, 0, rotor);
+  const disc = new T.Mesh(FG.rotorDisc, new T.MeshBasicMaterial({ color: 0x26241f, transparent: true, opacity: 0.12, depthWrite: false, side: T.DoubleSide }));
+  disc.position.set(8, 74, 0); body.add(disc);
+  const tail = new T.Group(); tail.position.set(-166, 64, 6); body.add(tail);
+  m(FG.tailBlade, rm, 0, 0, 0, tail); m(FG.tailBlade, rm, 0, 0, 0, tail).rotation.z = Math.PI / 2;
+  const gun = new T.Group(); gun.position.set(76, 18, 0); body.add(gun);
+  m(new T.BoxGeometry(9, 8, 9), dark, 0, 0, 0, gun);
+  m(new T.CylinderGeometry(1.6, 1.6, 26, 6).rotateZ(Math.PI / 2), FMAT.dark, 15, -1, 0, gun);
+  g.userData = { body, rotor, tail, gun, disc };
+  return g;
+}
+function updHeli(g, h) {
+  const u = g.userData;
+  g.position.set(h.x, h.z, h.y);
+  g.rotation.y = -h.face;
+  u.body.rotation.z = h.tilt; u.body.rotation.x = h.roll;                          // nose down going forward, bank when strafing
+  u.rotor.rotation.y = h.blade; u.tail.rotation.z = h.tail;
+  u.disc.visible = h.rotor > 0.7; u.disc.material.opacity = 0.12 * h.rotor;
+  // The chin gun follows the gunner's aim (hidden from the gunner's own view: it would sit right in front of the camera)
+  const gn = h.gunner && fighterById(h.gunner), me = gn === G.human && G.mode === 'play' && VIEW.focus === G.human;
+  u.gun.visible = !me;
+  u.gun.rotation.y = gn ? -clamp(angDiff(h.face, gn.face), -TURRET, TURRET) : 0;
+  u.gun.rotation.z = gn && !gn.remote ? clamp(gn === G.human ? VIEW.pitch : gn.pitch || 0, -1.35, 0.3) : -0.15;
+}
+function syncHelis(L) {
+  for (const h of G.helis || []) if (!h.gone) sync(h, makeHeli, updHeli, L === 0 && hyp(h.x - camera.position.x, h.y - camera.position.z) < 2600);
 }
 
 // ---- gravestones: where someone fell, with their name and who got them ----
@@ -552,9 +621,10 @@ function render(dt) {
   const spec = G.mode === 'spectate' && G.specTarget && G.specTarget.alive ? G.specTarget : null;
   const rp = G.mode === 'replay' ? REPLAY.view : null; // death replay: a free camera over the killer's shoulder
   const ride = playing && !spec && !rp && h.alive && h.bike; // on a motorcycle: a chase camera behind you
-  const emo = playing && !spec && !rp && !ride && h.alive && h.emoteT > 0 && h.isFighter; // emoting: the camera swings round to see you
+  const hl = playing && !spec && !rp && h.alive && h.heli, fly = hl && h.seat === 'pilot', gun = hl && h.seat === 'gunner'; // a helicopter: chase camera for the pilot, the chin gun for the gunner
+  const emo = playing && !spec && !rp && !ride && !hl && h.alive && h.emoteT > 0 && h.isFighter; // emoting: the camera swings round to see you
   const fc = G.mode === 'spectate' && G.freeCam; // spectating with a free camera
-  const focus = rp ? rp.focus : fc ? G.freeCam : spec || h, L = focus.layer, fp = playing && !spec && !rp && !ride && !emo && !fc; // fp: first person
+  const focus = rp ? rp.focus : fc ? G.freeCam : spec || h, L = focus.layer, fp = playing && !spec && !rp && !ride && !hl && !emo && !fc; // fp: first person
   VIEW.focus = focus;
   timeOfDay(playing ? G.clockMin : 14);
   surfaceGroup.visible = L === 0; underGroup.visible = L === 1;
@@ -592,6 +662,18 @@ function render(dt) {
     camera.lookAt(h.x + Math.cos(yaw) * 170, h.z + 30 + VIEW.pitch * 120, h.y + Math.sin(yaw) * 170);
     if (!k.air && s > 0.5) camera.position.y += (Math.random() - .5) * (s - 0.5) * 2.4; // rattle at speed
     camera.fov = (G.settings.fov || 75) + s * 14;
+  } else if (fly) {
+    const k = h.heli, yaw = k.face, pit = clamp(VIEW.pitch, -0.9, 0.6), s = clamp(hyp(k.vx, k.vy) / HELI.top, 0, 1);
+    const back = 300 + s * 40, cx = k.x - Math.cos(yaw) * back, cy = k.y - Math.sin(yaw) * back;
+    camera.position.set(cx, Math.max(k.z + 125 - pit * 160, heightAt(cx, cy) + 20), cy);
+    camera.lookAt(k.x + Math.cos(yaw) * 220, k.z + 50 + pit * 260, k.y + Math.sin(yaw) * 220);
+    camera.fov = (G.settings.fov || 75) + s * 10;
+  } else if (gun) {
+    const m = muzzle(h.heli);
+    camera.position.set(m.x, m.z - 4, m.y);
+    camera.rotation.set(VIEW.pitch, -h.face - Math.PI / 2, 0);
+    camera.fov = (G.settings.fov || 75) - 5;
+    if (h.heli.hp < HELI.hp * 0.3 || h.heli.dead) { camera.position.x += (Math.random() - .5) * 3; camera.position.y += (Math.random() - .5) * 3; }
   } else if (rp) {
     camera.position.set(rp.x, rp.z, rp.y);
     camera.lookAt(rp.tx, rp.tz, rp.ty);
@@ -611,7 +693,7 @@ function render(dt) {
   syncBlocks();
   syncAim();
   // players, rats, items, projectiles, effects
-  for (const f of G.fighters) if (f.alive && !(fp && f === h)) sync(f, makeFighter, (m, f) => updFighter(m, f, dt), f.layer === L && hyp(f.x - camera.position.x, f.y - camera.position.z) < (L ? 500 : G.duo && f.squad === G.human.squad ? 2600 : 1300));
+  for (const f of G.fighters) if (f.alive && !((fp || gun) && f === h)) sync(f, makeFighter, (m, f) => updFighter(m, f, dt), f.layer === L && hyp(f.x - camera.position.x, f.y - camera.position.z) < (L ? 500 : G.duo && f.squad === G.human.squad ? 2600 : 1300));
   if (L === 1) for (const r of G.rats) if (!r.dead) sync(r, makeRat, (m, r) => { m.position.set(r.x, 0, r.y); m.rotation.y = -r.a; m.userData.tail.rotation.y = Math.sin(G.t * 14 + r.x) * 0.5; }, true);
   for (const it of G.items) if (!it.gone) sync(it, makeItem, (m, it) => {
     m.position.set(it.x, (it.z ?? (it.layer ? 0 : heightAt(it.x, it.y))) + (m.userData.bob ? Math.sin(G.t * 3 + it.x) * 2 : 0), it.y);
@@ -628,7 +710,7 @@ function render(dt) {
     }
   }, p.layer === L);
   for (const e of G.fx) sync(e, makeFx, updFx, e.layer === L);
-  syncBikes(L); syncGraves(L);
+  syncBikes(L); syncHelis(L); syncGraves(L);
   for (const p of G.qpings || []) sync(p, makePing, updPing, p.layer === L);
   sweep();
   syncFeast();
@@ -744,6 +826,23 @@ function drawMap(mctx, W, ms, big) {
     mctx.save(); mctx.translate(k.x * S, k.y * S); mctx.rotate(k.face);
     mctx.fillStyle = k.rider ? '#f2ead6' : '#ff9a3c'; mctx.strokeStyle = '#1a120a'; mctx.lineWidth = 1;
     mctx.fillRect(-4, -2, 8, 4); mctx.strokeRect(-4, -2, 8, 4); mctx.restore();
+  }
+  // Helipads (an H on a dark square) and helicopters: a rotor cross, white while someone's flying it.
+  // Flying ones show from further away: you can hear them coming.
+  if (h.layer === 0) {
+    for (const p of world.helis || []) {
+      const x = p.x * S, y = p.y * S;
+      mctx.fillStyle = '#2d302b'; mctx.strokeStyle = '#e6c94a'; mctx.lineWidth = 1.2;
+      mctx.fillRect(x - 5, y - 5, 10, 10); mctx.strokeRect(x - 5, y - 5, 10, 10);
+      mctx.fillStyle = '#f2ead6'; mctx.fillRect(x - 3, y - 3, 1.6, 6); mctx.fillRect(x + 1.4, y - 3, 1.6, 6); mctx.fillRect(x - 3, y - 0.8, 6, 1.6);
+    }
+    for (const k of G.helis || []) {
+      if (k.gone || k === G.human.heli || hyp(k.x - h.x, k.y - h.y) > (k.air ? 2400 : 1500)) continue;
+      mctx.save(); mctx.translate(k.x * S, k.y * S); mctx.rotate(k.face + k.blade * 0.2);
+      mctx.strokeStyle = '#1a120a'; mctx.lineWidth = 3.4; mctx.beginPath(); mctx.moveTo(-7, 0); mctx.lineTo(7, 0); mctx.moveTo(0, -7); mctx.lineTo(0, 7); mctx.stroke();
+      mctx.strokeStyle = k.pilot ? '#f2ead6' : '#b9c98a'; mctx.lineWidth = 1.8; mctx.stroke();
+      mctx.restore();
+    }
   }
   // Players you've seen in the last few seconds (fading), on your layer
   if (G.human.alive && G.mode === 'play') for (const f of G.fighters) {

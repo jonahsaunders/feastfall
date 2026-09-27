@@ -403,6 +403,23 @@ function genWorld(seed, size = 4800, type = 'mixed') {
     if (world.bikes.some(b => hyp(b.x - x, b.y - y) < 700) || world.lavas.some(p => hyp(p.x - x, p.y - y) < p.r + 200)) continue;
     world.bikes.push({ x, y, face: rr(0, 6.28) });
   }
+  // Helipads, each with an attack helicopter (1 on Standard, 2 on Large, 3 on Huge): the flattest spot of a few hundred
+  // tries, well apart and away from the pit. Trees and rocks on the pad are cut down to stumps.
+  world.helis = [];
+  for (let n = 0; n < Math.floor(A * 1.5); n++) {
+    let best = null;
+    for (let t = 0; t < 300; t++) {
+      const x = rr(400, WORLD - 400), y = rr(400, WORLD - 400);
+      if (biomeAt(x, y) === 3 || (world.sea && [[0, 0], [90, 0], [-90, 0], [0, 90], [0, -90]].some(([a, b]) => seaAt(x + a, y + b))) || hyp(x - PIT.x, y - PIT.y) < PIT.r + 400) continue;
+      if (world.helis.some(p => hyp(p.x - x, p.y - y) < 1200) || world.bikes.some(b => hyp(b.x - x, b.y - y) < 200) || world.lavas.some(p => hyp(p.x - x, p.y - y) < p.r + 300)) continue;
+      if (world.ruins.some(r => hyp(r.x - x, r.y - y) < 300) || world.entrances.some(e => hyp(e.x - x, e.y - y) < 200) || world.landmarks.some(m => m.layer === 0 && hyp(m.x - x, m.y - y) < 400)) continue;
+      const fl = flatness(x, y, 75) + (clear(x, y, 110) ? 0 : 4);
+      if (!best || fl < best.fl) best = { x, y, fl };
+    }
+    if (!best || best.fl > 30) continue;
+    for (const o of nearObjs(best.x, best.y, 140)) if (o.kind !== 'reed' && hyp(o.x - best.x, o.y - best.y) < 100 + o.r) o.amt = 0;
+    world.helis.push({ x: best.x, y: best.y, face: rr(0, 6.28) });
+  }
   world.ground = renderGround();
 }
 const LANDMARKS = {

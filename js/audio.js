@@ -91,6 +91,9 @@ const Sfx = (() => {
     door_shut: d => { tone(110, 0.12, 'triangle', 0.3, 70, 0, d); noise(0.07, 800, 1.2, 0.25, 'lowpass', 0, d); },
     revive: d => { for (let i = 0; i < 4; i++) tone(392 * Math.pow(1.26, i), 0.22, 'sine', 0.14, 0, i * 0.09, d); },
     down: d => { tone(330, 0.3, 'triangle', 0.14, 0, 0, d); tone(247, 0.5, 'triangle', 0.14, 0, 0.22, d); },
+    gun: d => { noise(0.07, 1600, 0.8, 0.5, 'lowpass', 300, d); tone(110, 0.07, 'square', 0.12, 60, 0, d); },
+    rocket: d => { noise(0.7, 900, 0.7, 0.45, 'bandpass', 3200, d); tone(160, 0.25, 'sawtooth', 0.1, 70, 0, d); },
+    beep: d => { tone(1180, 0.12, 'square', 0.07, 0, 0, d); },
     streak: d => { tone(523, 0.1, 'square', 0.07, 0, 0, d); tone(784, 0.12, 'square', 0.07, 0, 0.09, d); tone(1047, 0.3, 'triangle', 0.08, 0, 0.18, d); },
   };
   // Positional: sounds fade with distance from whoever you're watching, and pan left or right
@@ -199,6 +202,38 @@ const Sfx = (() => {
     }
     for (const [id, v] of eng) if (!seen.has(id)) { v.g.gain.setTargetAtTime(0, t, 0.08); v.o1.stop(t + 0.5); v.o2.stop(t + 0.5); eng.delete(id); }
   }
+  // Helicopter rotors: looping noise through a low-pass, pulsed by a low oscillator (the blade slap), plus a turbine whine
+  const rot = new Map();
+  function rotors(list) {
+    if (!ac) return;
+    const t = ac.currentTime, seen = new Set();
+    for (const e of list) {
+      let v = rot.get(e.id);
+      if (!v) {
+        const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+        const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 260; f.Q.value = 1.4;
+        const chop = ac.createGain(); chop.gain.value = 0.5;
+        const lfo = ac.createOscillator(), lfoG = ac.createGain(); lfo.type = 'sine'; lfo.frequency.value = 4; lfoG.gain.value = 0.5;
+        lfo.connect(lfoG); lfoG.connect(chop.gain);
+        const whine = ac.createOscillator(), wg = ac.createGain(); whine.type = 'triangle'; whine.frequency.value = 600; wg.gain.value = 0;
+        const g = ac.createGain(); g.gain.value = 0;
+        src.connect(f); f.connect(chop); chop.connect(g); whine.connect(wg); wg.connect(g);
+        const p = ac.createStereoPanner ? ac.createStereoPanner() : null;
+        if (p) { g.connect(p); p.connect(master); } else g.connect(master);
+        src.start(); lfo.start(); whine.start();
+        rot.set(e.id, v = { src, f, lfo, whine, wg, g, p });
+      }
+      seen.add(e.id);
+      const [gain, pan] = place(e.x, e.y, e.z, 1800), s = e.rotor;
+      v.lfo.frequency.setTargetAtTime(3 + s * 10, t, 0.3);
+      v.f.frequency.setTargetAtTime(180 + s * 320, t, 0.3);
+      v.whine.frequency.setTargetAtTime(500 + s * 700, t, 0.4);
+      v.wg.gain.setTargetAtTime(0.015 * s, t, 0.3);
+      v.g.gain.setTargetAtTime(gain * s * (e.mine ? 0.45 : 0.9), t, 0.1);
+      if (v.p) v.p.pan.setTargetAtTime(pan, t, 0.1);
+    }
+    for (const [id, v] of rot) if (!seen.has(id)) { v.g.gain.setTargetAtTime(0, t, 0.15); for (const n of [v.src, v.lfo, v.whine]) n.stop(t + 0.8); rot.delete(id); }
+  }
   function setVolume(v) { vol = v; if (master) master.gain.setTargetAtTime(v, ac.currentTime, 0.05); }
-  return { start, play, step, engines, update, music, say, setVoice, setVolume, get intensity() { return mus; } };
+  return { start, play, step, engines, rotors, update, music, say, setVoice, setVolume, get intensity() { return mus; } };
 })();

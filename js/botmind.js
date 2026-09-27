@@ -65,7 +65,7 @@ function perceive(b) {
     if (o.hidden && d > 55) continue;
     cand.push([o, d]);
     // footsteps: someone moving close by, not sneaking, gets heard even out of sight
-    if (d < 170 * L.hear && !o.sneak && !(o.net && o.net.sn) && hyp(o.mx || 0, o.my || 0) > 0.1 && !o.bike) remember(b, o, false, o.x + rr(-30, 30), o.y + rr(-30, 30));
+    if (d < 170 * L.hear && !o.sneak && !(o.net && o.net.sn) && hyp(o.mx || 0, o.my || 0) > 0.1 && !o.bike && !o.heli) remember(b, o, false, o.x + rr(-30, 30), o.y + rr(-30, 30));
   }
   cand.sort((p, q) => p[1] - q[1]);
   let checks = 0;
