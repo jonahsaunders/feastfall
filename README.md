@@ -6,146 +6,45 @@
 
 **A first-person, low-poly battle royale about towers, traps, feasts and long falls.**
 
-Runs in the browser or as a Windows app. Up to 99 other fighters. One survivor.
+Runs in the browser or as a Windows app. Up to 99 other fighters. One survivor, or one squad.
 
 [![Latest release](https://img.shields.io/github/v/release/jonahsaunders/feastfall?label=download&color=e0763a)](https://github.com/jonahsaunders/feastfall/releases/latest)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20browser-3d5a45)
 ![Built with](https://img.shields.io/badge/built%20with-three.js%20r128%20%C2%B7%20Electron-2b2b2b)
 ![No assets](https://img.shields.io/badge/asset%20files-0-c9a227)
 
-[**Download**](https://github.com/jonahsaunders/feastfall/releases/latest) · [Play in the browser](#in-the-browser-solo-no-install) · [Play online](#in-the-browser-online-with-friends) · [Controls](#controls) · [How it's built](#how-its-built)
+[**Download**](https://github.com/jonahsaunders/feastfall/releases/latest) · [Features](#features) · [Play online](#in-the-browser-online-with-friends) · [Controls](#controls) · [How it's built](#how-its-built)
 
 <img src="docs/screenshots/tower.jpg" alt="Looking down from a plank pillar over the forest edge and a desert ruin, with bots below" width="100%">
 
 </div>
 
-Drop into a freshly generated forest, desert, mountain and swamp map, gather and craft, build towers and traps, and be the last one standing. There's no mindless pointing: you win by reading the map, managing potions and using height.
+Drop into a freshly generated map of forest, desert, mountains and swamp. Gather and craft, build towers, forts and traps, and be the last one standing. You win by reading the map, managing potions and using height, not just by clicking first.
+
+> [!TIP]
+> **New in 0.10:** [duos](#play-together) with revives, the [play of the match](#replays-and-the-end-screen), doors, trapdoors, stairs and slabs, kill feed icons and gravestones, a full-screen map, combat music and an announcer. See the [release notes](https://github.com/jonahsaunders/feastfall/releases/latest).
+
+## Quick start
+
+- **Windows:** download the installer or the portable `.exe` from the [latest release](https://github.com/jonahsaunders/feastfall/releases/latest) and run it.
+- **Browser:** serve this folder (`npx serve .`) and open it in a desktop browser. [More](#in-the-browser-solo-no-install)
+- **With friends:** `npm install` then `npm start`, and everyone opens the address it prints. [More](#in-the-browser-online-with-friends)
+
+Chop a tree (hold **E**), open the inventory (**Tab**), craft a Wood Sword, and find potions in the swamp before PvP turns on at 02:00. Press **M** for the map.
 
 ## Features
 
+### The match
+
+A 60-minute match runs from dawn to night. How long that takes in real time is up to you (5 to 60 minutes, in Options).
+
 <table>
 <tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/forest.jpg" alt="First-person view in the forest with a stone sword, facing three fighters">
-<p><b>Four ways to play.</b> Hunt people, mine rats in the tunnels for armour, set spike traps near the swamp, or tower up.</p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/pillar.jpg" alt="A fighter standing on top of a tall plank pillar, seen from the ground">
-<p><b>Towers and falls.</b> Craft planks and cobblestone, place blocks, pillar-jump up and shoot from above. Fall damage is real, so knockback, grappling hooks and lightning all bring towers down.</p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/inventory.jpg" alt="The inventory and crafting screen">
-<p><b>Gather and craft.</b> Chop trees, break rocks, cut reeds and mine iron, then turn them into swords, bows, armour, blocks, ladders and traps.</p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/crowsnest.jpg" alt="The Crow's Nest, a tall cobblestone spire with a beam of light">
-<p><b>Five legendary items</b>, one of each per match, each waiting at its own landmark under a beam of light. See <a href="#legendaries">Legendaries</a>.</p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/pit.jpg" alt="Night in the pit under the stars, surrounded by fighters">
-<p><b>A 60-minute match from dawn to night.</b> Grace period, a feast at 25:00 with the best gear, dusk around 45:00, and at 60:00 everyone left is dropped into the pit under the stars.</p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/spectate.jpg" alt="Third-person spectator camera following a bot through the forest">
-<p><b>After you die:</b> spectate whoever's left, and see your damage dealt, blocks placed, longest fall and potions drunk. The menu keeps your lifetime record.</p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/titan.jpg" alt="A Titan, more than twice normal size, towering over two other fighters">
-<p><b>Titan kit.</b> Grow to more than twice your size for 8 seconds: longer reach, heavier hits, no knockback or fall damage, and landing from a jump throws everyone near you. You're also much easier to hit.</p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/lava.jpg" alt="A fighter burning in poured lava next to a lava pool, with lava and water buckets on the hotbar">
-<p><b>Water and lava buckets.</b> Fill a bucket from swamp water or a lava pool. Pour lava on people to set them on fire. Pour water under you just before you land and you take no fall damage. Where water meets lava, it hardens into stone.</p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/supply.jpg" alt="A supply crate drifting down on an orange parachute along a blue beam">
-<p><b>Supply drops.</b> Three per match, each announced three minutes ahead and marked in blue on the map. The crate parachutes down with iron swords, feast armour and buckets, and everyone can see the beam.</p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/replay.jpg" alt="Death replay: the killer's sword swing, seen from over their shoulder">
-<p><b>Death replay.</b> When you die, the last few seconds play back over your killer's shoulder, slowing down for the final blow. Skip it with Space, or watch it again from the end screen.</p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/bike.jpg" alt="Riding a motorcycle at 72 km/h through the forest, with a bot riding alongside">
-<p><b>Motorcycles.</b> Nearly three times as fast as running, and just as easy to wreck. Hit a tree at full speed and it can kill you, getting off at speed hurts, hard landings hurt, and a smoking bike is about to explode. Run people over, crest a dune and fly, or loot by driving over drops.</p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/pitfall.jpg" alt="A fighter stuck chest-deep in a pitfall, with another pitfall set in the ground nearby">
-<p><b>Pitfalls.</b> A trapdoor that passes for the ground. Whoever steps on it drops chest-deep into a hole, takes 3 damage and is stuck for 2.5 seconds. Yours show up in brown; other people's you have to spot.</p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/duos.jpg" alt="Duos: standing at a partner's gravestone inside a green ring, with a Hold E to revive prompt">
-<p><b>Duos.</b> Play in squads of two, with a bot partner solo or a friend online. Partners can't hurt each other, see each other through walls and on the map, and when one goes down the other has 15 seconds to hold E at the gravestone and bring them back.</p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/pom.jpg" alt="Play of the match: a triple kill replayed from over the player's shoulder">
-<p><b>Play of the match.</b> The best kill of the match (multi-kills, streaks, long shots, bounties, pitfalls, road kills, clutch kills on low health, the winning blow) is replayed over the shoulder of whoever made it. It plays after a win, and the end screen always has it.</p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/building.jpg" alt="A small cobblestone fort with an open door, wooden stairs and a slab walkway">
-<p><b>Doors, trapdoors, stairs and slabs.</b> Doors and trapdoors open and shut with E or right-click, and bots open them too. Put a trapdoor over a hole or a ladder shaft. Stairs and slabs can be walked up without jumping, so you can build ramps and forts.</p>
-</td>
-<td width="50%" valign="top">
-<img src="docs/screenshots/graves.jpg" alt="Gravestones with names, and a kill feed with weapon icons">
-<p><b>Kill feed icons and gravestones.</b> The feed shows how each person died: the weapon, a bow, a fall, fire, a pitfall, a spike or blast trap, lightning, a motorcycle and more. A gravestone marks where they fell, with who got them.</p>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<img src="docs/screenshots/bigmap.jpg" alt="The full-screen map with a grid, landmark names, a duos partner and a supply drop">
-<p><b>Full-screen map.</b> Press M for the whole map with a grid (A–H, 1–8), landmark and feast names, your partner, supply drops, lava and bikes.</p>
-</td>
-<td width="50%" valign="top">
-<p><b>Music that follows the fight, and an announcer.</b> Drums and bass build up when enemies are close, when you're in a fight, in the pit and when only a few are left, and drop back when you hide in a disguise or sneak. An announcer calls "Fight!", the feast, supply drops, bounties, how many players are left, the pit, night falling, your streaks, revenge and victory. Turn the voice off in Options.</p>
-</td>
+<td width="33%" valign="top"><img src="docs/screenshots/supply.jpg" alt="A supply crate drifting down on an orange parachute along a blue beam"><br><sub><b>Supply drops.</b> Three a match, announced three minutes ahead and marked in blue on the map.</sub></td>
+<td width="33%" valign="top"><img src="docs/screenshots/crowsnest.jpg" alt="The Crow's Nest, a tall cobblestone spire with a beam of light"><br><sub><b>Five legendaries,</b> one of each per match, each at its own landmark under a beam of light. See <a href="#legendaries">Legendaries</a>.</sub></td>
+<td width="33%" valign="top"><img src="docs/screenshots/pit.jpg" alt="Night in the pit under the stars, surrounded by fighters"><br><sub><b>The pit.</b> At 60:00, everyone left is dropped into an arena under the stars.</sub></td>
 </tr>
 </table>
-
-- **Map types.** Mixed, Islands (a ring of islands in a shallow sea you wade across), Desert (sand, dunes and a few oases), Winter (snowed-in pine forest and big mountain ranges), or Random. Pick one in Options, or as host in an online match.
-- **Caves** cut into every mountain range: a stone arch on the surface (a grey peak on the map) leads to a dead-end cave with extra iron and a chest at the end.
-- **Bots with personalities.** Cowards run, campers dig in near places people visit, rushers chase whoever's closest, looters go for chests and death bags. They talk too, in speech bubbles and the feed when you're close. Choose Easy, Normal or Brutal bots.
-- **Bots that play fair and think.**
-  - They only see what's in their line of sight: hills, trees, rocks and walls hide you.
-  - They hear swings, fights, arrows, building, chopping, explosions, engines and footsteps. Sneaking is silent.
-  - They remember where they last saw you and come to check.
-  - They take a moment to react when they first spot you.
-  - They find their way around obstacles.
-  - In a fight, they aim ahead of you when you're moving, back off behind cover to drink when they're hurt, and pick on whoever's weakest or already fighting someone else.
-  - They avoid being outnumbered.
-  - If you camp up a tower, they shoot you down or build their own pillar right next to it.
-- **Rivals.** A bot that kills you remembers you. It comes back in your next solo matches with a ☠ by its name and hunts you down. Beat it for 75 bonus coins; beat it twice and it's gone.
-- **Emotes and quick chat.** Hold **C** for a wheel: wave, taunt, dance or cheer, or call out "Help!", "Enemy here!", "On my way", "Loot here", "Thanks!" or "Good game". Anyone within about 44 blocks hears you, and some lines ping a spot on their map.
-- **Assists.** Anyone who did 2 or more damage in the last 15 seconds gets an assist in the kill feed, and 20 coins if it's you.
-- **See who's around.** Red markers float over anyone within about 50 blocks, even when they're too far away to make out. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and the Hidden kit's disguises still keep you hidden.
-- **Footsteps you can place.** Everyone walking makes noise, panned left or right, and louder on stone and planks than on grass, sand or snow. Sneaking is silent, and you can hear a Titan coming from far off.
-- **Bounties.** Once someone has 3 or more kills and leads the match, they get a bounty. Everyone's map shows where they are every 30 seconds, they get a gold marker and a ★ by their name, and killing them pays 50 coins plus 25 per kill they had.
-- **Kill streaks.** Double and triple kills, killing sprees, and special kills (Knocked off, Burned, Long shot, Pitfall) get called out in the feed. Your own streaks earn bonus coins.
-- **Bots team up.** Bots near each other sometimes form an alliance of two or three (a matching colour square by their names). Allies stick together and join each other's fights, and sooner or later one turns on the other.
-- **Motorcycles** are parked around the map (orange on the minimap when you're close). Swamp, sand and snow slow them down, spike traps shred the tyres, launch pads send them flying, and pitfalls wreck them. Bots ride them too.
-- **29 kits** with 8 free each week (see [Kits](#kits)).
-- **Lava pools** glow in the mountains and deserts (orange on the map). They burn anyone who walks in, and they fill buckets forever.
-- **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, and you climb a ladder to reach them.
-- **Ladders.** Craft them, lean them against a wall and climb. No fall damage while you're on one.
-- **A new map every match.** Mountain ranges, deserts, swamps, ruins, landmarks and feast sites are placed at random from the match seed, in three sizes: Standard, Large (default) and Huge.
-- **Duos online:** the host picks Solo or Duos. Players are paired with each other first, then with bots.
-- **Online multiplayer** for up to 16 players plus bots, through a small relay server included here. The desktop app runs that server for you.
-- **Everything is generated in code:** the low-poly world, the item icons and the ambient music and sound effects. There are no asset files.
-
-### A match, minute by minute
 
 | Clock | What happens |
 | --- | --- |
@@ -157,7 +56,132 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 | ~31:00 | The second supply drop |
 | ~45:00 | Dusk. Names get harder to read from a distance |
 | ~47:00 | The last supply drop |
-| 60:00 | Night. Everyone left is dropped into the pit. Last one standing wins |
+| 60:00 | Night. Everyone left is dropped into the pit. Last one (or last squad) standing wins |
+
+- **A new map every match.** Mountain ranges, deserts, swamps, ruins, landmarks and feast sites are placed from the match seed, in three sizes: Standard, Large (default) and Huge. There are also four [map types](#map-types).
+- **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, up a ladder.
+- **Caves** cut into every mountain range: a stone arch on the surface (a grey peak on the map) leads to a dead-end cave with extra iron and a chest.
+- **Lava pools** glow in the mountains and deserts (orange on the map). They burn anyone who walks in, and they fill buckets forever.
+
+### Fight
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/forest.jpg" alt="First-person view in the forest with a stone sword, facing three fighters">
+<p><b>Four ways to play.</b> Hunt people, mine rats in the tunnels for armour, set spike traps near the swamp, or tower up. Pick from 29 <a href="#kits">kits</a>, 8 of them free each week.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/titan.jpg" alt="A Titan, more than twice normal size, towering over two other fighters">
+<p><b>Titan kit.</b> Grow to more than twice your size for 8 seconds: longer reach, heavier hits, no knockback or fall damage, and landing from a jump throws everyone near you. You're also much easier to hit.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/lava.jpg" alt="A fighter burning in poured lava next to a lava pool, with lava and water buckets on the hotbar">
+<p><b>Water and lava buckets.</b> Pour lava on people to set them on fire. Pour water under you just before you land and you take no fall damage. Where water meets lava, it hardens into stone.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/bike.jpg" alt="Riding a motorcycle at 72 km/h through the forest, with a bot riding alongside">
+<p><b>Motorcycles.</b> Nearly three times as fast as running, and just as easy to wreck. Hit a tree at full speed and it can kill you, getting off at speed hurts, and a smoking bike is about to explode. Run people over, or crest a dune and fly.</p>
+</td>
+</tr>
+</table>
+
+- **Bounties.** Once someone has 3 or more kills and leads the match, everyone's map shows where they are every 30 seconds, and killing them pays 50 coins plus 25 per kill they had.
+- **Kill streaks.** Double and triple kills, killing sprees and special kills (Knocked off, Burned, Long shot, Pitfall, Road kill) are called out. Your own earn bonus coins.
+- **Assists.** Anyone who did 2 or more damage in the last 15 seconds gets an assist in the kill feed, and 20 coins if it's you.
+- **See who's around.** Red markers float over anyone within about 50 blocks. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and disguises still hide you.
+- **Motorcycles** are parked around the map (orange on the minimap when you're close). Swamp, sand and snow slow them down, spike traps shred the tyres, launch pads send them flying and pitfalls wreck them. Bots ride them too.
+
+### Build and trap
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/pillar.jpg" alt="A fighter standing on top of a tall plank pillar, seen from the ground">
+<p><b>Towers and falls.</b> Place blocks, pillar-jump up and shoot from above. Fall damage is real, so knockback, grappling hooks and lightning all bring towers down.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/building.jpg" alt="A small cobblestone fort with an open door, wooden stairs and a slab walkway">
+<p><b>Doors, trapdoors, stairs and slabs.</b> Doors and trapdoors open and shut with E or right-click, and bots open them too. Put a trapdoor over a hole or a ladder shaft. Walk straight up stairs and slabs to build ramps and forts.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/inventory.jpg" alt="The inventory and crafting screen">
+<p><b>Gather and craft.</b> Chop trees, break rocks, cut reeds and mine iron, then make swords, bows, armour, blocks, ladders, buckets and traps.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/pitfall.jpg" alt="A fighter stuck chest-deep in a pitfall, with another pitfall set in the ground nearby">
+<p><b>Pitfalls.</b> A trapdoor that passes for the ground. Whoever steps on it drops chest-deep into a hole, takes 3 damage and is stuck for 2.5 seconds. Yours show up in brown; other people's you have to spot.</p>
+</td>
+</tr>
+</table>
+
+- **Ladders.** Lean them against a wall and climb. No fall damage while you're on one.
+- **Spike traps** anyone can make; Tripwire, Snare and Updraft get blast traps, fake ground and launch pads.
+
+### Play together
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/duos.jpg" alt="Duos: standing at a partner's gravestone inside a green ring, with a Hold E to revive prompt">
+<p><b>Duos.</b> Squads of two, with a bot partner solo or a friend online. Partners can't hurt each other and see each other through walls and on the map. When one goes down, the other has 15 seconds to hold E at the gravestone and bring them back.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/bigmap.jpg" alt="The full-screen map with a grid, landmark names, a duos partner and a supply drop">
+<p><b>Full-screen map.</b> Press M for the whole map with a grid (A–H, 1–8), landmark and feast names, your partner, supply drops, lava and bikes. Handy for calling out where to meet.</p>
+</td>
+</tr>
+</table>
+
+- **Online multiplayer** for up to 16 players plus bots, through a small relay server included here. The desktop app runs that server for you. The host picks Solo or Duos; players are paired with each other first, then with bots.
+- **Private matches, spectating and rematches.** Share a five-character code, watch a match that's already running, and start the next one with everyone still in the room.
+- **Emotes and quick chat.** Hold **C** for a wheel: wave, taunt, dance or cheer, or call out "Help!", "Enemy here!", "On my way", "Loot here", "Thanks!" or "Good game". Anyone within about 44 blocks hears you (your duos partner always does), and some lines ping a spot on their map.
+
+### Bots
+
+Bots fill out every match and play by the same rules you do. Choose Easy, Normal or Brutal.
+
+- **They play fair.** They only see what's in their line of sight: hills, trees, rocks and walls hide you. They hear swings, fights, arrows, building, chopping, explosions, engines and footsteps, but not sneaking. They take a moment to react when they first spot you.
+- **They think.** They remember where they last saw you and come to check, find their way around obstacles and through doors, aim ahead of you when you're moving, back off behind cover to drink when they're hurt, and avoid being outnumbered. Camp up a tower and they shoot you down or build their own pillar next to it.
+- **They have personalities.** Cowards run, campers dig in near places people visit, rushers chase whoever's closest, looters go for chests and death bags. They talk too, in speech bubbles and the feed.
+- **Rivals.** A bot that kills you remembers you. It comes back in your next solo matches with a ☠ by its name and hunts you down. Beat it for 75 bonus coins; beat it twice and it's gone.
+- **Alliances.** Outside duos, bots near each other sometimes team up for a while (a matching colour square by their names), and sooner or later one turns on the other.
+
+### Replays and the end screen
+
+<table>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/pom.jpg" alt="Play of the match: a triple kill replayed from over the player's shoulder">
+<p><b>Play of the match.</b> The best kill of the match (multi-kills, streaks, long shots, bounties, pitfalls, road kills, low-health clutches, the winning blow) is replayed over the shoulder of whoever made it. It plays after a win, and the end screen always has it.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/replay.jpg" alt="Death replay: the killer's sword swing, seen from over their shoulder">
+<p><b>Death replay.</b> When you die, the last few seconds play back over your killer's shoulder, slowing down for the final blow. Skip it with Space, or watch it again from the end screen.</p>
+</td>
+</tr>
+<tr>
+<td width="50%" valign="top">
+<img src="docs/screenshots/graves.jpg" alt="Gravestones with names, and a kill feed with weapon icons">
+<p><b>Kill feed icons and gravestones.</b> The feed shows how each person died: the weapon, a bow, a fall, fire, a pitfall, a trap, lightning, a motorcycle and more. A gravestone marks where they fell, with who got them.</p>
+</td>
+<td width="50%" valign="top">
+<img src="docs/screenshots/spectate.jpg" alt="Third-person spectator camera following a bot through the forest">
+<p><b>After you die:</b> spectate whoever's left, and see your place, kills, damage dealt, blocks placed and longest fall. The menu keeps your lifetime record.</p>
+</td>
+</tr>
+</table>
+
+### Sound
+
+- **Music that follows the fight.** A quiet ambient score changes with where you are. Drums and bass build up when enemies are close, when you're in a fight, in the pit and in the final few, and drop back when you hide or sneak.
+- **An announcer** calls "Fight!", the feast, supply drops, bounties, how many players are left, the pit, night falling, your streaks, revenge and victory. Turn it off in Options.
+- **Footsteps you can place.** Everyone walking makes noise, panned left or right and louder on stone and planks than on grass, sand or snow. You can hear a Titan coming from far off.
+- **Everything is generated in code:** the low-poly world, the item icons, the music and the sound effects. There are no asset files.
 
 ### Map types
 
