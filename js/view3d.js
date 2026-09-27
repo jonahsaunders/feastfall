@@ -420,7 +420,7 @@ function syncBikes(L) {
 // ---- attack helicopters: olive drab, tandem glass cockpit (gunner in front, pilot behind and higher), stub wings
 // with rocket pods, a chin gun that follows the gunner's aim, four main blades and a tail rotor ----
 const HMAT = { paint: lam('#66733c'), dark: lam('#3a4020'), rotor: lam('#26241f'), glass: lam('#9fc3d6', { transparent: true, opacity: 0.4, depthWrite: false }) };
-FG.blade = new T.BoxGeometry(HELI.rotorR, 1.6, 9).translate(HELI.rotorR / 2, 0, 0);
+FG.rotorBlade = new T.BoxGeometry(HELI.rotorR, 1.6, 9).translate(HELI.rotorR / 2, 0, 0);
 FG.tailBlade = new T.BoxGeometry(3, 34, 1.5);
 FG.rotorDisc = new T.CircleGeometry(HELI.rotorR, 32).rotateX(-Math.PI / 2);
 FG.heliWheel = new T.CylinderGeometry(6, 6, 4, 10).rotateX(Math.PI / 2);
@@ -447,7 +447,7 @@ function makeHeli() {
   m(FG.heliWheel, rm, -150, 6, 0);
   m(new T.CylinderGeometry(3, 4, 14, 6), dark, 8, 66, 0);                          // mast
   const rotor = new T.Group(); rotor.position.set(8, 74, 0); body.add(rotor);
-  for (let q = 0; q < 4; q++) { const b = m(FG.blade, rm, 0, 0, 0, rotor); b.rotation.y = q * Math.PI / 2; }
+  for (let q = 0; q < 4; q++) { const b = m(FG.rotorBlade, rm, 0, 0, 0, rotor); b.rotation.y = q * Math.PI / 2; }
   m(new T.SphereGeometry(5, 8, 5), dark, 0, 0, 0, rotor);
   const disc = new T.Mesh(FG.rotorDisc, new T.MeshBasicMaterial({ color: 0x26241f, transparent: true, opacity: 0.12, depthWrite: false, side: T.DoubleSide }));
   disc.position.set(8, 74, 0); body.add(disc);
