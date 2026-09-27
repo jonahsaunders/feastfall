@@ -3,11 +3,11 @@
 // Everyone simulates their own player and shares it through presence (~10 Hz). The host also runs
 // the bots, the clock, potions, feast chests and item pickups. Hits, block edits, deaths and item
 // changes travel as room messages; the machine that simulates a fighter applies damage to it.
-const NET_TOPICS = ['start', 'hit', 'kill', 'blk', 'res', 'fx', 'item', 'drop', 'got', 'clock', 'end', 'chat'];
+const NET_TOPICS = ['start', 'hit', 'kill', 'blk', 'res', 'fx', 'item', 'drop', 'got', 'clock', 'end', 'chat', 'snapreq', 'snap'];
 const MAX_ONLINE_BOTS = 45;
 const NET = {
   on: false, lobby: null, match: null, me: 'me', hostPeer: null, code: null, roster: [], denied: false,
-  outBlk: [], outRes: [], sendT: 0, clockT: 0,
+  outBlk: [], outRes: [], sendT: 0, clockT: 0, priv: false, watch: false, pending: false, queue: [], cfg: null, blkLog: new Map(), snapParts: null,
   isHost() { return !this.on || this.hostPeer === this.me; },
   send(topic, data) {
     if (!this.match) return;
@@ -17,8 +17,8 @@ const NET = {
   },
   // ---- called by the game ----
   hit(t, m) { if (this.on) this.send('hit', { to: t.id, ...m }); },
-  kill(t, killer, fell) { if (this.on) this.send('kill', { v: t.id, k: killer ? killer.id : null, f: fell ? 1 : 0 }); },
-  blk(op) { if (this.on) this.outBlk.push(op); },
+  kill(t, killer, fell, assists = []) { if (this.on) this.send('kill', { v: t.id, k: killer ? killer.id : null, f: fell ? 1 : 0, a: assists.map(a => a.id) }); },
+  blk(op) { if (this.on) { this.outBlk.push(op); logBlk([op]); } },
   res(o) { if (this.on) this.outRes.push([o.kind === 'ore' ? 1 : 0, (o.kind === 'ore' ? world.ores : world.objs).indexOf(o), o.amt]); },
   fx(d) { if (this.on) this.send('fx', d); },
   itemAdd(it) { if (this.on) this.send('item', { add: [packItem(it)] }); },
@@ -28,6 +28,8 @@ const NET = {
   got(f, stacks) { if (this.on) this.send('got', { to: f.id, s: stacks }); },
   end(w) { if (this.on && !G.endSent) { G.endSent = true; this.send('end', { w: w.id }); onEnd({ w: w.id }); } },
 };
+// Every block change this match, latest per cell, so someone who starts watching late can be caught up
+function logBlk(ops) { for (const op of ops) if (Array.isArray(op)) NET.blkLog.set(op[0] + ',' + op[1] + ',' + op[2], op); }
 const packItem = it => ({ id: it.id, k: it.kind, x: Math.round(it.x), y: Math.round(it.y), z: Math.round(it.z), l: it.layer, s: it.stacks, np: it.noPick || null });
 const unpackItem = d => ({ id: d.id, kind: d.k, x: d.x, y: d.y, z: d.z, layer: d.l, stacks: d.s, noPick: d.np, noPickT: G.t + 1.2 });
 
@@ -39,8 +41,8 @@ function netTick(dt) {
   if (NET.outRes.length && NET.sendT <= 0) { NET.send('res', { r: NET.outRes.slice(0, 200) }); NET.outRes = []; }
   if (NET.sendT > 0) return;
   NET.sendT = 0.1;
-  const h = G.human, s = packFighter(h);
-  const patch = { s };
+  const h = G.human, patch = {};
+  if (!G.watching) patch.s = packFighter(h); // spectators aren't in the match
   if (NET.isHost()) {
     patch.b = [];
     for (const b of G.fighters) if (b.bot && !b.isClone && b.id[0] === 'b') patch.b.push(...packFighter(b));
@@ -52,7 +54,7 @@ function netTick(dt) {
 // x, y, z, face, hp, flags, weapon tier, armour mask, swing count, kills
 function packFighter(f) {
   const flags = (f.alive ? 1 : 0) | (f.layer ? 2 : 0) | (f.hidden ? 4 : 0) | (f.sneak ? 8 : 0) | (f.charge >= 0 ? 16 : 0) | (['bush', 'rock', 'snowrock', 'cactus'].indexOf(f.disguise) << 5)
-    | (f.titanT > 0 ? 128 : 0) | (f.burnT > 0 ? 256 : 0) | (f.pitT > 0 ? 512 : 0);
+    | (f.titanT > 0 ? 128 : 0) | (f.burnT > 0 ? 256 : 0) | (f.pitT > 0 ? 512 : 0) | ((f.emoteT > 0 ? f.emote + 1 : 0) << 10);
   return [Math.round(f.x), Math.round(f.y), Math.round(f.z), Math.round(f.face * 100), Math.round(f.hp * 10), flags, f.weapon, armorMask(f), f.swings % 100, f.kills];
 }
 function applyPacked(f, a, o) {
@@ -63,6 +65,9 @@ function applyPacked(f, a, o) {
   f.layer = fl & 2 ? 1 : 0; f.hidden = !!(fl & 4); f.sneak = f.net.sn = !!(fl & 8); f.charge = fl & 16 ? 0.5 : -1;
   f.disguise = ['bush', 'rock', 'snowrock', 'cactus'][(fl >> 5) & 3];
   f.net.titan = !!(fl & 128); f.burnNet = !!(fl & 256); f.pitNet = !!(fl & 512);
+  const em = (fl >> 10) & 7; // an emote in progress: keep it going, and show its bubble when it starts
+  if (em && EMOTES[em - 1]) { if (f.emote !== em - 1 || !(f.emoteT > 0)) { f.sayText = EMOTES[em - 1].say; f.sayT = 2; } f.emote = em - 1; f.emoteT = 0.5; }
+  else f.emoteT = 0;
   f.net.w = a[o + 6]; f.net.am = a[o + 7];
   f.net.ad = [1, 2, 4, 8].reduce((d, bit, i) => d + (f.net.am & bit ? [0.08, 0.14, 0.11, 0.07][i] * (f.net.am & 16 ? 1.45 : 1) : 0), 0);
   if (f.net.sw !== undefined && f.net.sw !== a[o + 8]) f.swingT = 0.14;
@@ -87,6 +92,13 @@ function netInterp(dt) {
 
 // ---- incoming ----
 function onPeersMatch(ch) {
+  // Joined by code: the host marks itself in the match room
+  if (!NET.hostPeer) { const h = ch.peers.find(p => !p.sameTab && p.presence && p.presence.h); if (h) NET.hostPeer = h.peer; }
+  // Joined with a code but the match is already going: watch it instead
+  if (NET.match && !NET.on && !NET.watch && NET.hostPeer && NET.hostPeer !== NET.me) {
+    const hp = ch.peers.find(p => p.peer === NET.hostPeer);
+    if (hp && hp.presence && hp.presence.live) { NET.watch = true; NET.match.presence({ w: 1 }).catch(() => {}); requestSnap(); }
+  }
   for (const p of ch.peers) {
     if (p.sameTab || !p.presence) continue;
     if (p.presence.s) applyPacked(fighterById(p.peer), p.presence.s, 0);
@@ -106,7 +118,8 @@ function onPeersMatch(ch) {
 }
 function migrateHost() {
   const ids = NET.match.peers().map(p => p.peer).filter(id => NET.roster.some(r => r.p === id)).sort();
-  NET.hostPeer = ids[0] || NET.me;
+  NET.hostPeer = ids[0] || (G.watching ? null : NET.me); // a spectator never takes over the match
+  if (NET.isHost() && NET.match) NET.match.presence({ h: 1 }).catch(() => {}); // so code-joiners can still find the match
   if (NET.isHost() && NET.on) {
     for (const f of G.fighters) if (f.bot && f.id[0] === 'b') { f.remote = false; f.plan = null; f.vz = 0; f.onGround = false; }
     toast('The host left. You are now running the bots.');
@@ -116,13 +129,15 @@ function migrateHost() {
 function wireMatch(m) {
   const H = {
     start: d => startOnline(d),
+    snapreq: (d, msg) => { if (NET.isHost() && NET.on && !G.watching) sendSnap(msg.peer); },
+    snap: d => receiveSnap(d),
     hit: d => { const t = fighterById(d.to); if (t && !t.remote) applyHit(t, d); },
     kill: (d, msg) => {
       const v = fighterById(d.v); if (!v || !v.remote) return;
-      v.deadDone = true; announceKill(v, d.k ? fighterById(d.k) : null, d.f);
+      v.deadDone = true; announceKill(v, d.k ? fighterById(d.k) : null, d.f, (Array.isArray(d.a) ? d.a : []).map(fighterById).filter(Boolean));
       addFx('puff', v.x, v.y, v.layer, { col: v.color, big: true, z: v.z + 30 });
     },
-    blk: d => applyBlockOps(d.ops || []),
+    blk: d => { applyBlockOps(d.ops || []); logBlk(d.ops || []); },
     res: d => { for (const [t, i, a] of d.r || []) { const o = (t ? world.ores : world.objs)[i]; if (o && a < o.amt) o.amt = a; } },
     fx: (d, msg) => {
       const o = fighterById(d.o);
@@ -133,6 +148,8 @@ function wireMatch(m) {
       if (d.k === 'relic' && typeof d.i === 'string') announceRelic(o, d.i);
       if (d.k === 'bk' && typeof d.i === 'string') applyBikeMsg(d);
       if (d.k === 'bkx') { const k = bikeById(d.i); if (k && !k.gone) { k.gone = true; const r = riderOf(k); if (r && r.bike === k) { if (r.remote) r.bike = null; else dismountBike(r, true); } } bikeBoomFx(d.x, d.y, d.z); }
+      if (d.k === 'bsay' && o && typeof d.t === 'string') showSay(o, d.t);
+      if (d.k === 'qc' && o && QUICK[d.q]) hearQuick(o, d.q, Array.isArray(d.p) ? { x: d.p[0], y: d.p[1], layer: d.p[2] ? 1 : 0 } : null);
       if (d.k === 'hole') addFx('hole', d.x, d.y, 0, { t: 6, z: d.z + 0.6 });
       if (d.k === 'team' && Array.isArray(d.ids)) announceTeam(d.ids, typeof d.c === 'string' ? d.c : null);
       if (d.k === 'betray' && Array.isArray(d.ids)) announceBetrayal(d.ids, fighterById(d.a), fighterById(d.v));
@@ -159,10 +176,82 @@ function wireMatch(m) {
     end: d => onEnd(d),
     chat: (d, msg) => { const f = fighterById(msg.peer); if (typeof d.t === 'string') G.feed.unshift({ txt: `${f ? f.name : 'Someone'}: ${d.t.slice(0, 80)}`, t: 10, chat: true }); },
   };
-  for (const t of NET_TOPICS) m.on(t, msg => { if (msg.sameTab) return; try { H[t](msg.data || {}, msg); } catch (e) { console.warn('net', t, e); } });
+  for (const t of NET_TOPICS) m.on(t, msg => {
+    if (msg.sameTab) return;
+    // A spectator still catching up keeps game messages until its copy of the match is built
+    if (NET.pending && t !== 'snap' && t !== 'start') { if (t !== 'snapreq') NET.queue.push([t, msg]); return; }
+    try { H[t](msg.data || {}, msg); } catch (e) { console.warn('net', t, e); }
+  });
+  NET.handlers = H;
   m.onPeers(onPeersMatch);
 }
+
+// ---- spectators: the host sends a snapshot of the match so far, in pieces under the relay's size limit ----
+function chunk(a, n) { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }
+function sendSnap(to) {
+  const res = [];
+  world.objs.forEach((o, i) => { if (o.amt !== o.a0) res.push([0, i, o.amt]); });
+  world.ores.forEach((o, i) => { if (o.amt !== o.a0) res.push([1, i, o.amt]); });
+  const head = {
+    cfg: NET.cfg, t: G.t, res, dead: G.fighters.filter(f => !f.alive && !f.isClone).map(f => f.id),
+    kills: G.fighters.filter(f => !f.isClone && f.kills).map(f => [f.id, f.kills]),
+    bikes: (G.bikes || []).map(k => [k.id, ...[k.x, k.y, k.z, k.face * 100, k.hp].map(Math.round), k.rider, k.gone ? 1 : 0]),
+    drops: (world.drops || []).map(d => d.st), feast: G.feast ? [FEAST_SITES.indexOf(G.feast.site), G.feast.state] : null,
+    pit: G.pit, bounty: G.bounty ? G.bounty.id : null,
+  };
+  const parts = [head, ...chunk([...NET.blkLog.values()], 500).map(b => ({ blk: b })), ...chunk(G.items.filter(i => !i.gone && !i.local).map(packItem), 120).map(i => ({ items: i }))];
+  parts.forEach((p, n) => NET.send('snap', { to, n, of: parts.length, p }));
+}
+function receiveSnap(d) {
+  if (d.to !== NET.me || !NET.pending || !d.p) return;
+  const s = NET.snapParts = NET.snapParts || [];
+  s[d.n] = d.p;
+  if (s.filter(Boolean).length < d.of || !s[0] || !s[0].cfg) return;
+  NET.snapParts = null;
+  startWatch(s[0].cfg, s);
+}
+// Build the match from its settings, catch up from the snapshot, then play back anything that arrived meanwhile
+function startWatch(cfg, parts = []) {
+  NET.on = true; NET.pending = false; NET.cfg = cfg; G.watching = true; NET.roster = cfg.roster || [];
+  if (cfg.host && !NET.hostPeer) NET.hostPeer = cfg.host;
+  G.settings.len = cfg.len; G.grace = 2; G.botLevel = cfg.lvl ?? 1;
+  const humans = (cfg.roster || []).map(r => {
+    const f = new Fighter(String(r.n || 'Player').slice(0, 18), KITS[r.k] ? r.k : 'killer', false, r.p);
+    f.color = /^#[0-9a-f]{6}$/i.test(r.c) ? r.c : '#f2ead6'; f.remote = true; newInv(f);
+    return f;
+  });
+  newMatch(cfg.bots, null, cfg.seed, humans, MAP_SIZES[cfg.sz] ? cfg.sz : 4800, cfg.mt || 'mixed');
+  for (const f of G.fighters) f.remote = true;
+  const me = new Fighter(LOBBY.nick || 'Watcher', 'killer', false, NET.me);
+  Object.assign(me, { alive: false, deadDone: true, x: PIT.x, y: PIT.y, z: 300 });
+  G.human = me;
+  const head = parts[0];
+  if (head) {
+    G.t = head.t || 0;
+    for (const [k, i, a] of head.res || []) { const o = (k ? world.ores : world.objs)[i]; if (o) o.amt = a; }
+    for (const id of head.dead || []) { const f = fighterById(id); if (f) { f.alive = false; f.deadDone = true; } }
+    for (const [id, n] of head.kills || []) { const f = fighterById(id); if (f) f.kills = n; }
+    for (const [id, x, y, z, fc, hp, r, gone] of head.bikes || []) { const k = bikeById(id); if (k) Object.assign(k, { x, y, z, face: fc / 100, hp, rider: r || null, gone: !!gone }); }
+    (head.drops || []).forEach((st, i) => { if (world.drops[i]) world.drops[i].st = st; });
+    if (head.feast && FEAST_SITES[head.feast[0]]) G.feast = { site: FEAST_SITES[head.feast[0]], state: head.feast[1] };
+    G.pit = !!head.pit; G.graceDone = G.clockMin >= G.grace;
+    if (head.bounty) G.bounty = fighterById(head.bounty) || null;
+    for (const p of parts.slice(1)) {
+      if (p.blk) { applyBlockOps(p.blk); logBlk(p.blk); }
+      if (p.items) for (const a of p.items) if (!G.items.some(i => i.id === a.id)) G.items.push(unpackItem(a));
+    }
+  }
+  G.clockMin = G.t / G.settings.len;
+  Sfx.start(); Sfx.setVolume(G.settings.vol);
+  G.specTarget = null; G.freeCam = null; spectate(1);
+  setMode('spectate');
+  if (!G.specTarget) startFreeCam();
+  const q = NET.queue; NET.queue = [];
+  for (const [t, msg] of q) try { NET.handlers[t](msg.data || {}, msg); } catch (e) {}
+  banner('Spectating', 'You’re watching this match. ← → follow a player · F free camera · Esc to leave');
+}
 function onEnd(d) {
+  if (G.watching) { const w = fighterById(d.w); banner(`${w ? w.name : 'Someone'} wins`, 'Last one standing.'); return; }
   if (G.over && !G.human.alive) { const w = fighterById(d.w); banner(`${w ? w.name : 'Someone'} wins`, 'Last one standing.'); return; }
   const w = fighterById(d.w);
   if (d.w === NET.me) endGame(true);
@@ -171,10 +260,12 @@ function onEnd(d) {
 
 // ---- starting a match ----
 function startOnline(d) {
-  if (G.mode === 'play') return;
-  NET.on = true; NET.hostPeer = d.host; NET.roster = d.roster; G.endSent = false;
+  if (G.mode === 'play' && !G.watching) return;
+  NET.on = true; NET.hostPeer = d.host; NET.roster = d.roster; G.endSent = false; NET.cfg = d; NET.pending = false; NET.queue = [];
+  if (!d.roster.some(r => r.p === NET.me)) { startWatch(d); return; } // not playing in it: watch from the start
+  G.watching = false; G.freeCam = null;
   G.settings.len = d.len;
-  G.grace = 2;
+  G.grace = 2; G.botLevel = d.lvl ?? 1;
   const humans = d.roster.map(r => {
     const f = new Fighter(String(r.n || 'Player').slice(0, 18), KITS[r.k] ? r.k : 'killer', false, r.p);
     f.color = /^#[0-9a-f]{6}$/i.test(r.c) ? r.c : '#f2ead6';
@@ -182,7 +273,7 @@ function startOnline(d) {
     return f;
   });
   const me = humans.find(f => f.id === NET.me);
-  newMatch(d.bots, me, d.seed, humans, MAP_SIZES[d.sz] ? d.sz : 4800);
+  newMatch(d.bots, me, d.seed, humans, MAP_SIZES[d.sz] ? d.sz : 4800, d.mt || 'mixed');
   for (const f of G.fighters) if (f.bot && !NET.isHost()) f.remote = true;
   G.human = me;
   VIEW.pitch = -0.05;
@@ -274,13 +365,15 @@ async function netInit() {
 }
 function lobbyPresence(extra = {}) {
   if (!NET.lobby) return;
-  NET.lobby.presence({ n: LOBBY.nick, k: STORE.kit, c: LOBBY.color, st: NET.match ? (NET.hostPeer === NET.me ? 'host' : 'match') : 'lobby', code: NET.code, ...extra }).catch(() => {});
+  const st = NET.match ? (NET.hostPeer === NET.me ? (NET.priv ? 'phost' : 'host') : 'match') : 'lobby';
+  NET.lobby.presence({ n: LOBBY.nick, k: STORE.kit, c: LOBBY.color, st, code: NET.priv ? null : NET.code, ...extra }).catch(() => {});
 }
 function renderLobby() {
   if (!NET.lobby) return;
   const peers = NET.lobby.peers();
   const others = peers.filter(p => !p.sameTab);
   $('#net-count').textContent = peers.length ? `${peers.length} ${peers.length === 1 ? 'person' : 'people'} on this page` : 'Connecting…';
+  // Private matches don't publish their code, so they never show up here
   const hosts = others.filter(p => p.presence && p.presence.st === 'host' && typeof p.presence.code === 'string');
   const list = $('#matches');
   list.textContent = '';
@@ -289,9 +382,11 @@ function renderLobby() {
     const row = document.createElement('div'); row.className = 'match-row';
     const name = document.createElement('span'); name.textContent = `${String(p.presence.n || 'Someone').slice(0, 18)}’s match`;
     const meta = document.createElement('small'); meta.textContent = p.presence.started ? 'in progress' : `${p.presence.np || 1} joined`;
-    const b = document.createElement('button'); b.className = 'btn ghost small'; b.textContent = NET.code === p.presence.code ? 'Joined' : 'Join';
-    b.disabled = !!p.presence.started || !!NET.match;
-    b.onclick = () => joinMatch(p.presence.code, p.peer);
+    const b = document.createElement('button'); b.className = 'btn ghost small';
+    const live = !!p.presence.started;
+    b.textContent = NET.code === p.presence.code ? 'Joined' : live ? 'Watch' : 'Join';
+    b.disabled = !!NET.match;
+    b.onclick = () => live ? watchMatch(p.presence.code, p.peer) : joinMatch(p.presence.code, p.peer);
     row.append(name, meta, b); list.append(row);
   }
   $('#btn-host').disabled = !!NET.match;
@@ -302,50 +397,90 @@ function renderMatchPanel() {
   panel.hidden = false;
   const peers = NET.match.peers();
   const host = NET.hostPeer === NET.me;
-  $('#match-title').textContent = host ? 'Your match' : 'Waiting for the host to start';
+  $('#match-title').textContent = NET.watch ? 'Spectating' : host ? (NET.priv ? 'Your private match' : 'Your match') : NET.hostPeer ? 'Waiting for the host to start' : 'Looking for the match…';
+  $('#match-code').hidden = !(host && NET.priv);
+  $('#match-code').textContent = `Code: ${String(NET.code || '').toUpperCase()} · friends type it under “Join with a code”`;
   const ul = $('#match-players'); ul.textContent = '';
   for (const p of peers) {
     const li = document.createElement('li');
     const dot = document.createElement('i'); dot.style.background = /^#[0-9a-f]{6}$/i.test(p.presence.c) ? p.presence.c : '#888';
     const t = document.createElement('span');
-    t.textContent = `${String(p.presence.n || 'Joining…').slice(0, 18)}${p.sameTab ? ' (you)' : ''}${p.peer === NET.hostPeer ? ' · host' : ''}`;
+    t.textContent = `${String(p.presence.n || 'Joining…').slice(0, 18)}${p.sameTab ? ' (you)' : ''}${p.peer === NET.hostPeer ? ' · host' : ''}${p.presence.w ? ' · watching' : ''}${p.presence.rm ? ' · ready' : ''}`;
     const k = document.createElement('small'); k.textContent = KITS[p.presence.k] ? KITS[p.presence.k].name : '';
     li.append(dot, t, k); ul.append(li);
   }
   $('#host-controls').hidden = !host;
   $('#m-bots-v').textContent = $('#m-bots').value;
-  if (host) lobbyPresence({ np: peers.length });
+  if (host) lobbyPresence({ np: peers.filter(p => !p.presence.w).length });
+  renderRematch();
 }
-async function hostMatch() {
+// A private match isn't listed: friends join with its code
+async function hostMatch(priv = false) {
   const code = Math.random().toString(36).slice(2, 7);
-  await enterMatch(code, null);
+  NET.priv = priv;
+  await enterMatch(code, null, { host: true });
 }
 async function joinMatch(code, hostPeer) { await enterMatch(code, hostPeer); }
-async function enterMatch(code, hostPeer) {
+async function joinByCode(text) {
+  const code = String(text || '').trim().toLowerCase();
+  if (!/^[a-z0-9]{5}$/.test(code)) { toast('Codes are five letters and numbers, like K3X9P'); return; }
+  await enterMatch(code, null, { byCode: true });
+  if (!NET.match) return;
+  // No host answering after a few seconds: there's no such match
+  setTimeout(() => { if (NET.match && NET.code === code && !NET.hostPeer) { toast('No match with that code'); leaveMatch(); } }, 3500);
+}
+async function watchMatch(code, hostPeer) { await enterMatch(code, hostPeer, { watch: true }); }
+async function enterMatch(code, hostPeer, o = {}) {
   if (!NET.lobby || NET.match) return;
   try { NET.match = await NET.lobby.join('ff-' + code); }
   catch (e) { toast(e && e.code === 'not_permitted' ? 'Your access to this page can’t join matches.' : 'Couldn’t join that match. Try again.'); return; }
-  NET.code = code; NET.hostPeer = hostPeer || NET.me; NET.denied = false;
+  NET.code = code; NET.hostPeer = o.host ? NET.me : hostPeer || null; NET.denied = false; NET.watch = !!o.watch;
+  if (!o.host) NET.priv = false;
   wireMatch(NET.match);
-  NET.match.presence({ n: LOBBY.nick, k: STORE.kit, c: LOBBY.color }).catch(() => {});
+  NET.match.presence({ n: LOBBY.nick, k: STORE.kit, c: LOBBY.color, h: o.host ? 1 : undefined, w: o.watch ? 1 : undefined }).catch(() => {});
   lobbyPresence();
   renderLobby(); renderMatchPanel();
+  if (o.watch) requestSnap();
+}
+// Spectating a match in progress: ask the host for a snapshot (again, in case the first ask is missed)
+function requestSnap(tries = 0) {
+  if (!NET.match || !NET.watch || (G.watching && !NET.pending) || tries > 5) { if (tries > 5 && NET.pending) { toast('The match didn’t answer. Try again.'); leaveMatch(); } return; }
+  NET.pending = true; NET.queue = []; NET.snapParts = null;
+  if (NET.hostPeer) NET.send('snapreq', {});
+  setTimeout(() => { if (NET.pending) requestSnap(tries + 1); }, 2500);
 }
 async function leaveMatch() {
   if (NET.match) { try { await NET.match.leave(); } catch (e) {} }
-  Object.assign(NET, { match: null, code: null, on: false, hostPeer: null, roster: [] });
+  Object.assign(NET, { match: null, code: null, on: false, hostPeer: null, roster: [], watch: false, pending: false, queue: [], priv: false });
+  G.watching = false;
   lobbyPresence(); renderLobby(); renderMatchPanel();
 }
 function startHostedMatch() {
   if (!NET.match || NET.hostPeer !== NET.me) return;
-  const roster = NET.match.peers().filter(p => p.presence && p.presence.n).slice(0, 16)
+  // Spectators stay spectators; everyone else plays
+  const roster = NET.match.peers().filter(p => p.presence && p.presence.n && !p.presence.w).slice(0, 16)
     .map(p => ({ p: p.peer, n: String(p.presence.n).slice(0, 18), k: p.presence.k, c: p.presence.c }));
   if (!roster.some(r => r.p === NET.me)) roster.unshift({ p: NET.me, n: LOBBY.nick, k: STORE.kit, c: LOBBY.color });
   roster.sort((a, b) => a.p < b.p ? -1 : 1);
-  const d = { seed: Math.floor(Math.random() * 1e9), bots: Math.min(MAX_ONLINE_BOTS, +$('#m-bots').value), len: +$('#m-len').value, sz: +$('#m-size').value, host: NET.me, roster };
+  const d = { seed: Math.floor(Math.random() * 1e9), bots: Math.min(MAX_ONLINE_BOTS, +$('#m-bots').value), len: +$('#m-len').value, sz: +$('#m-size').value,
+    mt: $('#m-type').value, lvl: +$('#m-lvl').value, host: NET.me, roster };
   NET.send('start', d);
   lobbyPresence({ started: true });
+  NET.match.presence({ rm: null, live: 1 }).catch(() => {});
   startOnline(d);
+}
+// Rematch: the host starts a new match in the same room; everyone else says they're ready
+function renderRematch() {
+  const b = $('#btn-rematch');
+  if (!b) return;
+  if (!NET.match) { b.textContent = 'Rematch'; b.disabled = false; return; }
+  const peers = NET.match.peers(), ready = peers.filter(p => p.presence && p.presence.rm && !p.sameTab).length, host = NET.hostPeer === NET.me;
+  b.textContent = host ? `Rematch${ready ? ` · ${ready} ready` : ''}` : peers.find(p => p.sameTab && p.presence.rm) ? 'Waiting for the host…' : 'Ready for a rematch';
+}
+function rematch() {
+  if (!NET.match) { startGame(); return; }
+  if (NET.hostPeer === NET.me) { NET.watch = false; startHostedMatch(); }
+  else { NET.watch = false; NET.match.presence({ rm: 1, w: null }).catch(() => {}); renderRematch(); } // spectators can join the next one
 }
 
 // ---- local testing: two tabs on localhost talk through a BroadcastChannel ----

@@ -90,6 +90,8 @@ function hurt(t, amt, src, ang, kb, up = 0) {
   if (t.remote) { if (byMe) G.stats.dmg += amt; NET.hit(t, { d: +amt.toFixed(2), a: +ang.toFixed(2), kb: Math.round(kb || 0), up: up || undefined, by: srcId(src) }); t.hurtT = 0.2; return true; }
   amt *= 1 - armorDef(t);
   if (byMe) G.stats.dmg += amt;
+  noteDamage(t, src, amt);
+  if (t.emoteT > 0) stopEmote(t);
   if (t === G.human && src && src.isFighter) G.dmgDir = { a: Math.atan2(src.y - t.y, src.x - t.x), t: 1 };
   t.hp -= amt; t.hurtT = 0.2; t.gather = null; t.refillT = 0; t.hidden = false;
   const steady = t.kit === 'heavy' || isTitan(t);
@@ -107,8 +109,16 @@ function hurtRaw(t, amt, src) {
   if (!t.alive || t.invuln > 0) return;
   if (t.remote) { NET.hit(t, { d: +amt.toFixed(2), raw: 1, by: srcId(src) }); return; }
   t.hp -= amt; t.hurtT = 0.25; t.gather = null; t.hidden = false;
+  noteDamage(t, src, amt);
   if (G.settings.dmgNums) addFx('num', t.x, t.y, t.layer, { txt: amt.toFixed(1), z: t.z + 70 });
   if (t.hp <= 0) killFighter(t, src || (G.t - t.lastHitT < 8 ? t.lastHitBy : null));
+}
+// Who's hurt this fighter lately, for assists (kept on the victim's own machine, which sees every hit)
+function noteDamage(t, src, amt) {
+  const s = src && src.isFighter ? (src.owner || src) : null;
+  if (!s || s === t || t.isClone) return;
+  const m = t.dmgBy || (t.dmgBy = new Map()), p = m.get(s);
+  m.set(s, { d: (p && G.t - p.t < 15 ? p.d : 0) + amt, t: G.t });
 }
 // A hit another player's machine sent us, for a fighter we simulate.
 function applyHit(t, m) {
@@ -137,19 +147,28 @@ function killFighter(t, src) {
   if (t.isClone) return;
   dropStacks(t, allStacks(t), 'bag');
   addFx('puff', t.x, t.y, t.layer, { col: t.color, big: true, z: t.z + 30 });
-  announceKill(t, killer, t.fellLast);
-  NET.kill(t, killer, t.fellLast);
+  // Assists: anyone else who did 2+ damage in the last 15 seconds
+  const assists = [...(t.dmgBy || [])].filter(([s, v]) => s !== killer && s.alive !== undefined && !s.isClone && G.t - v.t < 15 && v.d >= 2).map(([s]) => s);
+  announceKill(t, killer, t.fellLast, assists);
+  NET.kill(t, killer, t.fellLast, assists);
 }
 // Shared by local deaths and deaths reported over the network
-function announceKill(t, killer, fell) {
+function announceKill(t, killer, fell, assists = []) {
   t.alive = false;
   if (killer) {
     if (!killer.remote) killer.kills++;
     if (!killer.remote && killer.kit === 'leech' && killer.alive) killer.hp = Math.min(killer.maxHp, killer.hp + 8);
     if (killer === G.human) { G.coinsEarned += 50; Sfx.play('kill'); toast(`You eliminated ${t.name}`); G.killFlash = 0.6; }
   }
-  G.feed.unshift({ txt: killer ? `${killer.name} ⟶ ${t.name}` : `${t.name} ${fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : t.diedTo === 'crash' ? 'crashed' : 'died'}`, t: 7, you: t === G.human || killer === G.human });
+  const how = fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : t.diedTo === 'crash' ? 'crashed' : 'died';
+  const help = assists.length ? ` + ${assists.map(a => a.name).join(', ')}` : '';
+  G.feed.unshift({ txt: killer ? `${killer.name}${help} ⟶ ${t.name}` : `${t.name} ${how}${help ? ` (${help.slice(3)} helped)` : ''}`, t: 7, you: t === G.human || killer === G.human || assists.includes(G.human) });
+  if (assists.includes(G.human) && t !== G.human) { G.coinsEarned += 20; if (G.stats) G.stats.assists = (G.stats.assists || 0) + 1; toast(`Assist on ${t.name} · +20 coins`); }
   if (killer) streakCallout(killer, t, fell);
+  if (killer && killer.bot) botSay(killer, 'kill', t);
+  if (t.bot) botSay(t, 'die', killer);
+  if (t === G.human && killer) noteRival(killer);
+  if (killer === G.human && t.rival) beatRival(t);
   if (G.bounty === t) claimBounty(t, killer);
   if (t === G.human) { G.killer = killer; G.killedBy = killer ? killer.name : fell ? 'a long fall' : { lava: 'lava', pitfall: 'a pitfall', crash: 'a motorcycle crash', bike: 'an exploding motorcycle' }[t.diedTo] || 'the pit'; endGame(false); }
   checkWin();
@@ -352,7 +371,7 @@ function useKit(f, ax, ay) {
       break;
     }
   }
-  if (K.cd) f.kitCd = K.cd;
+  if (K.cd) f.kitCd = K.cd * (f.bot ? botLvl().kitCd : 1); // easy bots use their kits less often
   if (K.uses) f.kitCd = 0.5;
   return true;
 }

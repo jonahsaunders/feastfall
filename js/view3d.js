@@ -98,9 +98,30 @@ function makeFighter(f) {
   const tag = tagSprite(); tag.position.y = 80;
   const mark = new T.Sprite(new T.SpriteMaterial({ map: MARK_TEX, sizeAttenuation: false, fog: false, transparent: true }));
   mark.scale.set(0.032, 0.032, 1); mark.position.y = 96; mark.renderOrder = 2;
-  g.add(bush, ring, tag, mark);
-  g.userData = { body, legL, legR, arm, blade, fist, plate, helm, padL, padR, bush, dis, ring, tag, mark, mT, mL, mB, mA, walk: 0, w: -1, a: -1 };
+  const say = bubbleSprite(); say.position.y = 104;
+  g.add(bush, ring, tag, mark, say);
+  g.userData = { body, legL, legR, arm, blade, fist, plate, helm, padL, padR, bush, dis, ring, tag, mark, say, mT, mL, mB, mA, walk: 0, w: -1, a: -1 };
   return g;
+}
+// Speech bubbles for bot chat, emotes and quick chat
+function bubbleSprite() {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  const tex = new T.CanvasTexture(c);
+  const s = new T.Sprite(new T.SpriteMaterial({ map: tex, depthTest: true, fog: false, transparent: true }));
+  s.scale.set(64, 16, 1); s.userData = { c, tex, key: '' }; s.visible = false;
+  return s;
+}
+function drawBubble(s, text) {
+  if (s.userData.key === text) return;
+  s.userData.key = text;
+  const g = s.userData.c.getContext('2d');
+  g.clearRect(0, 0, 256, 64);
+  g.font = '600 24px "Saira Condensed", system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const w = Math.min(244, g.measureText(text).width + 26);
+  g.fillStyle = 'rgba(242,234,214,.94)'; g.beginPath(); g.roundRect ? g.roundRect(128 - w / 2, 6, w, 40, 12) : g.rect(128 - w / 2, 6, w, 40); g.fill();
+  g.beginPath(); g.moveTo(120, 45); g.lineTo(136, 45); g.lineTo(128, 58); g.fill();
+  g.fillStyle = '#17201a'; g.fillText(text, 128, 27, 236);
+  s.userData.tex.needsUpdate = true;
 }
 // Players you've had on screen recently show up on your minimap for a few seconds
 const SPOT_TIME = 4;
@@ -120,8 +141,19 @@ function updFighter(m, f, dt) {
   u.walk = moving ? u.walk + dt * 11 : u.walk * 0.8;
   u.legL.rotation.z = Math.sin(u.walk) * 0.6; u.legR.rotation.z = -Math.sin(u.walk) * 0.6;
   u.arm.rotation.z = f.swingT > 0 ? 2.4 - (1 - f.swingT / 0.14) * 2.3 : f.gather ? 1.4 + Math.sin(G.t * 11) * 0.7 : 1.0 + Math.sin(u.walk) * 0.15;
+  u.body.rotation.y = 0;
   if (f.bike) { u.legL.rotation.z = u.legR.rotation.z = 1.25; u.arm.rotation.z = 1.35; u.body.position.set(-6, 8, 0); } // seated, hands on the bars
-  else u.body.position.set(0, 0, 0);
+  else if (f.emoteT > 0 && f.emote >= 0) { // emotes
+    const t = G.t, id = EMOTES[f.emote] && EMOTES[f.emote].id;
+    u.body.position.set(0, 0, 0);
+    if (id === 'wave') u.arm.rotation.z = 2.8 + Math.sin(t * 12) * 0.35;
+    else if (id === 'taunt') { u.arm.rotation.z = 1.55; u.body.position.y = Math.abs(Math.sin(t * 11)) * 3; }
+    else if (id === 'dance') { u.body.rotation.y = t * 5; u.legL.rotation.z = Math.sin(t * 14) * 0.8; u.legR.rotation.z = -Math.sin(t * 14) * 0.8; u.arm.rotation.z = 2 + Math.sin(t * 7) * 0.9; u.body.position.y = Math.abs(Math.sin(t * 7)) * 4; }
+    else if (id === 'cheer') { u.arm.rotation.z = 3.05; u.body.position.y = Math.abs(Math.sin(t * 6)) * 7; }
+  } else u.body.position.set(0, 0, 0);
+  const saying = f.sayT > 0 && f.sayText && !f.hidden && hyp(f.x - camera.position.x, f.y - camera.position.z) < 900;
+  u.say.visible = !!saying;
+  if (saying) drawBubble(u.say, f.sayText);
   if (u.w !== f.weapon) { u.w = f.weapon; u.mB.color.set(WCOL[f.weapon]); u.blade.visible = f.weapon > 0; u.fist.visible = f.weapon === 0; const m5 = f.weapon === 5; u.blade.scale.set(m5 ? 2.6 : 1, m5 ? 0.75 : 1, m5 ? 2 : 1); }
   const am = armorMask(f);
   if (u.a !== am) {
@@ -139,7 +171,7 @@ function updFighter(m, f, dt) {
   const v = VIEW.focus || G.human, snowy = v.biome === 2 && G.settings.snow && !G.pit && !v.layer;
   u.tag.visible = !f.hidden && d < (snowy ? 220 : v.layer ? 330 : 650 * (1 - 0.45 * DAY.night)) && !(G.mode === 'replay' && d < 130) && !(f === G.human && G.mode === 'play');
   const bounty = f === G.bounty;
-  if (u.tag.visible) drawTag(u.tag, f.name, f.hp, f.maxHp, f.isClone, f.teamCol, bounty);
+  if (u.tag.visible) drawTag(u.tag, f.rival ? `☠ ${f.name}` : f.name, f.hp, f.maxHp, f.isClone, f.teamCol, bounty); // ☠: a rival who's beaten you before
   const mt = bounty ? MARK_GOLD : MARK_TEX;
   if (u.mark.material.map !== mt) { u.mark.material.map = mt; u.mark.material.needsUpdate = true; }
   // Markers reach much further than name tags, but not through snowstorms or far into the night
@@ -324,6 +356,24 @@ function syncDrops() {
   }
 }
 
+// ---- quick-chat pings: a thin cyan pillar with who said what ----
+FG.pingBeam = new T.CylinderGeometry(1.6, 1.6, 170, 6, 1, true).translate(0, 85, 0);
+function makePing(p) {
+  const g = new T.Group();
+  const beam = new T.Mesh(FG.pingBeam, new T.MeshBasicMaterial({ color: 0x5fe0f0, transparent: true, opacity: 0.55, depthWrite: false, fog: false }));
+  const ring = new T.Mesh(FG.flatRing, new T.MeshBasicMaterial({ color: 0x5fe0f0, transparent: true, opacity: 0.8, fog: false })); ring.scale.setScalar(16); ring.position.y = 1.5;
+  const tag = tagSprite(); tag.position.y = 182; tag.material.depthTest = false; tag.material.fog = false;
+  drawTag(tag, `${p.mine ? 'You' : p.who}: ${p.text}`, 1, 1, true);
+  g.add(beam, ring, tag); g.userData.parts = [beam, ring];
+  return g;
+}
+function updPing(g, p) {
+  g.position.set(p.x, p.layer ? 0 : heightAt(p.x, p.y), p.y);
+  const o = Math.min(1, p.t / 2);
+  g.userData.parts[0].material.opacity = 0.55 * o; g.userData.parts[1].material.opacity = 0.8 * o;
+  g.userData.parts[1].scale.setScalar(16 + (G.t * 20) % 14);
+}
+
 // ---- motorcycles ----
 FG.wheel = new T.TorusGeometry(8.5, 3.2, 6, 14);
 FG.hub = new T.CylinderGeometry(3, 3, 5, 6).rotateX(Math.PI / 2);
@@ -470,7 +520,9 @@ function render(dt) {
   const spec = G.mode === 'spectate' && G.specTarget && G.specTarget.alive ? G.specTarget : null;
   const rp = G.mode === 'replay' ? REPLAY.view : null; // death replay: a free camera over the killer's shoulder
   const ride = playing && !spec && !rp && h.alive && h.bike; // on a motorcycle: a chase camera behind you
-  const focus = rp ? rp.focus : spec || h, L = focus.layer, fp = playing && !spec && !rp && !ride; // fp: first person
+  const emo = playing && !spec && !rp && !ride && h.alive && h.emoteT > 0 && h.isFighter; // emoting: the camera swings round to see you
+  const fc = G.mode === 'spectate' && G.freeCam; // spectating with a free camera
+  const focus = rp ? rp.focus : fc ? G.freeCam : spec || h, L = focus.layer, fp = playing && !spec && !rp && !ride && !emo && !fc; // fp: first person
   VIEW.focus = focus;
   timeOfDay(playing ? G.clockMin : 14);
   surfaceGroup.visible = L === 0; underGroup.visible = L === 1;
@@ -489,6 +541,17 @@ function render(dt) {
     camera.rotation.x = h.alive ? VIEW.pitch : Math.max(-1.2, VIEW.pitch - deathLift / 200);
     camera.fov = (G.settings.fov || 75) + (h.speedT > 0 ? 13 : 0);
     if (h.hurtT > 0 && h.alive) { const s = h.hurtT * 14; camera.position.x += (Math.random() - .5) * s; camera.position.y += (Math.random() - .5) * s; camera.position.z += (Math.random() - .5) * s; }
+  } else if (fc) {
+    const c = G.freeCam;
+    camera.position.set(c.x, c.z, c.y);
+    camera.rotation.set(c.pitch, -c.yaw - Math.PI / 2, 0);
+    camera.fov = G.settings.fov || 75;
+  } else if (emo) {
+    const a = h.face + 0.35 + Math.sin(G.t * 0.6) * 0.25, d = 150;
+    const cx = h.x + Math.cos(a) * d, cy = h.y + Math.sin(a) * d;
+    camera.position.set(cx, h.layer ? h.z + 60 : Math.max(h.z + 72, heightAt(cx, cy) + 20), cy);
+    camera.lookAt(h.x, h.z + 58, h.y);
+    camera.fov = 65;
   } else if (ride) {
     const k = h.bike, yaw = h.face + (VIEW.lookYaw || 0), s = clamp(Math.abs(k.speed) / BIKE.top, 0, 1);
     const cx = h.x - Math.cos(yaw) * 125, cy = h.y - Math.sin(yaw) * 125;
@@ -534,6 +597,7 @@ function render(dt) {
   }, p.layer === L);
   for (const e of G.fx) sync(e, makeFx, updFx, e.layer === L);
   syncBikes(L);
+  for (const p of G.qpings || []) sync(p, makePing, updPing, p.layer === L);
   sweep();
   syncFeast();
   syncDrops();
@@ -588,8 +652,11 @@ function renderMinimap() {
   }
   mctx.fillStyle = '#e8c27a'; mctx.strokeStyle = '#3a2a14'; mctx.lineWidth = 1.5;
   for (const r of world.ruins) { mctx.beginPath(); mctx.rect(r.x * S - 4, r.y * S - 4, 8, 8); mctx.fill(); mctx.stroke(); }
-  mctx.fillStyle = '#e6dfcc';
-  for (const e of world.entrances) mctx.fillRect(e.x * S - 2, e.y * S - 2, 4, 4);
+  for (const e of world.entrances) {
+    if (!e.cave) { mctx.fillStyle = '#e6dfcc'; mctx.fillRect(e.x * S - 2, e.y * S - 2, 4, 4); continue; }
+    mctx.fillStyle = '#b7aea2'; mctx.strokeStyle = '#231d18'; mctx.lineWidth = 1.2; // caves: a little grey peak
+    mctx.beginPath(); mctx.moveTo(e.x * S, e.y * S - 5); mctx.lineTo(e.x * S + 4.5, e.y * S + 3); mctx.lineTo(e.x * S - 4.5, e.y * S + 3); mctx.closePath(); mctx.fill(); mctx.stroke();
+  }
   if (G.feast) {
     mctx.strokeStyle = '#e6b84a'; mctx.lineWidth = 2;
     mctx.beginPath(); mctx.arc(G.feast.site.x * S, G.feast.site.y * S, 7 + Math.sin(G.t * 5) * 2, 0, 7); mctx.stroke();
@@ -625,6 +692,13 @@ function renderMinimap() {
     mctx.strokeStyle = `rgba(255,210,74,${Math.max(0.15, 1 - age)})`; mctx.lineWidth = 2;
     mctx.beginPath(); mctx.arc(bs.x * S, bs.y * S, 7 + (1 - Math.min(1, age * 6)) * 10, 0, 7); mctx.stroke();
     mctx.fillStyle = '#ffd24a'; mctx.strokeStyle = '#3a2a08'; mctx.lineWidth = 1.5; star(bs.x * S, bs.y * S, 6);
+  }
+  // Quick-chat pings you heard: a cyan diamond
+  for (const p of G.qpings || []) {
+    if (p.layer !== h.layer) continue;
+    const r = 6 + Math.sin(G.t * 6) * 1.5;
+    mctx.fillStyle = `rgba(95,224,240,${Math.min(1, p.t / 2)})`; mctx.strokeStyle = '#0a2a30'; mctx.lineWidth = 1.2;
+    mctx.beginPath(); mctx.moveTo(p.x * S, p.y * S - r); mctx.lineTo(p.x * S + r, p.y * S); mctx.lineTo(p.x * S, p.y * S + r); mctx.lineTo(p.x * S - r, p.y * S); mctx.closePath(); mctx.fill(); mctx.stroke();
   }
   // Motorcycles within about 60 blocks: parked ones in orange, ridden ones in white
   if (h.layer === 0) for (const k of G.bikes || []) {

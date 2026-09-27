@@ -2,7 +2,7 @@
 // Match flow, input, HUD, inventory screen, screens (Play ↔ Options ↔ Game → Lose → Play), kit store.
 const $ = s => document.querySelector(s);
 function setHTML(sel, html) { const el = $(sel); if (el._h !== html) { el._h = html; el.innerHTML = html; } }
-G.settings = { len: 8, bots: 23, snow: true, dmgNums: true, shadows: true, sens: 1, vol: 0.6, fov: 75, tips: true, mapSize: 4800 };
+G.settings = { len: 8, bots: 23, snow: true, dmgNums: true, shadows: true, sens: 1, vol: 0.6, fov: 75, tips: true, mapSize: 4800, mapType: 'mixed', botLevel: 1 };
 G.mode = 'menu';
 const STORE = { coins: 150, owned: [], kit: 'killer', life: { matches: 0, wins: 0, kills: 0, best: 0, fall: 0 } };
 try { const s = JSON.parse(localStorage.getItem('ff_store')); if (s) Object.assign(STORE, s); } catch (e) {}
@@ -27,7 +27,7 @@ function spawnPoint(taken, inSwamp) {
     let x, y;
     if (inSwamp) { const s = pick(SWAMPS), a = rr(0, 6.28), d = rr(0, s.r * 0.7); x = s.x + Math.cos(a) * d; y = s.y + Math.sin(a) * d; }
     else { x = rr(150, WORLD - 150); y = rr(150, WORLD - 150); }
-    if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 80) continue;
+    if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 80 || (!inSwamp && seaAt(x, y))) continue;
     if (nearObjs(x, y, 40).some(o => hyp(o.x - x, o.y - y) < o.r + 20)) continue;
     if (!inSwamp && taken.some(p => hyp(p.x - x, p.y - y) < (taken.length > 40 ? 180 : 320))) continue;
     // Nobody starts next to a landmark or a ruin: legendaries and loot have to be reached
@@ -46,36 +46,42 @@ function loneliestPoint(taken) {
   }
   return best;
 }
-function makeBot(name, id) {
-  const kits = Object.keys(KITS).filter(k => !KITS[k].locked);
-  const b = new Fighter(name, pick(kits), true, id);
-  Object.assign(b, { style: pick(STYLES), react: rr(0.3, 0.5), side: 1, side2: rng() < .5 ? -1 : 1, bountyKeen: rng() < 0.3 });
+function makeBot(name, id, kit) {
+  const kits = Object.keys(KITS).filter(k => !KITS[k].locked), rk = pick(kits);
+  const b = new Fighter(name, kit || rk, true, id), L = botLvl();
+  Object.assign(b, { style: pick(STYLES), react: rr(L.react[0], L.react[1]), side: 1, side2: rng() < .5 ? -1 : 1, bountyKeen: rng() < 0.3, pers: pick(PERS_LIST) });
   if (['tripwire', 'snare', 'updraft'].includes(b.kit)) b.style = 'trapper';
   return b;
 }
 // Deterministic from the seed, so every player in an online match builds the same world and bots.
-function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans = null, size = G.settings.mapSize) {
-  genWorld(seed, MAP_SIZES[size] ? size : 4800);
+function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans = null, size = G.settings.mapSize, type = G.settings.mapType) {
+  genWorld(seed, MAP_SIZES[size] ? size : 4800, type);
   resetBlocks();
   buildRuins();
   buildLandmarks();
   Object.assign(G, { fighters: [], rats: [], proj: [], fx: [], items: [], pings: [], feed: [], itemSeq: 0, t: 0, clockMin: 0, graceDone: false, feast: null, pit: false, over: false, coinsEarned: 0, killedBy: null,
     winShown: false, dmgDir: null, specTarget: null, lmSeen: {}, duels: [], killer: null, teams: [], teamSeq: 0, allyT: 0,
-    bounty: null, bountySeen: null, bountyPingT: 0, bountyCheck: 0, stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0 } });
+    bounty: null, bountySeen: null, bountyPingT: 0, bountyCheck: 0, qpings: [], stats: { dmg: 0, blocks: 0, broken: 0, fall: 0, pots: 0, crafted: 0, assists: 0 } });
   replayReset();
-  const names = [...BOT_NAMES];
+  // Rivals (solo only): bots that killed you before come back as themselves
+  const rivals = human && !humans && !NET.on ? rivalBots() : [];
+  const names = BOT_NAMES.filter(n => !rivals.some(r => r.name === n));
   for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
   const taken = [];
   const all = humans ? [...humans] : human ? [human] : [];
-  for (let i = 0; i < nBots; i++) all.push(makeBot(names[i % names.length] + (i >= names.length ? String(Math.floor(i / names.length) + 1) : ''), 'b' + i));
+  for (let i = 0; i < nBots; i++) all.push(i < rivals.length ? makeRival(rivals[i], 'b' + i) : makeBot(names[i % names.length] + (i >= names.length ? String(Math.floor(i / names.length) + 1) : ''), 'b' + i));
   all.sort((a, b) => (a.kit === 'recluse') - (b.kit === 'recluse')); // Recluses pick their spot after everyone else
   for (const f of all) { const p = f.kit === 'recluse' ? loneliestPoint(taken) : spawnPoint(taken, f.kit === 'finder'); Object.assign(f, { x: p.x, y: p.y, z: heightAt(p.x, p.y), onGround: true }); taken.push(p); G.fighters.push(f); }
   if (!NET.on || NET.isHost()) {
     for (let i = 0; i < potCap(); i++) spawnPot();
     for (const r of world.ruins) addItem({ kind: 'chest', x: r.x, y: r.y, z: r.chestZ, layer: 0, stacks: ruinLoot(r) });
+    for (const c of world.caves) addItem({ kind: 'chest', x: c.x, y: c.y, z: 0, layer: 1, stacks: caveLoot() });
     for (const m of world.landmarks) addItem({ kind: 'relic', x: m.x, y: m.y, z: m.chestZ, layer: m.layer, stacks: [{ id: LANDMARKS[m.id].item, n: 1 }, { id: 'pot', n: 2 }] });
   }
   spawnBikes();
+  for (const o of world.objs) o.a0 = o.amt; // so a spectator joining late can be told what's been used up
+  for (const o of world.ores) o.a0 = o.amt;
+  NET.blkLog = new Map();
 }
 // Watchtowers (you have to climb them) hold the best ruin loot
 function ruinLoot(r) {
@@ -127,6 +133,12 @@ function dropLine() {
   const when = d.st === 'landed' ? 'Supply drop landed' : `Supply drop in ${fmt((d.min * G.settings.len - G.t) / G.settings.len)}`;
   return `${when} · ${dist} blocks ${arrow}`;
 }
+// A cave's chest: iron gear and the ore to make more
+function caveLoot() {
+  const s = [{ id: pick(['sword3', 'sword3', 'hide_chest', 'bucket']), n: 1 }, { id: 'iron', n: 2 + Math.floor(rng() * 3) }, { id: 'pot', n: 1 }];
+  if (rng() < 0.4) s.push({ id: 'charm', n: 1 });
+  return s;
+}
 const potCap = () => Math.round(18 * WORLD / 3200);
 function spawnPot() {
   for (let i = 0; i < 30; i++) {
@@ -139,17 +151,20 @@ function spawnPot() {
 // Attract mode: bots play a match behind the menu
 let camFocus = null;
 function startAttract() {
-  NET.on = false;
+  NET.on = false; G.watching = false; G.botLevel = 1;
   G.grace = 0;
   newMatch(12, null, undefined, null, 3200); // a small map behind the menu loads fast
   G.human = { x: PIT.x, y: PIT.y, z: 0, layer: 0, biome: 0, alive: false, face: 0, id: 'cam' };
   camFocus = null;
 }
 function startGame() {
-  NET.on = false;
-  G.grace = 2;
+  NET.on = false; G.watching = false; G.freeCam = null;
+  G.grace = 2; G.botLevel = G.settings.botLevel ?? 1;
   const h = new Fighter(LOBBY.nick || 'You', STORE.kit, false, 'me');
   newMatch(G.settings.bots, h);
+  for (const b of G.fighters.filter(f => f.rival)) { // rivals announce themselves
+    setTimeout(() => { if (b.alive && G.human === h) { G.feed.unshift({ txt: `Your rival ${b.name} is in this match`, t: 9, streak: true }); botSay(b, 'rival', h); } }, 3500);
+  }
   G.human = h;
   VIEW.pitch = -0.05;
   Sfx.start(); Sfx.setVolume(G.settings.vol);
@@ -240,6 +255,12 @@ document.addEventListener('pointerlockerror', () => {}); // a refused capture: "
 document.addEventListener('mousemove', e => {
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (G.invOpen) { moveCursorStack(); return; }
+  if (wheelMove(e.movementX, e.movementY)) return; // choosing on the emote / quick-chat wheel
+  if (G.mode === 'spectate' && G.freeCam && locked) { // free camera: look around
+    const k = SENS * G.settings.sens;
+    G.freeCam.yaw += e.movementX * k; G.freeCam.pitch = clamp(G.freeCam.pitch - e.movementY * k, -1.5, 1.5);
+    return;
+  }
   if (G.mode !== 'play' || !G.human.alive || G.chatOpen || (!locked && !noLock && !freeLook)) return;
   // Chrome sometimes reports one huge jump right after capture: ignore it
   if (Math.abs(e.movementX) > 400 || Math.abs(e.movementY) > 400) return;
@@ -256,14 +277,21 @@ addEventListener('keydown', e => {
   }
   if (G.mode === 'spectate') {
     const k = e.key.toLowerCase();
+    if (k === 'escape') { if (G.freeCam) unlockPointer(); if (G.watching) backToMenu(); else setMode('end'); return; }
+    if (k === 'f') { if (G.freeCam) { G.freeCam = null; unlockPointer(); spectate(1); } else startFreeCam(); return; }
+    if (G.freeCam) { // WASD fly, Space up, Shift down, arrows go back to following someone
+      if ([' ', 'shift', 'tab'].includes(k)) e.preventDefault();
+      if (k === 'arrowright' || k === 'arrowleft') { G.freeCam = null; unlockPointer(); spectate(k === 'arrowright' ? 1 : -1); return; }
+      keys.add(k); return;
+    }
     if (['arrowright', 'd', ' '].includes(k)) { e.preventDefault(); spectate(1); }
     else if (['arrowleft', 'a'].includes(k)) spectate(-1);
-    else if (k === 'escape') setMode('end');
     return;
   }
   if (G.mode !== 'play') { if (e.key === 'Escape' && G.mode === 'paused') resume(); return; }
   const k = e.key.toLowerCase(), h = G.human;
   if (['tab', ' ', 'arrowup', 'arrowdown', 'shift'].includes(k)) e.preventDefault();
+  if (k === 'c' && !G.invOpen && h.alive) { if (!e.repeat) openWheel(); return; } // hold C: emotes and quick chat
   if (G.invOpen) {
     if (k === 'tab' || k === 'i' || k === 'e' || k === 'escape') toggleInv();
     else if (k >= '1' && k <= '9' && INV.hover !== null) swapWithHotbar(INV.hover, +k - 1);
@@ -289,6 +317,7 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => {
   const k = e.key.toLowerCase(); keys.delete(k);
+  if (k === 'c') closeWheel();
   if (k === 'e' && G.human) G.human.gather = null;
   if (k === 'shift' && G.human) G.human.sneak = false;
 });
@@ -296,7 +325,8 @@ addEventListener('blur', () => { keys.clear(); mouse.down = mouse.rdown = false;
 cv.addEventListener('contextmenu', e => e.preventDefault());
 cv.addEventListener('mousedown', e => {
   if (G.mode === 'replay') { replayFinish(); return; }
-  if (G.mode === 'spectate') { spectate(e.button === 2 ? -1 : 1); return; }
+  if (G.mode === 'spectate') { if (G.freeCam) { if (!locked) cv.requestPointerLock(); } else spectate(e.button === 2 ? -1 : 1); return; }
+  if (WHEEL_UI.open) { closeWheel(); return; }
   if (G.mode !== 'play' || !G.human.alive) return;
   if (G.invOpen) { toggleInv(); return; }
   if (!locked && !noLock && !freeLook) { lockPointer(); return; }
@@ -455,7 +485,8 @@ function surfaceUnder(f) {
   const b = blockAt(Math.floor(f.x / B), Math.floor((f.z - 1) / B), Math.floor(f.y / B));
   if (b) return b.type === 'cobble' || b.type === 'arena' ? 'stone' : b.type === 'water' ? 'water' : 'wood';
   if (hyp(f.x - PIT.x, f.y - PIT.y) < PIT.r) return 'stone';
-  return ['grass', 'sand', 'snow', 'water'][biomeAt(f.x, f.y)];
+  const bi = biomeAt(f.x, f.y);
+  return bi === 0 && world.winter ? 'snow' : ['grass', 'sand', 'snow', 'water'][bi];
 }
 function footsteps(dt) {
   const L = VIEW.focus || G.human;
@@ -576,7 +607,7 @@ function step(dt) {
   G.fighters = G.fighters.filter(f => f.alive || !f.isClone);
   updateDuels(dt); clearStaleArenas();
   pickups();
-  updateRats(dt); updateProj(dt); updateFx(dt); coolLava(); updateBikes(dt);
+  updateRats(dt); updateProj(dt); updateFx(dt); coolLava(); updateBikes(dt); updateSocial(dt);
   if (G.mode !== 'menu' && G.mode !== 'options') { updateAlliances(dt); updateBounty(dt); }
   potT += dt;
   if (potT > 3) {
@@ -600,7 +631,8 @@ function frame(now) {
       if (G.mode === 'replay') { replayApply(dt); render(dt); replayRestore(); } else render(0);
     } else if (G.mode === 'play' || G.mode === 'spectate' || (NET.on && (G.mode === 'paused' || G.mode === 'end'))) {
       // Online matches keep running while you pause or after you die; spectating always does
-      if (G.mode === 'spectate' && !(G.specTarget && G.specTarget.alive)) spectate(1);
+      if (G.mode === 'spectate' && !G.freeCam && !(G.specTarget && G.specTarget.alive)) spectate(1);
+      if (G.mode === 'spectate' && G.freeCam) moveFreeCam(dt);
       step(dt); render(dt); renderMinimap(); footsteps(dt);
       if (G.mode === 'play') { updateCross(dt); updateNear(); checkTips(dt); checkLandmarks(); replayRecord(dt); }
       const v = VIEW.focus || G.human;
@@ -627,7 +659,7 @@ function updateHud() {
     G.feast.state === 'announced' ? `Feast in ${fmt(25 - m)}` : G.pit ? 'The pit' : `Pit in ${fmt(60 - m)}`;
   $('#alive').textContent = G.fighters.filter(f => f.alive && !f.isClone).length;
   $('#kills').textContent = h.kills;
-  $('#where').textContent = h.layer ? 'Tunnels' : G.pit ? 'The Pit' : BIOME_NAME[h.biome];
+  $('#where').textContent = placeName(h);
   const dl = dropLine(), bl = bountyLine();
   $('#droptag').hidden = !dl; if (dl) $('#droptag').textContent = dl;
   $('#bountytag').hidden = !bl; if (bl) $('#bountytag').textContent = bl;
@@ -689,9 +721,11 @@ function updateHud() {
   cv.style.cursor = freeLook && G.mode === 'play' && !G.invOpen && !G.chatOpen ? 'none' : '';
   if (G.invOpen) renderInv();
   renderBoard();
-  if (G.mode === 'spectate' && G.specTarget) {
+  const back = G.watching ? 'Esc to leave' : 'Esc to go back';
+  if (G.mode === 'spectate' && G.freeCam) $('#spec').textContent = `Free camera · WASD fly · Space up · Q down · Shift slow · click to look around   ← → follow a player · F follow · ${back}`;
+  else if (G.mode === 'spectate' && G.specTarget) {
     const t = G.specTarget;
-    $('#spec').textContent = `Watching ${t.name} · ${KITS[t.kit].name} · ${Math.ceil(t.hp)} health · ${t.kills} kills   ← → or click to switch · Esc to go back`;
+    $('#spec').textContent = `Watching ${t.name} · ${KITS[t.kit].name} · ${Math.ceil(t.hp)} health · ${t.kills} kills   ← → or click to switch · F free camera · ${back}`;
   }
 }
 // Hold P: everyone in the match, alive first, then by kills
@@ -709,9 +743,26 @@ function renderBoard() {
 // ---------- spectating ----------
 function spectate(dir) {
   const alive = G.fighters.filter(f => f.alive && !f.isClone && f !== G.human);
-  if (!alive.length) { if (G.mode === 'spectate') setMode('end'); return; }
+  if (!alive.length) { if (G.watching) startFreeCam(); else if (G.mode === 'spectate') setMode('end'); return; }
   const i = alive.indexOf(G.specTarget);
   G.specTarget = alive[i < 0 ? 0 : (i + dir + alive.length) % alive.length];
+}
+// Free camera for spectators: fly anywhere above ground (F toggles, WASD to move, click to look around)
+function startFreeCam() {
+  const c = camera.position;
+  G.freeCam = { x: c.x, y: c.z, z: Math.max(c.y, 60), yaw: G.specTarget ? G.specTarget.face : 0, pitch: -0.3, layer: 0, biome: 0, face: 0 };
+  if (!isFinite(G.freeCam.x)) Object.assign(G.freeCam, { x: PIT.x - 400, y: PIT.y, z: 300 });
+  G.specTarget = null;
+  if (G.mode !== 'spectate') setMode('spectate');
+}
+function moveFreeCam(dt) {
+  const c = G.freeCam, sp = (keys.has('shift') ? 260 : 620) * dt;
+  const fw = (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0), st = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
+  c.x = clamp(c.x + (Math.cos(c.yaw) * fw - Math.sin(c.yaw) * st) * sp, -200, WORLD + 200);
+  c.y = clamp(c.y + (Math.sin(c.yaw) * fw + Math.cos(c.yaw) * st) * sp, -200, WORLD + 200);
+  c.z += ((keys.has(' ') ? 1 : 0) - (keys.has('q') ? 1 : 0)) * sp;
+  c.z = clamp(c.z, heightAt(c.x, c.y) + 12, 2200);
+  c.face = c.yaw; c.biome = biomeAt(c.x, c.y);
 }
 function startSpectate() {
   const k = G.human.lastHitBy;
@@ -989,12 +1040,13 @@ function endGame(won) {
     $('#end-title').textContent = won ? 'Last one standing' : 'You lost';
     $('#end-sub').textContent = won ? 'Everyone else is dead.' : G.killedBy ? `Killed by ${G.killedBy}.` : `${G.winnerName || 'Someone'} won the match.`;
     const st = G.stats;
-    $('#end-stats').innerHTML = [['Place', `#${place} of ${G.fighters.filter(f => !f.isClone).length}`], ['Kills', h.kills], ['Survived', fmt(G.clockMin)], ['Coins earned', `+${G.coinsEarned}`],
-      ['Damage dealt', st.dmg.toFixed(0)], ['Blocks placed', st.blocks], ['Longest fall', `${st.fall.toFixed(1)} blocks`], ['Potions drunk', st.pots]]
+    $('#end-stats').innerHTML = [['Place', `#${place} of ${G.fighters.filter(f => !f.isClone).length}`], ['Kills', h.kills], ['Assists', st.assists || 0], ['Survived', fmt(G.clockMin)],
+      ['Damage dealt', st.dmg.toFixed(0)], ['Coins earned', `+${G.coinsEarned}`], ['Longest fall', `${st.fall.toFixed(1)} blocks`], ['Blocks placed', st.blocks]]
       .map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     $('#end-online').hidden = !NET.on || won;
     $('#btn-spec').hidden = won || !G.fighters.some(f => f.alive && !f.isClone && f !== G.human);
     $('#btn-replay').hidden = won || !replayReady();
+    renderRematch();
     unlockPointer();
     setMode('end');
   }
@@ -1014,7 +1066,13 @@ function fillOptions() {
   $('#o-snow').checked = G.settings.snow; $('#o-dmg').checked = G.settings.dmgNums;
   $('#o-shadows').checked = G.settings.shadows; $('#o-sens').value = G.settings.sens; $('#o-vol').value = G.settings.vol;
   $('#o-fov').value = G.settings.fov; $('#o-fov-v').textContent = G.settings.fov; $('#o-tips').checked = G.settings.tips; $('#o-map').value = G.settings.mapSize;
+  $('#o-type').value = G.settings.mapType; $('#o-lvl').value = G.settings.botLevel;
 }
+$('#o-type').addEventListener('change', e => { G.settings.mapType = e.target.value; save(); });
+$('#o-lvl').addEventListener('change', e => { G.settings.botLevel = +e.target.value; save(); });
+$('#btn-rematch').addEventListener('click', rematch);
+$('#btn-host-priv').addEventListener('click', () => hostMatch(true));
+$('#code-form').addEventListener('submit', e => { e.preventDefault(); joinByCode($('#code').value); });
 $('#o-len').addEventListener('change', e => { G.settings.len = +e.target.value; save(); });
 $('#o-bots').addEventListener('input', e => { G.settings.bots = +e.target.value; $('#o-bots-v').textContent = e.target.value; save(); });
 $('#o-snow').addEventListener('change', e => { G.settings.snow = e.target.checked; save(); });
@@ -1035,7 +1093,7 @@ $('#opt-leave').addEventListener('click', backToMenu);
 $('#btn-play').addEventListener('click', startGame);
 $('#btn-again').addEventListener('click', backToMenu);
 $('#nick').addEventListener('input', e => { LOBBY.nick = e.target.value.replace(/[^\w .\-]/g, '').slice(0, 18) || 'Player'; save(); lobbyPresence(); if (NET.match) NET.match.presence({ n: LOBBY.nick }).catch(() => {}); });
-$('#btn-host').addEventListener('click', hostMatch);
+$('#btn-host').addEventListener('click', () => hostMatch(false));
 $('#btn-leave-match').addEventListener('click', leaveMatch);
 $('#btn-start').addEventListener('click', startHostedMatch);
 $('#m-bots').addEventListener('input', e => { $('#m-bots-v').textContent = e.target.value; });

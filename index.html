@@ -158,6 +158,15 @@
   @keyframes streakPop { 0% { opacity: 0; transform: translateX(-50%) scale(1.4); } 10% { opacity: 1; transform: translateX(-50%) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
   @media (prefers-reduced-motion: reduce) { #streak.pop { animation: none; } }
   #hud.spec #streak { display: none; }
+  /* Emote and quick-chat wheel (hold C) */
+  #wheel { position: absolute; left: 50%; top: 50%; width: 0; height: 0; pointer-events: none; }
+  #wheel .wopt { position: absolute; transform: translate(-50%, -50%); background: rgba(12,17,14,.88); border: 1px solid var(--line); padding: 5px 10px; font: 600 14px var(--ui); white-space: nowrap; }
+  #wheel .wopt.quick { color: #8fe6f0; }
+  #wheel .wopt.on { border-color: var(--ember); background: rgba(42,29,21,.95); color: var(--bone); transform: translate(-50%, -50%) scale(1.12); }
+  #wheel .wmid { position: absolute; transform: translate(-50%, -50%); font: 600 11px var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); white-space: nowrap; text-shadow: 0 1px 3px #000; }
+  #hud.spec #wheel { display: none; }
+  #match-code { color: var(--gold); font-family: var(--mono); }
+  #code { text-transform: uppercase; max-width: 90px; }
   #bikehud { display: flex; align-items: center; gap: 10px; background: rgba(12,17,14,.8); padding: 4px 12px; }
   #bk-speed { font: 700 30px/1 var(--mono); font-variant-numeric: tabular-nums; min-width: 2.2ch; text-align: right; }
   #bikehud small { font: 600 12px var(--ui); color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
@@ -297,14 +306,20 @@
         <div class="field"><label for="nick">Your name</label><input id="nick" maxlength="18" autocomplete="off"></div>
         <span id="net-count"></span>
         <div id="matches"></div>
-        <div class="row"><button class="btn ghost small" id="btn-host">Host a match</button></div>
+        <div class="row"><button class="btn ghost small" id="btn-host">Host a match</button><button class="btn ghost small" id="btn-host-priv">Host private</button></div>
+        <form id="code-form" class="srv-row"><label for="code">Join with a code</label><input id="code" maxlength="5" placeholder="K3X9P" autocomplete="off" spellcheck="false"><button class="btn ghost small">Join</button></form>
         <div id="match-panel" hidden>
           <h3 id="match-title"></h3>
+          <p id="match-code" class="hint" hidden></p>
           <ul id="match-players"></ul>
           <div id="host-controls" hidden>
             <div class="field"><label for="m-bots">Bots to fill the lobby · <b id="m-bots-v">20</b></label><input id="m-bots" type="range" min="0" max="45" step="1" value="20"></div>
             <div class="field"><label for="m-size">Map size</label>
               <select id="m-size"><option value="3200">Standard</option><option value="4800" selected>Large</option><option value="6400">Huge</option></select></div>
+            <div class="field"><label for="m-type">Map type</label>
+              <select id="m-type"><option value="mixed" selected>Mixed</option><option value="islands">Islands</option><option value="desert">Desert</option><option value="winter">Winter</option><option value="random">Random</option></select></div>
+            <div class="field"><label for="m-lvl">Bot difficulty</label>
+              <select id="m-lvl"><option value="0">Easy</option><option value="1" selected>Normal</option><option value="2">Brutal</option></select></div>
             <div class="field"><label for="m-len">Match length</label>
               <select id="m-len"><option value="5">5 min</option><option value="8" selected>8 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">60 min</option></select></div>
             <button class="btn" id="btn-start">Start match</button>
@@ -333,6 +348,7 @@
         <dt><kbd>E</kbd></dt><dd>Get on or off a motorcycle, enter or leave a tunnel; hold to chop, break rock, cut reeds or mine iron</dd>
         <dt><kbd>G</kbd> · <kbd>Ctrl</kbd>+<kbd>G</kbd></dt><dd>Drop one of the held item · drop the whole stack</dd>
         <dt><kbd>P</kbd> (hold)</dt><dd>Scoreboard</dd>
+        <dt><kbd>C</kbd> (hold)</dt><dd>Emotes and quick chat: move the mouse toward one and let go. People within about 44 blocks hear you, and some lines ping their map</dd>
         <dt><kbd>T</kbd></dt><dd>Chat (online)</dd>
         <dt><kbd>Esc</kbd></dt><dd>Release the mouse, pause and open options</dd>
       </dl>
@@ -355,6 +371,10 @@
       </select></div>
     <div class="field"><label for="o-map">Map size</label>
       <select id="o-map"><option value="3200">Standard</option><option value="4800">Large</option><option value="6400">Huge</option></select></div>
+    <div class="field"><label for="o-type">Map type</label>
+      <select id="o-type"><option value="mixed">Mixed</option><option value="islands">Islands</option><option value="desert">Desert</option><option value="winter">Winter</option><option value="random">Random</option></select></div>
+    <div class="field"><label for="o-lvl">Bot difficulty</label>
+      <select id="o-lvl"><option value="0">Easy</option><option value="1">Normal</option><option value="2">Brutal</option></select></div>
     <div class="field"><label for="o-bots">Bots in solo matches · <b id="o-bots-v">23</b></label>
       <input id="o-bots" type="range" min="3" max="99" step="1"></div>
     <div class="field"><label for="o-snow">Snowstorm in the mountains</label><input id="o-snow" type="checkbox"></div>
@@ -379,7 +399,7 @@
     <p id="end-sub"></p>
     <div class="stats" id="end-stats"></div>
     <p class="hint" id="end-online" hidden>The match carries on for the others. Leaving takes you back to the lobby.</p>
-    <div class="row"><button class="btn" id="btn-again">Back to Play</button><button class="btn ghost" id="btn-spec" hidden>Spectate</button><button class="btn ghost" id="btn-replay" hidden>Watch replay</button></div>
+    <div class="row"><button class="btn" id="btn-rematch">Rematch</button><button class="btn ghost" id="btn-again">Back to Play</button><button class="btn ghost" id="btn-spec" hidden>Spectate</button><button class="btn ghost" id="btn-replay" hidden>Watch replay</button></div>
   </div>
 </section>
 
@@ -404,6 +424,7 @@
   <div id="dmgdir"></div>
   <div id="near" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <div id="streak" hidden><b></b><span></span></div>
+  <div id="wheel" hidden></div>
   <div id="spec" hidden></div>
   <div id="board" hidden><h3>Players <small id="board-count"></small></h3><div id="board-list"></div></div>
   <div id="tipbox" hidden><b>Tip</b><p></p></div>
@@ -463,6 +484,7 @@
 <script src="js/scene3d.js"></script>
 <script src="js/view3d.js"></script>
 <script src="js/replay.js"></script>
+<script src="js/social.js"></script>
 <script src="js/main.js"></script>
 </body>
 </html>

@@ -6,6 +6,9 @@ const TUN_R = 46, CELL = 160;
 const MAP_SIZES = { 3200: 'Standard', 4800: 'Large', 6400: 'Huge' };
 const PIT = { x: 2400, y: 2400, r: 380 };
 const BIOME_NAME = ['Forest', 'Desert', 'Mountains', 'Swamp'];
+// Map types: the usual mix, islands in a shallow sea, mostly desert, or a snowbound winter map
+const MAP_TYPES = { mixed: 'Mixed', islands: 'Islands', desert: 'Desert', winter: 'Winter', random: 'Random' };
+const pickMapType = (type, seed) => type === 'random' || !MAP_TYPES[type] ? ['mixed', 'islands', 'desert', 'winter'][seed % 4] : type;
 let SWAMPS = [], FEAST_SITES = [];
 const FEAST_NAMES = ['Old Clearing', 'Dune Hollow', 'Summit Pass', 'Split Rock', 'Ashen Field', 'Long Meadow', 'Stone Circle', 'Salt Flat', 'High Pass', 'Crow Hollow'];
 
@@ -49,8 +52,18 @@ function regionFactor(list, x, y, core) {
   for (const o of list) { const d = hyp(x - o.x, y - o.y); if (d < o.r) m = Math.max(m, sstep(o.r, o.r * core, d)); }
   return m;
 }
+// Islands maps: how much of an island (0 open sea, 1 solid land) a warped point is
+function isleFactor(wx, wy) {
+  let m = 0;
+  for (const o of world.isles) { const d = hyp(wx - o.x, wy - o.y); if (d < o.r) m = Math.max(m, sstep(o.r, o.r * 0.72, d)); }
+  return m;
+}
+function seaAt(x, y) { if (!world.sea) return false; const [wx, wy] = warp(x, y); return isleFactor(wx, wy) < 0.35; }
+// What to call where someone is standing
+const placeName = f => f.layer ? (world.nodes[nearestNode(f.x, f.y)].cave ? 'Cave' : 'Tunnels') : G.pit ? 'The Pit' : seaAt(f.x, f.y) ? 'Sea' : BIOME_NAME[biomeAt(f.x, f.y)];
 function biomeAt(x, y) {
   const [wx, wy] = warp(x, y);
+  if (world.sea && isleFactor(wx, wy) < 0.35) return 3; // the sea wades like a swamp
   for (const s of SWAMPS) if (hyp(wx - s.x, wy - s.y) < s.r) return 3;
   if (regionFactor(world.mts, wx, wy, 0.3) > 0.3) return 2;
   if (regionFactor(world.deserts, wx, wy, 0.5) > 0.4) return 1;
@@ -66,6 +79,7 @@ function heightAt(x, y) {
     const d = hyp(wx - s.x, wy - s.y) / s.r;
     if (d < 1.25) h += (-7 + (b - .5) * 14 - h) * sstep(1.25, 0.8, d);
   }
+  if (world.sea) h = -26 + (h + 32) * isleFactor(wx, wy); // islands rise out of a shallow sea
   const dp = hyp(x - PIT.x, y - PIT.y) / PIT.r;
   if (dp < 1.3) h += (-34 - h) * sstep(1.3, 1.0, dp);
   return h;
@@ -118,28 +132,106 @@ function navPath(a, b) {
   return path;
 }
 
-function genWorld(seed, size = 4800) {
+// Shortest distance between two segments (sampled, close enough for spacing checks)
+function segDist(s, o) {
+  let m = 1e9;
+  for (let t = 0; t <= 1; t += 0.125) m = Math.min(m, psd(s.ax + (s.bx - s.ax) * t, s.ay + (s.by - s.ay) * t, o), psd(o.ax + (o.bx - o.ax) * t, o.ay + (o.by - o.ay) * t, s));
+  return m;
+}
+// Caves: short dead-end passages into each mountain range, with more iron and a chest at the end.
+// They're on the underground layer but never touch the main tunnel network, so each is its own little world.
+function genCaves() {
+  for (const m of world.mts) for (let tries = 0; tries < 80; tries++) {
+    const a = rr(0, 6.28), d = m.r * rr(0.5, 0.78), ex = m.x + Math.cos(a) * d, ey = m.y + Math.sin(a) * d;
+    if (ex < 300 || ey < 300 || ex > WORLD - 300 || ey > WORLD - 300 || seaAt(ex, ey) || biomeAt(ex, ey) !== 2) continue;
+    if (world.entrances.some(e => hyp(e.x - ex, e.y - ey) < 450) || hyp(ex - PIT.x, ey - PIT.y) < PIT.r + 300) continue;
+    const pts = [{ x: ex, y: ey }];
+    let dir = Math.atan2(m.y - ey, m.x - ex);
+    for (let k = 0; k < 3; k++) { dir += rr(-0.7, 0.7); const p = pts[k], L = rr(170, 240); pts.push({ x: p.x + Math.cos(dir) * L, y: p.y + Math.sin(dir) * L }); }
+    if (pts.some(p => p.x < 150 || p.y < 150 || p.x > WORLD - 150 || p.y > WORLD - 150)) continue;
+    const segs = pts.slice(1).map((p, k) => ({ ax: pts[k].x, ay: pts[k].y, bx: p.x, by: p.y }));
+    if (segs.some(s => world.segs.some(o => segDist(s, o) < TUN_R * 2 + 40))) continue;
+    const base = world.nodes.length;
+    pts.forEach((p, k) => world.nodes.push({ x: p.x, y: p.y, adj: [], cave: true, ent: k === 0 }));
+    for (let k = 1; k < pts.length; k++) { world.nodes[base + k - 1].adj.push(base + k); world.nodes[base + k].adj.push(base + k - 1); }
+    world.segs.push(...segs); world.tunnels.push(pts);
+    world.entrances.push({ x: ex, y: ey, node: base, cave: true });
+    for (const s of segs) for (let q = 0; q < 2; q++) { // iron in the walls, and more in the chamber at the end
+      const L = hyp(s.bx - s.ax, s.by - s.ay), t = rr(0.2, 0.85), side = rng() < .5 ? -1 : 1;
+      const nx = -(s.by - s.ay) / L * side, ny = (s.bx - s.ax) / L * side;
+      world.ores.push({ kind: 'ore', x: s.ax + (s.bx - s.ax) * t + nx * (TUN_R - 6), y: s.ay + (s.by - s.ay) * t + ny * (TUN_R - 6), r: 14, amt: 3 });
+    }
+    const end = pts[pts.length - 1], back = Math.atan2(pts[pts.length - 2].y - end.y, pts[pts.length - 2].x - end.x);
+    for (let q = 0; q < 3; q++) { const oa = back + Math.PI * (0.55 + q * 0.45); world.ores.push({ kind: 'ore', x: end.x + Math.cos(oa) * (TUN_R - 6), y: end.y + Math.sin(oa) * (TUN_R - 6), r: 14, amt: 3 }); }
+    world.caves.push({ x: end.x, y: end.y });
+    break;
+  }
+  // Which tunnel network each junction belongs to (the main one, or one of the caves)
+  world.nodes.forEach(n => { n.comp = -1; });
+  let c = 0;
+  for (const [i, n] of world.nodes.entries()) {
+    if (n.comp >= 0) continue;
+    const q = [i]; n.comp = c;
+    while (q.length) for (const j of world.nodes[q.shift()].adj) if (world.nodes[j].comp < 0) { world.nodes[j].comp = c; q.push(j); }
+    c++;
+  }
+}
+const compAt = (x, y) => world.nodes[nearestNode(x, y)].comp;
+// The way down to the underground point (x, y), or up from it: the entrance nearest (px, py) on the same network
+function entranceFor(px, py, x, y) {
+  const c = compAt(x, y);
+  let best = null, bd = 1e12;
+  for (const e of world.entrances) { if (world.nodes[e.node].comp !== c) continue; const d = hyp(e.x - px, e.y - py); if (d < bd) { bd = d; best = e; } }
+  return best || world.entrances[0];
+}
+function genWorld(seed, size = 4800, type = 'mixed') {
   WORLD = size; PIT.x = PIT.y = size / 2;
   const A = size / 3200; // 1 for Standard, 1.5 Large, 2 Huge
+  type = pickMapType(type, seed);
   rng = mulberry32(seed);
   world = {
-    seed, size, n1: makeNoise(seed + 1, Math.round(5 * A)), n2: makeNoise(seed + 2, Math.round(13 * A)),
-    grid: new Map(), objs: [], entrances: [], nodes: [], segs: [], tunnels: [], ores: [], mts: [], deserts: [],
+    seed, size, type, sea: type === 'islands', winter: type === 'winter', isles: [],
+    n1: makeNoise(seed + 1, Math.round(5 * A)), n2: makeNoise(seed + 2, Math.round(13 * A)),
+    grid: new Map(), objs: [], entrances: [], nodes: [], segs: [], tunnels: [], ores: [], mts: [], deserts: [], caves: [],
   };
 
+  // Islands: a big central island around the pit, and a ring of others in a shallow sea
+  if (world.sea) {
+    world.isles.push({ x: PIT.x, y: PIT.y, r: (PIT.r + 520) * Math.sqrt(A) });
+    for (let t = 0; world.isles.length < Math.round(5 * A) + 1 && t < 600; t++) {
+      const r = rr(420, 640) * Math.sqrt(A), x = rr(r * 0.55, size - r * 0.55), y = rr(r * 0.55, size - r * 0.55);
+      if (world.isles.some(o => hyp(o.x - x, o.y - y) < (o.r + r) * 0.78)) continue;
+      world.isles.push({ x, y, r });
+    }
+  }
+  const onLand = (x, y, r) => !world.sea || world.isles.some(o => hyp(o.x - x, o.y - y) < o.r * 0.7 - r * 0.25);
   // Regions: a few mountain ranges, deserts and swamps, placed at random, not on top of each other or the pit
   SWAMPS = [];
   const placeRegions = (list, n, rmin, rmax) => {
     for (let t = 0; list.length < n && t < 500; t++) {
       const r = rr(rmin, rmax) * Math.sqrt(A), x = rr(r * 0.4, size - r * 0.4), y = rr(r * 0.4, size - r * 0.4);
-      if (hyp(x - PIT.x, y - PIT.y) < PIT.r + r * 0.7 + 150) continue;
+      if (hyp(x - PIT.x, y - PIT.y) < PIT.r + r * 0.7 + 150 || !onLand(x, y, r)) continue;
       if ([...world.mts, ...world.deserts, ...SWAMPS].some(o => hyp(o.x - x, o.y - y) < (o.r + r) * 0.8)) continue;
       list.push({ x, y, r });
     }
   };
-  placeRegions(world.mts, Math.max(1, Math.round(rr(1.3, 2.4) * A)), 560, 820);
-  placeRegions(world.deserts, Math.max(1, Math.round(rr(1, 1.9) * A)), 600, 860);
-  placeRegions(SWAMPS, Math.max(2, Math.round(rr(2, 3) * A)), 240, 420);
+  if (type === 'desert') { // mostly sand, a few oases, one range of hills
+    placeRegions(world.mts, Math.max(1, Math.round(0.8 * A)), 460, 620);
+    placeRegions(world.deserts, Math.round(5 * A), 700, 980);
+    placeRegions(SWAMPS, Math.max(2, Math.round(1.6 * A)), 150, 230);
+  } else if (type === 'winter') { // big mountain ranges; the forest between them is snowed in
+    placeRegions(world.mts, Math.max(2, Math.round(rr(2.4, 3.2) * A)), 600, 860);
+    placeRegions(SWAMPS, Math.max(2, Math.round(1.8 * A)), 220, 340);
+  } else if (world.sea) { // smaller regions, all on the islands
+    placeRegions(world.mts, Math.max(1, Math.round(1.2 * A)), 360, 480);
+    placeRegions(world.deserts, Math.max(1, Math.round(1.2 * A)), 360, 480);
+    placeRegions(SWAMPS, Math.max(1, Math.round(1.2 * A)), 170, 240);
+  } else {
+    placeRegions(world.mts, Math.max(1, Math.round(rr(1.3, 2.4) * A)), 560, 820);
+    placeRegions(world.deserts, Math.max(1, Math.round(rr(1, 1.9) * A)), 600, 860);
+    placeRegions(SWAMPS, Math.max(2, Math.round(rr(2, 3) * A)), 240, 420);
+  }
+  if (!SWAMPS.length) SWAMPS.push({ x: PIT.x + PIT.r + 260, y: PIT.y, r: 180 }); // the Drowned Altar needs a swamp
   SWAMPS.sort((p, q) => q.r - p.r);
   // Feast sites: three open spots, well apart
   const names = [...FEAST_NAMES];
@@ -155,9 +247,9 @@ function genWorld(seed, size = 4800) {
   const ents = [];
   for (let tries = 0; ents.length < Math.round(9 * A) && tries < 1500; tries++) {
     const x = rr(260, WORLD - 260), y = rr(260, WORLD - 260);
-    if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 160) continue;
+    if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 160 || seaAt(x, y)) continue;
     if (ents.some(e => hyp(e.x - x, e.y - y) < 700)) continue;
-    ents.push({ x, y });
+    ents.push({ x, y, node: ents.length });
   }
   world.entrances = ents;
   const nodes = world.nodes = ents.map(e => ({ x: e.x, y: e.y, adj: [], ent: true }));
@@ -212,12 +304,13 @@ function genWorld(seed, size = 4800) {
     const nx = -(s.by - s.ay) / L * side, ny = (s.bx - s.ax) / L * side;
     world.ores.push({ kind: 'ore', x: s.ax + (s.bx - s.ax) * t + nx * (TUN_R - 6), y: s.ay + (s.by - s.ay) * t + ny * (TUN_R - 6), r: 14, amt: 3 });
   }
+  genCaves();
 
   // Trees and rocks by biome
   const place = { 0: [0.5, 0.05], 1: [0.07, 0.07], 2: [0.22, 0.28], 3: [0.14, 0.0] };
   for (let k = 0; k < Math.round(5200 * A * A); k++) {
     const x = rr(40, WORLD - 40), y = rr(40, WORLD - 40), b = biomeAt(x, y);
-    if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 60) continue;
+    if (hyp(x - PIT.x, y - PIT.y) < PIT.r + 60 || seaAt(x, y)) continue;
     if (ents.some(e => hyp(e.x - x, e.y - y) < 110)) continue;
     if (FEAST_SITES.some(f => hyp(f.x - x, f.y - y) < 190)) continue;
     const roll = rng(), [pt, pr] = place[b];
@@ -225,6 +318,7 @@ function genWorld(seed, size = 4800) {
     if (roll < pt * 0.35) o = { kind: 'tree', style: b, r: b === 1 ? 12 : 17, amt: b === 1 ? 2 : 4 };
     else if (roll < (pt + pr) * 0.35 && roll >= pt * 0.35) o = { kind: 'rock', style: b, r: rr(16, 24), amt: 5 };
     if (!o) continue;
+    if (world.winter && b === 0) o.style = 2; // snowed-in pines and rocks
     o.x = x; o.y = y; o.seed = rng();
     if (nearObjs(x, y, 70).some(q => hyp(q.x - x, q.y - y) < q.r + o.r + 26)) continue;
     world.objs.push(o); gridAdd(o);
@@ -258,7 +352,7 @@ function genWorld(seed, size = 4800) {
   const flatness = (x, y, d) => { const hs = [[-d, -d], [d, -d], [-d, d], [d, d], [0, 0]].map(([a, b]) => heightAt(x + a, y + b)); return Math.max(...hs) - Math.min(...hs); };
   let best = null;
   const inRegion = list => { const o = pick(list), a = rr(0, 6.28), d = rr(0, o.r * 0.75); return [clamp(o.x + Math.cos(a) * d, 250, WORLD - 250), clamp(o.y + Math.sin(a) * d, 250, WORLD - 250)]; };
-  for (let i = 0; i < 900; i++) { // Frostpeak Shrine: the highest open ground in the mountains
+  for (let i = 0; i < 900 && world.mts.length; i++) { // Frostpeak Shrine: the highest open ground in the mountains
     const [x, y] = inRegion(world.mts);
     if (biomeAt(x, y) !== 2 || !clear(x, y, 60) || flatness(x, y, 40) > 40) continue;
     const h = heightAt(x, y); if (!best || h > best.h) best = { x, y, h };
@@ -266,9 +360,10 @@ function genWorld(seed, size = 4800) {
   if (best) world.landmarks.push({ id: 'peak', x: best.x, y: best.y, layer: 0 });
   world.landmarks.push({ id: 'altar', x: SWAMPS[0].x, y: SWAMPS[0].y, layer: 0 });
   best = null;
+  const forgeB = world.deserts.length ? 1 : 0; // no desert (winter): the forge stands in the forest
   for (let i = 0; i < 900; i++) { // Sunken Forge: flat desert, away from everything
-    const [x, y] = inRegion(world.deserts);
-    if (biomeAt(x, y) !== 1 || !clear(x, y, 110)) continue;
+    const [x, y] = forgeB ? inRegion(world.deserts) : [rr(300, WORLD - 300), rr(300, WORLD - 300)];
+    if (biomeAt(x, y) !== forgeB || seaAt(x, y) || !clear(x, y, 110)) continue;
     const fl = flatness(x, y, 90); if (!best || fl < best.fl) best = { x, y, fl };
   }
   if (best) world.landmarks.push({ id: 'forge', x: best.x, y: best.y, layer: 0 });
@@ -281,12 +376,12 @@ function genWorld(seed, size = 4800) {
   if (best) world.landmarks.push({ id: 'crowsnest', x: best.x, y: best.y, layer: 0 });
   // Rat King's Nest: the tunnel junction with the most branches, furthest from any entrance
   const junction = world.nodes.map((n, i) => ({ i, n, score: n.adj.length * 1000 + Math.min(...ents.map(e => hyp(e.x - n.x, e.y - n.y))) }))
-    .filter(q => !q.n.ent).sort((a, b) => b.score - a.score)[0];
+    .filter(q => !q.n.ent && !q.n.cave).sort((a, b) => b.score - a.score)[0];
   if (junction) world.landmarks.push({ id: 'nest', x: junction.n.x, y: junction.n.y, layer: 1, node: junction.i });
   // Lava pools: glowing vents on flat ground in the mountains and deserts. They burn, and fill buckets.
   world.lavas = [];
   const hot = [...world.mts, ...world.deserts];
-  for (let t = 0; world.lavas.length < Math.round(2 * A) + 1 && t < 2000; t++) {
+  for (let t = 0; hot.length && world.lavas.length < Math.round(2 * A) + 1 && t < 2000; t++) {
     const [x, y] = inRegion(hot), r = rr(34, 46), bi = biomeAt(x, y);
     if ((bi !== 1 && bi !== 2) || flatness(x, y, r) > 10 || !clear(x, y, r + 30) || world.lavas.some(p => hyp(p.x - x, p.y - y) < 700)) continue;
     const hs = [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]].map(([a, b]) => heightAt(x + a, y + b));
@@ -333,10 +428,12 @@ function renderGround() {
     const cx = (a[0] + b[0] + d[0]) / 3, cy = (a[1] + b[1] + d[1]) / 3;
     const bi = biomeAt(cx, cy);
     let [h, s, l] = base[bi];
+    if (bi === 0 && world.winter) [h, s, l] = [205, 14, 80];
+    if (seaAt(cx, cy)) [h, s, l] = [200, 42, 34];
     const nz = world.n2(cx / WORLD * 1.7 % 1, cy / WORLD * 1.7 % 1);
     l += (nz - .5) * 8 + rr(-2.5, 2.5);
     if (bi === 2 && nz > 0.62) { h = 215; s = 8; l = 52 + rr(-4, 4); }
-    if (bi === 3 && rng() < 0.22) { h = 172; s = 30; l = 17; }
+    if (bi === 3 && rng() < 0.22 && !seaAt(cx, cy)) { h = 172; s = 30; l = 17; }
     if (bi === 0 && nz < 0.3) { l -= 3; h = 120; }
     g.fillStyle = `hsl(${h} ${s}% ${l}%)`;
     g.strokeStyle = g.fillStyle;

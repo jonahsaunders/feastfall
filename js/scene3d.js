@@ -118,6 +118,8 @@ function build3D() {
     const bi = biomeAt(cx, cz), steep = vc.y < 0.82, jit = rr(-2.5, 2.5);
     let color;
     if (hyp(cx - PIT.x, cz - PIT.y) < PIT.r * 1.02) color = hsl(30, 8, 36 + jit);
+    else if (world.sea && seaAt(cx, cz)) color = cy < -8 ? hsl(196, 38, 30 + jit) : hsl(44, 42, 62 + jit); // sea floor, beaches
+    else if (bi === 0 && world.winter) color = steep ? hsl(210, 8, 58 + jit) : hsl(205, 16, 86 + jit);
     else if (bi === 2) color = steep || cy < 40 ? hsl(215, 7, 44 + jit) : hsl(205, 18, 88 + jit);
     else if (bi === 1) color = hsl(38, 40, 50 + jit);
     else if (bi === 3) color = cy < -6 ? hsl(170, 25, 18) : hsl(95, 22, 26 + jit);
@@ -136,12 +138,16 @@ function build3D() {
   terrain.receiveShadow = true;
   surfaceGroup.add(terrain);
   // outer ground so the map edge is not a cliff into the sky
-  const outer = new T.Mesh(new T.PlaneGeometry(WORLD * 3, WORLD * 3).rotateX(-Math.PI / 2), lam('#27351f'));
+  const outer = new T.Mesh(new T.PlaneGeometry(WORLD * 3, WORLD * 3).rotateX(-Math.PI / 2), lam(world.sea ? '#1f4a5e' : world.winter ? '#b9c6cc' : '#27351f'));
   outer.position.set(WORLD / 2, -40, WORLD / 2); surfaceGroup.add(outer);
-  // swamp water
+  // swamp water (icy in winter), and on island maps the sea all around
   for (const s of SWAMPS) {
-    const w = new T.Mesh(new T.CircleGeometry(s.r * 1.15, 28).rotateX(-Math.PI / 2), lam('#2c4a45', { transparent: true, opacity: 0.78 }));
+    const w = new T.Mesh(new T.CircleGeometry(s.r * 1.15, 28).rotateX(-Math.PI / 2), lam(world.winter ? '#9fbfcf' : '#2c4a45', { transparent: true, opacity: world.winter ? 0.9 : 0.78 }));
     w.position.set(s.x, -3, s.y); surfaceGroup.add(w);
+  }
+  if (world.sea) {
+    const sea = new T.Mesh(new T.PlaneGeometry(WORLD * 3, WORLD * 3).rotateX(-Math.PI / 2), lam('#2f6f8f', { transparent: true, opacity: 0.72 }));
+    sea.position.set(WORLD / 2, -4, WORLD / 2); surfaceGroup.add(sea);
   }
 
   // lava pools: a glowing disc in a ring of dark rock
@@ -206,6 +212,13 @@ function build3D() {
     const g = heightAt(e.x, e.y), grp = new T.Group();
     grp.position.set(e.x, g, e.y); grp.rotation.y = rr(0, 6.28);
     const hole = new T.Mesh(new T.CircleGeometry(21, 9).rotateX(-Math.PI / 2), black); hole.position.y = 1.2; grp.add(hole);
+    if (e.cave) { // a cave mouth: a rough stone arch instead of a wooden frame
+      const stone = lam('#5f5a54');
+      for (const s of [-1, 1]) for (let k = 0; k < 3; k++) { const r = new T.Mesh(GEO.rock, stone); r.scale.set(14, 16, 14); r.position.set(rr(-4, 4), 12 + k * 24, s * 26); r.rotation.y = rr(0, 6); r.castShadow = true; grp.add(r); }
+      const top = new T.Mesh(GEO.rock, stone); top.scale.set(18, 14, 42); top.position.y = 76; top.castShadow = true; grp.add(top);
+      surfaceGroup.add(grp);
+      continue;
+    }
     for (const s of [-1, 1]) { const p = new T.Mesh(new T.BoxGeometry(4, 62, 4), wood); p.position.set(0, 31, s * 24); p.castShadow = true; grp.add(p); }
     const bar = new T.Mesh(new T.BoxGeometry(4, 4, 56), wood); bar.position.y = 62; grp.add(bar);
     const rope = new T.Mesh(new T.BoxGeometry(1, 50, 1), lam('#c9b48a')); rope.position.y = 37; grp.add(rope);

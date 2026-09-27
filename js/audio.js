@@ -82,6 +82,8 @@ const Sfx = (() => {
     step_wood: d => { tone(150, 0.07, 'triangle', 0.22, 110, 0, d); noise(0.04, 900, 2, 0.12, 'bandpass', 0, d); },
     step_water: d => noise(0.14, 1300, 0.8, 0.22, 'lowpass', 500, d),
     step_big: d => { tone(60, 0.2, 'sine', 0.6, 32, 0, d); noise(0.14, 300, 1, 0.35, 'lowpass', 110, d); },
+    // Quick chat: a short burbled "voice", three quick vowel-ish tones
+    voice: d => { const b = 180 + Math.random() * 120; for (let i = 0; i < 3; i++) { tone(b * (1 + (i % 2) * 0.25), 0.07, 'triangle', 0.12, b * 1.3, i * 0.075, d); noise(0.05, 1400 + i * 300, 4, 0.05, 'bandpass', 0, d, i * 0.075); } },
     rev: d => { tone(45, 0.5, 'sawtooth', 0.14, 120, 0, d); tone(90, 0.45, 'square', 0.05, 200, 0.05, d); },
     crash: d => { noise(0.4, 1200, 0.6, 0.6, 'lowpass', 200, d); tone(90, 0.3, 'sine', 0.5, 40, 0, d); noise(0.25, 3800, 4, 0.18, 'bandpass', 1500, d, 0.03); },
     streak: d => { tone(523, 0.1, 'square', 0.07, 0, 0, d); tone(784, 0.12, 'square', 0.07, 0, 0.09, d); tone(1047, 0.3, 'triangle', 0.08, 0, 0.18, d); },

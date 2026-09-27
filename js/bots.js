@@ -3,10 +3,22 @@
 // hunter (seeks people), miner (rats and iron underground), trapper (spike traps near potions and tunnels),
 // tower (pillars up and shoots from above), balanced.
 const STYLES = ['hunter', 'miner', 'miner', 'trapper', 'tower', 'tower', 'hunter', 'balanced'];
+// Difficulty: how fast bots react, how far they see, how well they aim, when they drink, how brave they are
+const BOT_LVL = [
+  { name: 'Easy', react: [0.55, 0.85], sight: 0.75, jitter: 1.9, aim: 0.09, drinkAt: 6, brave: 1.25, kitCd: 2 },
+  { name: 'Normal', react: [0.3, 0.5], sight: 1, jitter: 1, aim: 0.03, drinkAt: 9, brave: 1, kitCd: 1 },
+  { name: 'Brutal', react: [0.16, 0.28], sight: 1.25, jitter: 0.45, aim: 0.008, drinkAt: 11.5, brave: 0.85, kitCd: 0.75 },
+];
+const botLvl = () => BOT_LVL[G.botLevel ?? 1] || BOT_LVL[1];
+// Personalities, on top of the playstyle: cowards run, campers dig in and wait, rushers chase anyone, looters go for chests
+const PERS = {
+  steady: { brave: 1 }, coward: { brave: 1.6 }, camper: { brave: 1 }, rusher: { brave: 0.45 }, looter: { brave: 1.2 },
+};
+const PERS_LIST = ['steady', 'steady', 'coward', 'camper', 'rusher', 'looter'];
 
 function sightRange(b) {
   if (b.layer === 1) return 300;
-  return b.biome === 2 && G.settings.snow && b.kit !== 'yeti' ? 240 : 460;
+  return (b.biome === 2 && G.settings.snow && b.kit !== 'yeti' ? 240 : 460) * botLvl().sight;
 }
 function nearestEntrance(x, y) {
   let best = null, bd = 1e12;
@@ -47,11 +59,44 @@ function botThink(b) {
   if (elevated && b.plan && b.plan.type === 'tower') return;
   if (elevated && b.onGround && (b.towerDone || (b.plan && b.plan.type === 'perch'))) { b.plan = { type: 'perch', target: enemy }; return; }
   if (enemy && pvpOn()) {
-    const brave = b.style === 'hunter' ? 0.6 : b.style === 'trapper' ? 1.1 : 0.85;
-    const cornered = ed < 80 && b.hp > 5;
+    const brave = (b.style === 'hunter' ? 0.6 : b.style === 'trapper' ? 1.1 : 0.85) * (PERS[b.pers] || PERS.steady).brave * botLvl().brave;
+    const cornered = ed < 80 && b.hp > 5, was = b.plan && b.plan.type;
     if (!reach) b.plan = { type: 'fight', target: enemy, ranged: true };
-    else b.plan = (power(b) >= power(enemy) * brave || cornered || G.pit) ? { type: 'fight', target: enemy } : { type: 'flee', target: enemy };
+    else if (b.pers === 'coward' && b.hp < 10 && !cornered && !G.pit) b.plan = { type: 'flee', target: enemy };
+    else b.plan = (power(b) >= power(enemy) * brave || cornered || G.pit || (b.rival && enemy === G.human)) ? { type: 'fight', target: enemy } : { type: 'flee', target: enemy };
+    if (b.plan.type !== was) botSay(b, b.plan.type === 'flee' ? 'flee' : 'engage', enemy);
     return;
+  }
+  if (b.plan && b.plan.type === 'camp' && G.t < b.plan.until && b.layer === 0) return; // campers sit tight
+  // Rivals come looking for you
+  if (b.rival && pvpOn() && G.human.alive && G.human.isFighter && hyp(G.human.x - b.x, G.human.y - b.y) > 350 && b.weapon >= 1) {
+    b.plan = { type: 'go', x: G.human.x + rr(-150, 150), y: G.human.y + rr(-150, 150), layer: G.human.layer }; return;
+  }
+  // Rushers go straight for whoever's nearest once they have a weapon
+  if (b.pers === 'rusher' && pvpOn() && b.weapon >= 1) {
+    let prey = null, pd = 2500;
+    for (const o of G.fighters) if (o !== b && o.alive && !o.isClone && !allied(o, b)) { const d = hyp(o.x - b.x, o.y - b.y); if (d < pd) { pd = d; prey = o; } }
+    if (prey) { b.plan = { type: 'go', x: prey.x, y: prey.y, layer: prey.layer }; return; }
+  }
+  // Looters go for death bags and chests before anything else
+  if (b.pers === 'looter' && b.layer === 0 && !G.pit) {
+    let best = null, bd = 1200;
+    for (const it of G.items) if (!it.gone && it.layer === 0 && ['bag', 'chest', 'supply', 'feast', 'relic'].includes(it.kind) && it.z < heightAt(it.x, it.y) + 30) { const d = hyp(it.x - b.x, it.y - b.y); if (d < bd) { bd = d; best = it; } }
+    if (best) { b.plan = { type: 'go', x: best.x, y: best.y, layer: 0 }; return; }
+  }
+  // Campers with decent gear pick a spot near somewhere people go, and wait there
+  if (b.pers === 'camper' && b.layer === 0 && !G.pit && (b.weapon >= 2 || b.armor >= 2)) {
+    if (b.campSpot && hyp(b.campSpot.x - b.x, b.campSpot.y - b.y) < 40) {
+      b.plan = { type: 'camp', until: G.t + rr(40, 80) }; b.campSpot = null;
+      if (b.kit === 'hidden' && !b.hidden) useKit(b, b.x, b.y);
+      return;
+    }
+    if (!b.campSpot) {
+      const spots = [...world.ruins, ...FEAST_SITES, ...world.landmarks.filter(m => !m.layer)];
+      const s = spots.filter(p => hyp(p.x - b.x, p.y - b.y) < 1500).sort(() => rng() - 0.5)[0];
+      if (s) { const a = rr(0, 6.28); b.campSpot = { x: s.x + Math.cos(a) * rr(90, 160), y: s.y + Math.sin(a) * rr(90, 160) }; }
+    }
+    if (b.campSpot) { b.plan = { type: 'go', x: b.campSpot.x, y: b.campSpot.y, layer: 0 }; return; }
   }
   // Allies: join a partner's fight, otherwise keep up with the leader
   if (b.team) {
@@ -128,13 +173,15 @@ function botThink(b) {
     if (b.layer === 1) {
       const hide = nearestItem(b, 'hide', 1);
       if (hide && hyp(hide.x - b.x, hide.y - b.y) < 500) { b.plan = { type: 'go', x: hide.x, y: hide.y, layer: 1 }; return; }
+      const here = compAt(b.x, b.y); // only what's reachable from this tunnel network or cave
       if (b.armor >= 2 && b.weapon < 3) {
-        const ore = world.ores.filter(o => o.amt > 0).sort((p, q) => hyp(p.x - b.x, p.y - b.y) - hyp(q.x - b.x, q.y - b.y))[0];
+        const ore = world.ores.filter(o => o.amt > 0 && compAt(o.x, o.y) === here).sort((p, q) => hyp(p.x - b.x, p.y - b.y) - hyp(q.x - b.x, q.y - b.y))[0];
         if (ore) { b.plan = { type: 'gather', obj: ore, layer: 1 }; return; }
       }
       let rat = null, rd = 900;
-      for (const r of G.rats) { const d = hyp(r.x - b.x, r.y - b.y); if (d < rd) { rd = d; rat = r; } }
-      b.plan = rat ? { type: 'rat', target: rat, layer: 1 } : { type: 'go', x: pick(world.nodes).x, y: pick(world.nodes).y, layer: 1 };
+      for (const r of G.rats) { const d = hyp(r.x - b.x, r.y - b.y); if (d < rd && world.nodes[r.node].comp === here) { rd = d; rat = r; } }
+      const n = pick(world.nodes.filter(q => q.comp === here));
+      b.plan = rat ? { type: 'rat', target: rat, layer: 1 } : { type: 'go', x: n.x, y: n.y, layer: 1 };
     } else {
       const e = nearestEntrance(b.x, b.y);
       b.plan = { type: 'go', x: e.x, y: e.y, layer: 1 };
@@ -221,6 +268,7 @@ function updateAlliances(dt) {
     const ids = m.map(f => f.id);
     announceTeam(ids, tm.col);
     NET.fx({ k: 'team', ids, c: tm.col });
+    botSay(a, 'team', near[0]);
     return; // one new alliance per check
   }
 }
@@ -235,6 +283,7 @@ function endTeam(tm, live) {
     tr.plan = { type: 'fight', target: v }; tr.thinkT = 1.5;
     announceBetrayal(ids, tr, v);
     NET.fx({ k: 'betray', ids, a: tr.id, v: v.id });
+    botSay(tr, 'betray', v);
   } else { announceTeam(ids, null); NET.fx({ k: 'team', ids, c: null }); }
 }
 // Shared by the host and everyone it tells: team colours show next to names
@@ -275,7 +324,7 @@ function nearestItem(b, kind, layer) {
 // Walk toward (x, y) on a given layer, switching layers through the nearest entrance if needed.
 function steer(b, x, y, layer, dt) {
   if (layer !== undefined && layer !== b.layer && !G.pit) {
-    const e = b.layer === 0 ? nearestEntrance(x, y) : nearestEntrance(b.x, b.y);
+    const e = b.layer === 0 ? entranceFor(x, y, x, y) : entranceFor(b.x, b.y, b.x, b.y); // caves have their own way in
     if (hyp(e.x - b.x, e.y - b.y) < 40) { toggleLayer(b); return; }
     x = e.x; y = e.y;
   }
@@ -321,7 +370,7 @@ function pillarStep(b, type) {
 
 function aimPitch(b, t) {
   const d = hyp(t.x - b.x, t.y - b.y);
-  return Math.atan2(t.z + 30 - (b.z + 46), d) + d * 0.00055;
+  return Math.atan2(t.z + 30 - (b.z + 46), d) + d * 0.00055 + rr(-1, 1) * botLvl().aim;
 }
 
 function botUpdate(b, dt) {
@@ -356,7 +405,13 @@ function botUpdate(b, dt) {
     if (k) { b.plan = { type: 'bike', k, x: p.x, y: p.y }; return; }
   }
   if (p.type !== 'gather') b.gather = null;
-  if (b.hp < 9 && hotPots(b) > 0 && b.drinkCd <= 0 && b.refillT <= 0) { if (drink(b)) b.drinkCd = rr(0.25, 0.5); }
+  if (p.type === 'camp') { // stand still, crouched, looking around
+    b.sneak = true; if (rng() < dt * 0.6) b.face += rr(-1.2, 1.2);
+    if (G.t > p.until) { b.plan = null; b.sneak = false; }
+    return;
+  }
+  b.sneak = false;
+  if (b.hp < botLvl().drinkAt && hotPots(b) > 0 && b.drinkCd <= 0 && b.refillT <= 0) { if (drink(b)) b.drinkCd = rr(0.25, 0.5); }
 
   if (p.type === 'tower') {
     const s = b.towerSpot, d = hyp(s.x - b.x, s.y - b.y);
@@ -387,7 +442,7 @@ function botUpdate(b, dt) {
     const t = p.target;
     if (!t.alive || t.layer !== b.layer) { b.plan = null; return; }
     const d = hyp(t.x - b.x, t.y - b.y), a = Math.atan2(t.y - b.y, t.x - b.x);
-    b.face = a + rr(-0.12, 0.12);
+    b.face = a + rr(-0.12, 0.12) * botLvl().jitter;
     if (p.type === 'flee') {
       b.mx = -Math.cos(a) + Math.cos(a + Math.PI / 2) * 0.4 * b.side2; b.my = -Math.sin(a) + Math.sin(a + Math.PI / 2) * 0.4 * b.side2;
       if (['runner', 'jumper', 'faker'].includes(b.kit)) useKit(b, b.x - Math.cos(a) * 200, b.y - Math.sin(a) * 200);

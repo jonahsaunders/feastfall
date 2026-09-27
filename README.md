@@ -86,6 +86,12 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 </tr>
 </table>
 
+- **Map types.** Mixed, Islands (a ring of islands in a shallow sea you wade across), Desert (sand, dunes and a few oases), Winter (snowed-in pine forest and big mountain ranges), or Random. Pick one in Options, or as host in an online match.
+- **Caves** cut into every mountain range: a stone arch on the surface (a grey peak on the map) leads to a dead-end cave with extra iron and a chest at the end.
+- **Bots with personalities.** Cowards run, campers dig in near places people visit, rushers chase whoever's closest, looters go for chests and death bags. They talk too, in speech bubbles and the feed when you're close. Choose Easy, Normal or Brutal bots.
+- **Rivals.** A bot that kills you remembers you. It comes back in your next solo matches with a ☠ by its name and hunts you down. Beat it for 75 bonus coins; beat it twice and it's gone.
+- **Emotes and quick chat.** Hold **C** for a wheel: wave, taunt, dance or cheer, or call out "Help!", "Enemy here!", "On my way", "Loot here", "Thanks!" or "Good game". Anyone within about 44 blocks hears you, and some lines ping a spot on their map.
+- **Assists.** Anyone who did 2 or more damage in the last 15 seconds gets an assist in the kill feed, and 20 coins if it's you.
 - **See who's around.** Red markers float over anyone within about 50 blocks, even when they're too far away to make out. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and the Hidden kit's disguises still keep you hidden.
 - **Footsteps you can place.** Everyone walking makes noise, panned left or right, and louder on stone and planks than on grass, sand or snow. Sneaking is silent, and you can hear a Titan coming from far off.
 - **Bounties.** Once someone has 3 or more kills and leads the match, they get a bounty. Everyone's map shows where they are every 30 seconds, they get a gold marker and a ★ by their name, and killing them pays 50 coins plus 25 per kill they had.
@@ -113,6 +119,16 @@ Drop into a freshly generated forest, desert, mountain and swamp map, gather and
 | ~45:00 | Dusk. Names get harder to read from a distance |
 | ~47:00 | The last supply drop |
 | 60:00 | Night. Everyone left is dropped into the pit. Last one standing wins |
+
+### Map types
+
+<table>
+<tr>
+<td width="33%"><img src="docs/screenshots/islands.jpg" alt="Looking out from an island across a shallow sea to another island"><br><sub>Islands</sub></td>
+<td width="33%"><img src="docs/screenshots/winter.jpg" alt="A snowed-in pine forest on a Winter map"><br><sub>Winter</sub></td>
+<td width="33%"><img src="docs/screenshots/cave.jpg" alt="The chamber at the end of a mountain cave: a chest among glowing iron ore"><br><sub>A mountain cave</sub></td>
+</tr>
+</table>
 
 ### Kits
 
@@ -184,7 +200,13 @@ npm install
 npm start
 ```
 
-Open `http://localhost:8080`. The page connects back to the same server, so everyone who opens that address shares a lobby. The online panel shows the address friends on your network can open. Browser players and desktop players can play together: either one can type the other's address under **Join a server**. One player clicks **Host a match**, everyone else clicks **Join**, and the host starts it. To play over the internet, run the server on any Node host (Render, Fly.io, Railway, a VPS) and share its address. Set `PORT` to change the port.
+Open `http://localhost:8080`. The page connects back to the same server, so everyone who opens that address shares a lobby. The online panel shows the address friends on your network can open. Browser players and desktop players can play together: either one can type the other's address under **Join a server**. One player clicks **Host a match**, everyone else clicks **Join**, and the host starts it. The host picks the bot count, map size, map type, bot difficulty and match length.
+
+- **Private matches:** click **Host private** instead. It isn't listed in the lobby; friends type its five-character code under **Join with a code**.
+- **Spectating:** a match that's already running shows **Watch** in the lobby (or join a private one with its code). You get a live copy of the match: follow players with ← →, or press **F** for a free camera (WASD to fly, Space up, Q down).
+- **Rematch:** at the end of a match, the host clicks **Rematch** to start a new map with everyone still in the room; everyone else clicks **Ready for a rematch** so the host can see who's in. Spectators who click it join the next match as players.
+
+To play over the internet, run the server on any Node host (Render, Fly.io, Railway, a VPS) and share its address. Set `PORT` to change the port.
 
 To keep the page on GitHub Pages and run only the server elsewhere, set the server address in `config.js`:
 
@@ -211,6 +233,7 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 | On a motorcycle | W · S throttle and brake/reverse, A · D steer, Space hard brake, mouse looks around, E gets off |
 | G · Ctrl+G | Drop one of the held item · drop the whole stack |
 | P (hold) | Scoreboard |
+| C (hold) | Emote and quick-chat wheel: move the mouse toward an option and let go |
 | T | Chat (online) |
 | Esc | Release the mouse and pause |
 
@@ -221,7 +244,7 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 
 Mouse look works by capturing the mouse, like any first-person game. Some windows can't do that (embedded browsers inside other apps, for example). There the game switches to free-look: the cursor is hidden, moving the mouse turns the view, and resting it against the window edge keeps turning. Chrome, Edge, Firefox and the desktop app capture the mouse normally.
 
-When you die, a short replay plays first (Space, Esc or a click skips it). The end screen then offers **Spectate**, where ← → or clicking switches between players and Esc goes back, and **Watch replay**.
+When you die, a short replay plays first (Space, Esc or a click skips it). The end screen then offers **Rematch**, **Spectate** (← → or clicking switches between players, **F** for a free camera, Esc goes back) and **Watch replay**.
 
 In water, hold Space to swim up. Water puts out fires.
 
@@ -239,13 +262,14 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | --- | --- |
 | `index.html` | Page, HUD, menus and styles |
 | `config.js` | Where online play connects |
-| `js/world.js` | Seeded map: biomes, trees, rocks, reeds, tunnels, lava pools, supply drop sites |
+| `js/world.js` | Seeded map: map types, biomes, trees, rocks, reeds, tunnels, caves, lava pools, supply drop sites |
 | `js/blocks.js` | Placeable blocks, collision, fall support, raycasting, poured water and lava |
 | `js/items.js` | Item registry, drawn icons, inventory, armour, recipes |
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
 | `js/bikes.js` | Motorcycles: riding, jumps, crashes, running people over, explosions |
-| `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced) and bot alliances |
-| `js/net.js` | Online play: lobby, matches, state sync, host migration |
+| `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced), personalities, difficulty and alliances |
+| `js/social.js` | Bot chat, rivals, emotes, quick chat and map pings |
+| `js/net.js` | Online play: lobby, private matches, spectating, rematches, state sync, host migration |
 | `js/scene3d.js` | Renderer, lights, terrain mesh, instanced scenery, tunnels |
 | `js/view3d.js` | Per-frame 3D: players, markers, items, effects, supply drops, first-person held item, minimap |
 | `js/replay.js` | Records the last few seconds and plays them back when you die |
@@ -263,7 +287,8 @@ Because the clients are trusted, a modified client could cheat. That's fine for 
 
 ## Known limits
 
-- You can't join a match that's already running.
+- You can't join a match that's already running as a player, only watch it (you can play in the rematch).
+- Rivals only come back in solo matches.
 - Rats in the tunnels are separate for each player (their hide drops are real).
 - On a bad connection a block edit or hit can occasionally be lost.
 - 99 bots needs a fast computer. Turn shadows off in Options if it runs slowly.
