@@ -94,6 +94,12 @@ const Sfx = (() => {
     gun: d => { noise(0.07, 1600, 0.8, 0.5, 'lowpass', 300, d); tone(110, 0.07, 'square', 0.12, 60, 0, d); },
     rocket: d => { noise(0.7, 900, 0.7, 0.45, 'bandpass', 3200, d); tone(160, 0.25, 'sawtooth', 0.1, 70, 0, d); },
     beep: d => { tone(1180, 0.12, 'square', 0.07, 0, 0, d); },
+    // Your hits: a short click; a kill: a heavier two-note one. Armour taking a hit: a dull clank
+    hitmark: d => { tone(1900, 0.045, 'square', 0.06, 1400, 0, d); noise(0.03, 4200, 3, 0.08, 'bandpass', 0, d); },
+    killmark: d => { tone(1500, 0.07, 'square', 0.08, 1100, 0, d); tone(2200, 0.1, 'triangle', 0.08, 0, 0.05, d); },
+    armor: d => { tone(420, 0.09, 'triangle', 0.1, 260, 0, d); noise(0.05, 2400, 4, 0.1, 'bandpass', 0, d); },
+    rift: d => { tone(300, 0.35, 'sine', 0.18, 900, 0, d); tone(620, 0.3, 'triangle', 0.08, 1500, 0.04, d); noise(0.25, 1800, 1.5, 0.12, 'bandpass', 4000, d); },
+    warp: d => { tone(900, 0.28, 'sine', 0.2, 180, 0, d); noise(0.22, 3000, 1, 0.16, 'bandpass', 500, d); },
     streak: d => { tone(523, 0.1, 'square', 0.07, 0, 0, d); tone(784, 0.12, 'square', 0.07, 0, 0.09, d); tone(1047, 0.3, 'triangle', 0.08, 0, 0.18, d); },
   };
   // Positional: sounds fade with distance from whoever you're watching, and pan left or right

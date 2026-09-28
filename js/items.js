@@ -46,6 +46,7 @@ const ITEMS = {
   maul:       { name: 'Quake Maul', stack: 1, cat: 'weapon', tier: 5, legendary: true, desc: 'Slow, heavy swings that launch people into the air and knock them far. Breaks any block in one hit.' },
   everflask:  { name: 'Everflask', stack: 1, cat: 'use', legendary: true, desc: 'Heals 3.5 hearts like a potion, then refills itself 25 seconds later instead of being used up.' },
   boots_wind: { name: 'Windwalker Boots', stack: 1, cat: 'armor', slot: 'feet', def: 0.09, legendary: true, desc: 'You never take fall damage, and holding Space while falling lets you glide down slowly.' },
+  riftlantern: { name: 'Rift Lantern', stack: 1, cat: 'weapon', legendary: true, desc: 'Left click opens a violet rift where you aim, right click a green one. Walk into either and you step out of the other at the same speed: drop into a rift in the ground and you fly out of one on a wall. Anyone can go through, and a pair can join the surface to the tunnels.' },
   crown:      { name: 'Rat King’s Crown', stack: 1, cat: 'armor', slot: 'head', def: 0.12, legendary: true, desc: 'Rats stop running from you, your rat kills no longer give away your position, and underground your map shows everyone in the tunnels.' },
 };
 const WNAME = ['Fists', 'Wood Sword', 'Stone Sword', 'Iron Sword', 'Feast Blade', 'Quake Maul'];
@@ -218,6 +219,14 @@ function paintIcon(id, kit) {
   } else if (id === 'crown') {
     P([[4, 18], [4, 8], [8, 12], [12, 5], [16, 12], [20, 8], [20, 18]], '#e6b84a', '#9a7420');
     g.fillStyle = '#c63d3d'; g.beginPath(); g.arc(12, 14, 1.8, 0, 7); g.fill(); L([[4, 18], [20, 18]], '#9a7420', 1.4);
+  } else if (id === 'riftlantern') { // a brass lantern with two glass panes, one violet, one green
+    g.strokeStyle = '#b8942a'; g.lineWidth = 1.2; g.beginPath(); g.arc(12, 4, 2.3, Math.PI, 0); g.stroke();
+    P([[7, 5], [17, 5], [15.5, 7.5], [8.5, 7.5]], '#c9a13a', '#7a5c14', 0.6);
+    P([[8.5, 7.5], [12, 7.5], [12, 17.5], [8.5, 17.5]], '#9a5ce8');
+    P([[12, 7.5], [15.5, 7.5], [15.5, 17.5], [12, 17.5]], '#3fd07a');
+    for (const x of [8.5, 12, 15.5]) L([[x, 7.5], [x, 17.5]], '#7a5c14', x === 12 ? 0.9 : 1.3);
+    P([[7, 17.5], [17, 17.5], [18, 21], [6, 21]], '#c9a13a', '#7a5c14', 0.6);
+    g.fillStyle = 'rgba(255,248,220,.8)'; g.beginPath(); g.arc(12, 12.5, 1.5, 0, 7); g.fill();
   } else if (id === 'blast') {
     P([[3, 16], [21, 16], [21, 20], [3, 20]], '#5a4a3a'); P([[8, 9], [16, 9], [16, 16], [8, 16]], '#9a3a2c', '#5a1a12');
     L([[12, 9], [14, 5]], '#e6dfcc', 1.2); g.fillStyle = '#ffd24a'; g.beginPath(); g.arc(14.5, 4.5, 1.6, 0, 7); g.fill();

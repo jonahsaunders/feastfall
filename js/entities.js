@@ -101,7 +101,8 @@ function hurt(t, amt, src, ang, kb, up = 0) {
   noteDamage(t, src, amt);
   noise(t.x, t.y, t.layer, 420, src); // a fight is loud: whoever's nearby hears where
   if (t.emoteT > 0) stopEmote(t);
-  if (t === G.human && src && src.isFighter) G.dmgDir = { a: Math.atan2(src.y - t.y, src.x - t.x), t: 1 };
+  if (t === G.human && src && src.isFighter) addDmgDir(Math.atan2(src.y - t.y, src.x - t.x), amt);
+  if (t === G.human && G.stats) { G.stats.taken = (G.stats.taken || 0) + amt; if (armorDef(t) > 0.15 && amt > 0.4) Sfx.play('armor'); }
   t.hp -= amt; t.hurtT = 0.2; t.gather = null; t.refillT = 0; t.hidden = false;
   const steady = t.kit === 'heavy' || isTitan(t);
   if (t.bike && !steady && (up || kb > 600)) dismountBike(t, true); // a big hit knocks you off your bike
@@ -120,6 +121,7 @@ function hurtRaw(t, amt, src) {
   if (t.remote) { NET.hit(t, { d: +amt.toFixed(2), raw: 1, by: srcId(src), k: hitKindOf(t, src) }); return; }
   t.lastKind = hitKindOf(t, src);
   t.hp -= amt; t.hurtT = 0.25; t.gather = null; t.hidden = false;
+  if (t === G.human && G.stats) G.stats.taken = (G.stats.taken || 0) + amt;
   noteDamage(t, src, amt);
   if (G.settings.dmgNums) addFx('num', t.x, t.y, t.layer, { txt: amt.toFixed(1), z: t.z + 70 });
   if (t.hp <= 0) killFighter(t, src || (G.t - t.lastHitT < 8 ? t.lastHitBy : null));
@@ -174,7 +176,10 @@ function announceKill(t, killer, fell, assists = [], kind = 'skull') {
   if (killer) {
     if (!killer.remote) killer.kills++;
     if (!killer.remote && killer.kit === 'leech' && killer.alive) killer.hp = Math.min(killer.maxHp, killer.hp + 8);
-    if (killer === G.human) { G.coinsEarned += 50; Sfx.play('kill'); toast(`You eliminated ${t.name}`); G.killFlash = 0.6; }
+    if (killer === G.human) {
+      G.coinsEarned += 50; Sfx.play('kill'); toast(`You eliminated ${t.name}`); G.killFlash = 0.6; hitMark(true);
+      if (G.stats) { (G.stats.victims = G.stats.victims || []).push({ name: t.name, icon: FEED_NAME.hasOwnProperty(kind) ? kind : 'skull' }); G.stats.longKill = Math.max(G.stats.longKill || 0, hyp(killer.x - t.x, killer.y - t.y)); }
+    }
   }
   const how = fell || t.diedTo === 'pitfall' ? 'fell' : t.diedTo === 'lava' ? 'burned' : t.diedTo === 'crash' ? 'crashed' : kind === 'heli' ? 'went down with a helicopter' : 'died';
   const help = assists.length ? ` + ${assists.map(a => a.name).join(', ')}` : '';
@@ -321,6 +326,7 @@ function spawnProj(p, ghost) {
 function shoot(f, charge, pitch = 0) {
   if (!f.bow || !take(f, 'arrow', 1)) return;
   const s = 420 + 560 * charge, c = Math.cos(pitch);
+  if (f === G.human && G.stats) G.stats.shots = (G.stats.shots || 0) + 1;
   noise(f.x, f.y, f.layer, 480, f);
   spawnProj({ kind: 'arrow', x: f.x, y: f.y, z: f.z + 46, vx: Math.cos(f.face) * s * c, vy: Math.sin(f.face) * s * c, vz: Math.sin(pitch) * s, owner: f, layer: f.layer, life: 2, dmg: 0.8 + charge * 1.4, kb: 150 + 380 * charge });
   Sfx.play('shoot', f.x, f.y, f.z);
@@ -774,7 +780,12 @@ function updateFighter(f, dt) {
       f.z += f.vz * dt;
       if (f.vz > 0) { const c = headBlocked(f); if (c !== null && f.z > c) { f.z = c; f.vz = 0; } }
       f.peakZ = Math.max(f.peakZ, f.z);
-      if (f.z <= sup) { f.z = sup; f.vz = 0; f.onGround = true; land(f, f.peakZ - sup, supType); }
+      if (f.z <= sup) { // landing (on a linked rift in the floor, you fall on through at full speed instead: rifts.js)
+        const into = riftUnder(f);
+        f.riftV = into ? -f.vz : 0;
+        f.z = sup; f.vz = 0; f.onGround = true;
+        if (!into) land(f, f.peakZ - sup, supType);
+      }
     }
     // Traps: spikes, blast traps and launch pads; snare turf gives way under anyone but its owner
     const tr = !f.isClone ? trapAt(f) : null, trap = tr && tr.b;
@@ -925,7 +936,7 @@ function updateProj(dt) {
         const a = Math.atan2(p.vy, p.vx);
         if (p.kind === 'rocket') {} // it goes off below
         else if (resists(t)) { addFx('ring', t.x, t.y, t.layer, { col: '#8fa3a8', z: t.z + 30 }); }
-        else if (p.kind === 'arrow') withKind('bow', () => hurt(t, p.dmg, p.owner, a, p.kb));
+        else if (p.kind === 'arrow') { if (withKind('bow', () => hurt(t, p.dmg, p.owner, a, p.kb)) && p.owner === G.human) { hitMark(); if (G.stats) G.stats.hits = (G.stats.hits || 0) + 1; } }
         else if (p.kind === 'swap') { if (pvpOn() && t.invuln <= 0 && !t.isClone) swapPlaces(p.owner, t); }
         else if (pvpOn() && t.invuln <= 0) {
           const o = p.owner, b = Math.atan2(o.y - t.y, o.x - t.x);

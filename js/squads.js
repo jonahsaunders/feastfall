@@ -60,7 +60,7 @@ function updateRevives(dt) {
   if (!G.duo) return;
   const h = G.human;
   h.reviving = false;
-  if (G.mode === 'play' && h.alive && keys.has('e') && !G.invOpen && !G.chatOpen) {
+  if (G.mode === 'play' && h.alive && keyHeld('use') && !G.invOpen && !G.chatOpen) {
     const r = reviveTarget(h);
     if (r) { h.reviving = true; channelRevive(h, r.p, dt); }
   }

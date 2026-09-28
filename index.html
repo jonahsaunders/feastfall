@@ -76,6 +76,26 @@
   .stats div { background: var(--moss-2); padding: 10px 12px; display: flex; flex-direction: column; }
   .stats span { font: 600 11px var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
   .stats b { font: 700 22px var(--mono); font-variant-numeric: tabular-nums; }
+  .stats.more { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .stats.more div { padding: 7px 10px; }
+  .stats.more span { font-size: 10px; }
+  .stats.more b { font-size: 15px; }
+  #end-kills { display: flex; flex-wrap: wrap; gap: 6px; }
+  #end-kills:empty { display: none; }
+  #end-kills .chip { display: flex; align-items: center; gap: 6px; background: var(--moss-2); border: 1px solid var(--line); padding: 3px 9px 3px 5px; font: 600 13px var(--ui); }
+  #end-kills .chip img { width: 20px; height: 20px; }
+  .end-h { font: 600 11px var(--ui); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 0 0 -8px; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-top: -4px; }
+  .tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim); font: 600 13px var(--ui); letter-spacing: .1em; text-transform: uppercase; padding: 8px 12px; cursor: pointer; margin-bottom: -1px; }
+  .tabs button:hover { color: var(--bone); }
+  .tabs button.on { color: var(--bone); border-bottom-color: var(--ember); }
+  .opt-sec { display: flex; flex-direction: column; gap: 14px; }
+  .field .val { font: 700 13px var(--mono); color: var(--bone); margin-left: 4px; }
+  #binds { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; }
+  #binds span { font-size: 14px; }
+  #binds button { min-width: 92px; font: 700 13px var(--mono); background: var(--moss-2); color: var(--bone); border: 1px solid var(--line); padding: 5px 10px; cursor: pointer; }
+  #binds button:hover { border-color: var(--ember); }
+  #binds button.wait { border-color: var(--ember); color: var(--ember-2); }
   #end-title { font-size: 44px; }
   #end-sub { margin: -8px 0 0; color: var(--dim); }
 
@@ -124,7 +144,23 @@
   #cross::before { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%; background: var(--bone); box-shadow: 0 0 0 1.5px rgba(0,0,0,.55); }
   #cross::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--gold) calc(var(--p) * 1turn), transparent 0);
     -webkit-mask: radial-gradient(circle, transparent 11px, #000 12px); mask: radial-gradient(circle, transparent 11px, #000 12px); }
-  #cross.hit::before { width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; background: var(--blood); }
+  #cross.hit::before { width: 6px; height: 6px; margin: -3px 0 0 -3px; background: var(--blood); }
+  /* Hit marker: four ticks round the crosshair on every hit; red and wider on a kill */
+  #hitmark { position: absolute; left: 50%; top: 50%; width: 34px; height: 34px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; pointer-events: none; transition: opacity .12s; }
+  #hitmark i { position: absolute; background: #fff; box-shadow: 0 0 2px rgba(0,0,0,.9); }
+  #hitmark i:nth-child(1), #hitmark i:nth-child(2) { left: 50%; width: 2.5px; height: 9px; margin-left: -1.25px; }
+  #hitmark i:nth-child(1) { top: 0; }
+  #hitmark i:nth-child(2) { bottom: 0; }
+  #hitmark i:nth-child(3), #hitmark i:nth-child(4) { top: 50%; width: 9px; height: 2.5px; margin-top: -1.25px; }
+  #hitmark i:nth-child(3) { left: 0; }
+  #hitmark i:nth-child(4) { right: 0; }
+  #hitmark.on { opacity: 1; transition: none; animation: hitpop .16s ease-out; }
+  #hitmark.kill { width: 46px; height: 46px; }
+  #hitmark.kill i { background: #ff4a3a; }
+  @keyframes hitpop { from { scale: 1.4; } to { scale: 1; } }
+  /* Where damage came from: up to four red wedges round the crosshair, fading */
+  #dmgdirs i { position: absolute; left: 50%; top: 50%; width: 200px; height: 200px; margin: -100px 0 0 -100px; border-radius: 50%; border-top: 10px solid rgba(235,60,48,.95); opacity: 0; filter: drop-shadow(0 0 5px rgba(0,0,0,.7));
+    -webkit-mask: linear-gradient(90deg, transparent 26%, #000 38%, #000 62%, transparent 74%); mask: linear-gradient(90deg, transparent 26%, #000 38%, #000 62%, transparent 74%); }
   #hurt { position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 50%, rgba(198,61,61,.6)); opacity: 0; transition: opacity .18s; }
   #status { font-size: 13px; font-weight: 600; color: var(--gold); background: rgba(12,17,14,.7); padding: 1px 8px; }
   #status:empty { display: none; }
@@ -144,8 +180,8 @@
   .slot.legend, .islot.legend { border-color: var(--gold); box-shadow: inset 0 0 10px rgba(230,184,74,.4); }
   #feed .relic { color: var(--gold); border-left: 3px solid var(--gold); }
   #cross.kill::before { width: 12px; height: 12px; margin: -6px 0 0 -6px; background: var(--gold); transform: rotate(45deg); border-radius: 0; }
-  #dmgdir { position: absolute; left: 50%; top: 50%; width: 170px; height: 170px; border-radius: 50%; border-top: 5px solid rgba(214,70,70,.9); opacity: 0; pointer-events: none; transform: translate(-50%, -50%); filter: drop-shadow(0 0 4px rgba(0,0,0,.6)); }
-  #hud.spec .bottom, #hud.spec #cross, #hud.spec #prompt, #hud.spec #held-name, #hud.spec #clickto, #hud.spec #dmgdir, #hud.spec #hurt { display: none; }
+  #dmgdirs { position: absolute; inset: 0; pointer-events: none; }
+  #hud.spec .bottom, #hud.spec #cross, #hud.spec #prompt, #hud.spec #held-name, #hud.spec #clickto, #hud.spec #dmgdirs, #hud.spec #hurt, #hud.spec #hitmark, #hud.spec #vhud, #hud.spec #riftind { display: none; }
   #spec { position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: rgba(12,17,14,.88); border: 1px solid var(--line); padding: 8px 14px; font: 600 14px var(--ui); white-space: pre; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
   #droptag { font: 600 13px var(--ui); color: #8fcaff; margin-top: 4px; }
   #bountytag { font: 600 13px var(--ui); color: var(--gold); margin-top: 2px; max-width: 320px; }
@@ -167,30 +203,32 @@
   #hud.spec #wheel { display: none; }
   #match-code { color: var(--gold); font-family: var(--mono); }
   #code { text-transform: uppercase; max-width: 90px; }
-  #bikehud { display: flex; align-items: center; gap: 10px; background: rgba(12,17,14,.8); padding: 4px 12px; }
-  #bk-speed { font: 700 30px/1 var(--mono); font-variant-numeric: tabular-nums; min-width: 2.2ch; text-align: right; }
-  #bikehud small { font: 600 12px var(--ui); color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
-  .bk-hp { width: 110px; height: 7px; background: rgba(0,0,0,.6); }
-  #bk-hp { display: block; height: 100%; background: var(--steel); }
-  #bikehud.wreck #bk-hp { background: var(--blood); }
-  #bikehud.wreck { animation: blink 0.6s infinite; }
-  @media (prefers-reduced-motion: reduce) { #bikehud.wreck { animation: none; } }
-  /* Helicopter: fuel and hull bars, altitude and speed; the gunner's rounds and rockets */
-  #hud.heli #prompt { bottom: calc(216px + env(safe-area-inset-bottom, 0px)); }
-  #helihud { display: flex; align-items: flex-end; gap: 16px; background: rgba(12,17,14,.8); padding: 5px 14px; }
-  #helihud .hh { display: flex; flex-direction: column; gap: 3px; }
-  #helihud small { font: 600 11px var(--ui); color: var(--dim); letter-spacing: .08em; text-transform: uppercase; }
-  #helihud b { font: 700 24px/1 var(--mono); font-variant-numeric: tabular-nums; }
-  #helihud b small { margin-left: 3px; }
-  .hh-bar { width: 110px; height: 7px; background: rgba(0,0,0,.6); }
-  .hh-bar i { display: block; height: 100%; background: var(--steel); }
-  #hh-fuel { background: #e6c94a; }
-  #helihud.lowfuel #hh-fuel { background: var(--ember); }
-  #helihud.critical #hh-fuel { background: var(--blood); }
-  #helihud.critical .hh-fuel { animation: blink 0.5s infinite; }
-  #helihud.wreck #hh-hp { background: var(--blood); }
-  #helihud.dry #hh-ammo, #helihud.dryrk #hh-rk { color: var(--blood); }
-  @media (prefers-reduced-motion: reduce) { #helihud.critical .hh-fuel { animation: none; } }
+  /* Vehicle gauges round the crosshair: fuel (or speed) on the left, hull on the right, numbers underneath */
+  #vhud { position: absolute; left: 50%; top: 50%; width: 220px; height: 220px; transform: translate(-50%, -50%); pointer-events: none; }
+  #vhud svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  #vhud path { fill: none; stroke-width: 6; stroke-linecap: round; }
+  #vhud .trk { stroke: rgba(0,0,0,.45); }
+  #vh-l { stroke: #e6c94a; }
+  #vh-r { stroke: var(--steel); }
+  #vhud.low #vh-l { stroke: var(--ember); }
+  #vhud.crit #vh-l { stroke: var(--blood); animation: blink .5s infinite; }
+  #vhud.wreck #vh-r { stroke: var(--blood); animation: blink .6s infinite; }
+  #vhud .lab { position: absolute; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; font: 600 10px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--bone); text-shadow: 0 1px 3px #000, 0 0 2px #000; }
+  #vhud .lab b { font: 700 16px/1.1 var(--mono); font-variant-numeric: tabular-nums; }
+  #vh-ll { right: calc(100% - 6px); }
+  #vh-rl { left: calc(100% - 6px); }
+  #vh-mid { position: absolute; left: 50%; top: calc(100% - 2px); transform: translateX(-50%); display: flex; gap: 14px; white-space: nowrap; text-shadow: 0 1px 3px #000, 0 0 2px #000; }
+  #vh-mid span { display: flex; align-items: baseline; gap: 3px; }
+  #vh-mid b { font: 700 19px/1 var(--mono); font-variant-numeric: tabular-nums; }
+  #vh-mid small { font: 600 10px var(--ui); letter-spacing: .1em; text-transform: uppercase; color: var(--bone); opacity: .8; }
+  #vh-mid .dry b { color: #ff6a5a; }
+  @media (prefers-reduced-motion: reduce) { #vhud.crit #vh-l, #vhud.wreck #vh-r { animation: none; } }
+  /* The Rift Lantern: which rifts you have open, beside the crosshair */
+  #riftind i { position: absolute; left: 50%; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border: 2px solid; transform: rotate(45deg); box-shadow: 0 0 3px rgba(0,0,0,.8); }
+  #riftind .a { border-color: #b06cff; translate: -24px 0; }
+  #riftind .b { border-color: #5ee38f; translate: 24px 0; }
+  #riftind .a.on { background: #b06cff; }
+  #riftind .b.on { background: #5ee38f; }
   #near i { position: absolute; left: 50%; top: 50%; width: 22px; height: 13px; opacity: 0; background: #ff5a48; clip-path: polygon(50% 0, 100% 100%, 50% 72%, 0 100%); filter: drop-shadow(0 0 2px rgba(0,0,0,.8)); transition: opacity .12s; }
   #hud.spec #near { display: none; }
   /* Kill feed: killer, how (an icon), victim */
@@ -374,6 +412,7 @@
     <div>
       <div class="label" style="margin-bottom:8px">Controls</div>
       <dl class="controls">
+        <dt>Keys</dt><dd>These are the defaults: change any of them in Options → Controls</dd>
         <dt><kbd>WASD</kbd></dt><dd>Move</dd>
         <dt>Mouse</dt><dd>Look around. Click the game to capture the mouse; arrow keys also turn</dd>
         <dt><kbd>Space</kbd> · <kbd>Shift</kbd></dt><dd>Jump · sneak (you won’t walk off edges, and it blocks Faller damage). Walk into a ladder to climb it</dd>
@@ -401,33 +440,47 @@
   <div class="panel">
     <h2>Options</h2>
     <p class="hint" id="pause-note" hidden>You’re in an online match: the game keeps running while this is open.</p>
-    <div class="field"><label for="o-len">Match length (60 in-game minutes)</label>
-      <select id="o-len">
-        <option value="5">5 real minutes</option>
-        <option value="8">8 real minutes</option>
-        <option value="15">15 real minutes</option>
-        <option value="30">30 real minutes</option>
-        <option value="60">60 minutes (as designed)</option>
-      </select></div>
-    <div class="field"><label for="o-map">Map size</label>
-      <select id="o-map"><option value="3200">Standard</option><option value="4800">Large</option><option value="6400">Huge</option></select></div>
-    <div class="field"><label for="o-type">Map type</label>
-      <select id="o-type"><option value="mixed">Mixed</option><option value="islands">Islands</option><option value="desert">Desert</option><option value="winter">Winter</option><option value="random">Random</option></select></div>
-    <div class="field"><label for="o-mode">Mode</label>
-      <select id="o-mode"><option value="solo">Solo</option><option value="duos">Duos: you and a bot partner</option></select></div>
-    <div class="field"><label for="o-lvl">Bot difficulty</label>
-      <select id="o-lvl"><option value="0">Easy</option><option value="1">Normal</option><option value="2">Brutal</option></select></div>
-    <div class="field"><label for="o-bots">Bots in solo matches · <b id="o-bots-v">23</b></label>
-      <input id="o-bots" type="range" min="3" max="99" step="1"></div>
-    <div class="field"><label for="o-snow">Snowstorm in the mountains</label><input id="o-snow" type="checkbox"></div>
-    <div class="field"><label for="o-dmg">Damage numbers</label><input id="o-dmg" type="checkbox"></div>
-    <div class="field"><label for="o-shadows">Shadows (turn off if it runs slowly)</label><input id="o-shadows" type="checkbox"></div>
-    <div class="field"><label for="o-sens">Mouse sensitivity</label><input id="o-sens" type="range" min="0.3" max="2.5" step="0.1"></div>
-    <div class="field"><label for="o-vol">Music and sound</label><input id="o-vol" type="range" min="0" max="1" step="0.05"></div>
-    <div class="field"><label for="o-voice">Announcer voice</label><input id="o-voice" type="checkbox"></div>
-    <div class="field"><label for="o-fov">Field of view · <b id="o-fov-v">75</b>°</label><input id="o-fov" type="range" min="60" max="100" step="1"></div>
-    <div class="field"><label for="o-tips">Tips for new players</label><span class="row"><button class="btn ghost small" id="o-tips-reset" type="button">Show again</button><input id="o-tips" type="checkbox"></span></div>
-    <p class="hint">Map size, match length and bot count apply to the next solo match. Every map is generated fresh. 99 bots is the design doc’s 100-player lobby and needs a fast computer.</p>
+    <div class="tabs" id="opt-tabs" role="tablist">
+      <button type="button" role="tab" data-tab="match" class="on">Match</button><button type="button" role="tab" data-tab="video">Video</button><button type="button" role="tab" data-tab="audio">Audio</button><button type="button" role="tab" data-tab="controls">Controls</button>
+    </div>
+    <div class="opt-sec" data-sec="match">
+      <div class="field"><label for="o-len">Match length (60 in-game minutes)</label>
+        <select id="o-len">
+          <option value="5">5 real minutes</option>
+          <option value="8">8 real minutes</option>
+          <option value="15">15 real minutes</option>
+          <option value="30">30 real minutes</option>
+          <option value="60">60 minutes (as designed)</option>
+        </select></div>
+      <div class="field"><label for="o-map">Map size</label>
+        <select id="o-map"><option value="3200">Standard</option><option value="4800">Large</option><option value="6400">Huge</option></select></div>
+      <div class="field"><label for="o-type">Map type</label>
+        <select id="o-type"><option value="mixed">Mixed</option><option value="islands">Islands</option><option value="desert">Desert</option><option value="winter">Winter</option><option value="random">Random</option></select></div>
+      <div class="field"><label for="o-mode">Mode</label>
+        <select id="o-mode"><option value="solo">Solo</option><option value="duos">Duos: you and a bot partner</option></select></div>
+      <div class="field"><label for="o-lvl">Bot difficulty</label>
+        <select id="o-lvl"><option value="0">Easy</option><option value="1">Normal</option><option value="2">Brutal</option></select></div>
+      <div class="field"><label for="o-bots">Bots in solo matches<span class="val" id="o-bots-v">23</span></label>
+        <input id="o-bots" type="range" min="3" max="99" step="1"></div>
+      <p class="hint">These apply to the next solo match. Every map is generated fresh. 99 bots is the design doc’s 100-player lobby and needs a fast computer.</p>
+    </div>
+    <div class="opt-sec" data-sec="video" hidden>
+      <div class="field"><label for="o-fov">Field of view<span class="val" id="o-fov-v">75°</span></label><input id="o-fov" type="range" min="60" max="100" step="1"></div>
+      <div class="field"><label for="o-shadows">Shadows (turn off if it runs slowly)</label><input id="o-shadows" type="checkbox"></div>
+      <div class="field"><label for="o-snow">Snowstorm in the mountains</label><input id="o-snow" type="checkbox"></div>
+      <div class="field"><label for="o-dmg">Damage numbers</label><input id="o-dmg" type="checkbox"></div>
+    </div>
+    <div class="opt-sec" data-sec="audio" hidden>
+      <div class="field"><label for="o-vol">Music and sound<span class="val" id="o-vol-v">60%</span></label><input id="o-vol" type="range" min="0" max="1" step="0.05"></div>
+      <div class="field"><label for="o-voice">Announcer voice</label><input id="o-voice" type="checkbox"></div>
+    </div>
+    <div class="opt-sec" data-sec="controls" hidden>
+      <div class="field"><label for="o-sens">Mouse sensitivity<span class="val" id="o-sens-v">1.0×</span></label><input id="o-sens" type="range" min="0.3" max="2.5" step="0.1"></div>
+      <div class="field"><label for="o-tips">Tips for new players</label><span class="row"><button class="btn ghost small" id="o-tips-reset" type="button">Show again</button><input id="o-tips" type="checkbox"></span></div>
+      <div class="field"><span class="label">Keys · click one, then press the new key</span><button class="btn ghost small" id="binds-reset" type="button">Reset</button></div>
+      <div id="binds"></div>
+      <p class="hint">Number keys pick hotbar slots and Esc pauses; those can’t be changed. Arrow keys also move and turn.</p>
+    </div>
     <div class="row">
       <button class="btn" id="opt-resume">Resume</button>
       <button class="btn ghost" id="opt-leave">Leave match</button>
@@ -441,6 +494,9 @@
     <h2 id="end-title">You lost</h2>
     <p id="end-sub"></p>
     <div class="stats" id="end-stats"></div>
+    <div class="stats more" id="end-more"></div>
+    <p class="end-h" id="end-kills-h" hidden>Your eliminations</p>
+    <div id="end-kills"></div>
     <p id="pom-cap" hidden></p>
     <p class="hint" id="end-online" hidden>The match carries on for the others. Leaving takes you back to the lobby.</p>
     <div class="row"><button class="btn" id="btn-rematch">Rematch</button><button class="btn ghost" id="btn-again">Back to Play</button><button class="btn ghost" id="btn-spec" hidden>Spectate</button><button class="btn ghost" id="btn-replay" hidden>Watch replay</button><button class="btn ghost" id="btn-pom" hidden>Play of the match</button></div>
@@ -466,7 +522,15 @@
     <div id="feed"></div>
   </div>
   <div id="hurt"></div>
-  <div id="dmgdir"></div>
+  <div id="dmgdirs" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+  <div id="vhud" hidden aria-hidden="true">
+    <svg viewBox="0 0 200 200"><path class="trk" d="M60 169.3A80 80 0 0 1 60 30.7"/><path id="vh-l" pathLength="100" d="M60 169.3A80 80 0 0 1 60 30.7"/><path class="trk" d="M140 169.3A80 80 0 0 0 140 30.7"/><path id="vh-r" pathLength="100" d="M140 169.3A80 80 0 0 0 140 30.7"/></svg>
+    <div class="lab" id="vh-ll"><b id="vh-lv">100</b><span id="vh-lk">Fuel</span></div>
+    <div class="lab" id="vh-rl"><b id="vh-rv">100</b><span>Hull</span></div>
+    <div id="vh-mid"><span id="vh-a"><b id="vh-av">0</b><small id="vh-ak">km/h</small></span><span id="vh-b"><b id="vh-bv">0</b><small>m up</small></span><span id="vh-c"><b id="vh-cv">150</b><small>rounds</small></span><span id="vh-d"><b id="vh-dv">6</b><small>rockets</small></span></div>
+  </div>
+  <div id="riftind" hidden aria-hidden="true"><i class="a"></i><i class="b"></i></div>
+  <div id="hitmark" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <div id="near" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   <div id="streak" hidden><b></b><span></span></div>
   <div id="wheel" hidden></div>
@@ -480,15 +544,6 @@
   <div id="held-name" hidden></div>
   <input id="chat" maxlength="80" placeholder="Say something · Enter to send" autocomplete="off" hidden>
   <div class="bottom">
-    <div id="bikehud" hidden><b id="bk-speed">0</b><small>km/h</small><div class="bk-hp" title="Bike damage"><i id="bk-hp"></i></div></div>
-    <div id="helihud" hidden>
-      <div class="hh hh-fuel"><small>Fuel <span id="hh-fuelpct">100%</span></small><div class="hh-bar"><i id="hh-fuel"></i></div></div>
-      <div class="hh"><small>Hull</small><div class="hh-bar"><i id="hh-hp"></i></div></div>
-      <div class="hh"><small>Altitude</small><b><span id="hh-alt">0</span><small>m</small></b></div>
-      <div class="hh"><small>Speed</small><b><span id="hh-speed">0</span><small>km/h</small></b></div>
-      <div class="hh"><small>Rounds</small><b id="hh-ammo">150</b></div>
-      <div class="hh"><small>Rockets</small><b id="hh-rk">6</b></div>
-    </div>
     <div id="status"></div>
     <div class="bars"><div id="armor" title="Armour"></div><div id="hp" title="Health"></div></div>
     <div id="hotbar"></div>
@@ -503,7 +558,7 @@
   <canvas id="bigmap-c" width="1100" height="1100"></canvas>
   <div class="bm-legend">
     <span style="--c:#e2733b">You</span><span style="--c:#6fe08a">Duos partner</span><span style="--c:#ff5a48">Seen recently</span><span style="--c:#e8c27a">Ruin</span>
-    <span style="--c:#ffd24a">Landmark · bounty</span><span style="--c:#e6b84a">Feast</span><span style="--c:#6fb8ff">Supply drop</span><span style="--c:#5fe0f0">Quick-chat ping</span>
+    <span style="--c:#ffd24a">Landmark · bounty</span><span style="--c:#b06cff">Your rifts</span><span style="--c:#e6b84a">Feast</span><span style="--c:#6fb8ff">Supply drop</span><span style="--c:#5fe0f0">Quick-chat ping</span>
     <span style="--c:#ff7a1f">Lava</span><span style="--c:#ff9a3c">Motorcycle</span><span style="--c:#e6c94a">Helipad · helicopter</span><span style="--c:#e6dfcc">Tunnel entrance</span><span style="--c:#b7aea2">Cave</span>
   </div>
 </section>
@@ -544,6 +599,7 @@
 <script src="js/bikes.js"></script>
 <script src="js/helis.js"></script>
 <script src="js/tunnels.js"></script>
+<script src="js/rifts.js"></script>
 <script src="js/bots.js"></script>
 <script src="js/botmind.js"></script>
 <script src="js/net.js"></script>

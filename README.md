@@ -90,6 +90,7 @@ A 60-minute match runs from dawn to night. How long that takes in real time is u
 
 - **Bounties.** Once someone has 3 or more kills and leads the match, everyone's map shows where they are every 30 seconds, and killing them pays 50 coins plus 25 per kill they had.
 - **Kill streaks.** Double and triple kills, killing sprees and special kills (Knocked off, Burned, Long shot, Pitfall, Road kill, Shot down, Rocket, Buried) are called out. Your own earn bonus coins.
+- **Clear feedback.** Hit markers tick round your crosshair on every hit (red on a kill, with a click), red wedges point at whoever just hurt you, and the screen edge flashes. Vehicle gauges (fuel or speed, hull, height, ammo) sit right around the crosshair. The end screen breaks down your match: damage dealt and taken, accuracy, longest kill, distance, blocks, potions, and who you eliminated and how.
 - **Assists.** Anyone who did 2 or more damage in the last 15 seconds gets an assist in the kill feed, and 20 coins if it's you.
 - **See who's around.** Red markers float over anyone within about 50 blocks. Arrows around your crosshair point at people close by but out of view, and anyone you've spotted stays on your minimap for a few seconds. Snowstorms, night and disguises still hide you.
 - **Motorcycles** are parked around the map (orange on the minimap when you're close). Swamp, sand and snow slow them down, spike traps shred the tyres, launch pads send them flying and pitfalls wreck them. Bots ride them too.
@@ -227,6 +228,7 @@ Each match has exactly one of each legendary, sitting in a gold chest at a landm
 | Everflask | The Drowned Altar: a platform in the middle of the swamp | Heals like a potion, then refills itself after 25 s instead of being used up |
 | Windwalker Boots | Frostpeak Shrine: the highest open ground in the mountains | No fall damage, ever. Hold Space while falling to glide |
 | Rat King's Crown | The Rat King's Nest: the biggest tunnel junction, guarded by rats that bite | Rats ignore you, your rat kills no longer ping your position, and underground your map shows everyone in the tunnels |
+| Rift Lantern | The Rift Stones: a ring of standing stones on open ground | Left click opens a violet rift where you aim, right click a green one, on the ground, a wall, the tunnel rock or roof. Walk into one and come out of the other at the same speed: drop into a rift in the ground and you're flung out of one on a wall. Anyone can use them, and a pair can link the surface to the tunnels |
 
 ## Play
 
@@ -285,6 +287,8 @@ For a quick test without a server, open the page on `localhost` in two tabs of t
 
 ## Controls
 
+Every action key below can be changed in **Options → Controls** (click an action, press the new key; a key that's already taken swaps). Number keys, Esc and the arrow keys are fixed.
+
 | Key | Action |
 | --- | --- |
 | WASD · mouse | Move · look (click the game to capture the mouse) |
@@ -339,6 +343,7 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | `js/entities.js` | Fighters, combat, kits, falling, traps, rats, projectiles, ground items |
 | `js/bikes.js` | Motorcycles: riding, jumps, crashes, running people over, explosions |
 | `js/tunnels.js` | Digging new passages and cave-ins |
+| `js/rifts.js` | The Rift Lantern: opening, linking and travelling through rifts |
 | `js/helis.js` | Attack helicopters: seats, flying, fuel, the chain gun and rockets, damage and explosions, bot gunners |
 | `js/bots.js` | Bot playstyles (hunter, miner, trapper, tower, balanced), personalities, difficulty, tactics and alliances |
 | `js/botmind.js` | What bots notice (line of sight, noises, memory) and how they get around (pathfinding) |

@@ -251,7 +251,7 @@ const tmpV = new T.Vector3();
 FG.hole = new T.CircleGeometry(15, 9).rotateX(-Math.PI / 2);
 function makeFx(e) {
   if (e.kind === 'tracer') {
-    const l = new T.Line(new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), new T.LineBasicMaterial({ color: 0xffd98a, transparent: true, fog: false }));
+    const l = new T.Line(new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), new T.LineBasicMaterial({ color: e.col || 0xffd98a, transparent: true, fog: false }));
     l.frustumCulled = false; return l;
   }
   if (e.kind === 'hole') return new T.Mesh(FG.hole, new T.MeshBasicMaterial({ color: 0x0c0906, transparent: true }));
@@ -474,6 +474,33 @@ function updHeli(g, h) {
 }
 function syncHelis(L) {
   for (const h of G.helis || []) if (!h.gone) sync(h, makeHeli, updHeli, L === 0 && hyp(h.x - camera.position.x, h.y - camera.position.z) < 2600);
+}
+
+// ---- rifts from the Rift Lantern: a glowing ring on the ground, a wall or a roof, with a swirl inside ----
+FG.riftRing = new T.TorusGeometry(1, 0.08, 6, 40);
+FG.riftDisc = new T.CircleGeometry(1, 36);
+FG.riftSwirl = new T.TorusGeometry(0.55, 0.05, 4, 24, Math.PI * 1.3);
+const RIFT_UP = new T.Vector3(0, 0, 1), riftN = new T.Vector3();
+function makeRift(r) {
+  const g = new T.Group(), col = RIFT_COLS[r.n];
+  const glow = o => new T.MeshBasicMaterial({ color: col, transparent: true, depthWrite: false, fog: false, side: T.DoubleSide, ...o });
+  const ring = new T.Mesh(FG.riftRing, glow({ opacity: 1 })), disc = new T.Mesh(FG.riftDisc, glow({ opacity: 0.5 }));
+  const s1 = new T.Mesh(FG.riftSwirl, glow({ color: 0xffffff, opacity: 0.55 })), s2 = new T.Mesh(FG.riftSwirl, glow({ color: 0xffffff, opacity: 0.35 }));
+  s2.rotation.z = Math.PI; s2.scale.setScalar(0.6);
+  g.add(ring, disc, s1, s2);
+  g.userData = { disc, s1, s2 };
+  return g;
+}
+function updRift(g, r) {
+  const u = g.userData, wall = !r.nz;
+  g.position.set(r.x, r.z, r.y);
+  g.quaternion.setFromUnitVectors(RIFT_UP, riftN.set(r.nx, r.nz, r.ny));
+  g.scale.set(RIFT_R, wall ? RIFT_H : RIFT_R, 1);
+  u.s1.rotation.z = G.t * 2.4; u.s2.rotation.z = Math.PI - G.t * 3.1;
+  u.disc.material.opacity = 0.5 + Math.sin(G.t * 4 + r.n) * 0.1;
+}
+function syncRifts(L) {
+  for (const [, pair] of G.rifts || []) for (const r of pair) if (r) sync(r, makeRift, updRift, r.layer === L && hyp(r.x - camera.position.x, r.y - camera.position.z) < 1600);
 }
 
 // ---- gravestones: where someone fell, with their name and who got them ----
@@ -710,7 +737,7 @@ function render(dt) {
     }
   }, p.layer === L);
   for (const e of G.fx) sync(e, makeFx, updFx, e.layer === L);
-  syncBikes(L); syncHelis(L); syncGraves(L);
+  syncBikes(L); syncHelis(L); syncRifts(L); syncGraves(L);
   for (const p of G.qpings || []) sync(p, makePing, updPing, p.layer === L);
   sweep();
   syncFeast();
@@ -845,6 +872,12 @@ function drawMap(mctx, W, ms, big) {
       mctx.strokeStyle = k.pilot ? '#f2ead6' : '#b9c98a'; mctx.lineWidth = 1.8; mctx.stroke();
       mctx.restore();
     }
+  }
+  // Your own rifts (the Rift Lantern)
+  const mine = G.rifts && G.rifts.get(G.human.id);
+  if (mine) for (const r of mine) if (r && r.layer === h.layer) {
+    mctx.fillStyle = RIFT_COLS[r.n]; mctx.strokeStyle = '#120a1a'; mctx.lineWidth = 1.2;
+    mctx.beginPath(); mctx.arc(r.x * S, r.y * S, 4.5, 0, 7); mctx.fill(); mctx.stroke();
   }
   // Players you've seen in the last few seconds (fading), on your layer
   if (G.human.alive && G.mode === 'play') for (const f of G.fighters) {

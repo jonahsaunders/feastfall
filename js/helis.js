@@ -327,7 +327,7 @@ function damageHeli(h, amt, by) {
   h.hp -= amt;
   if (s) { h.lastBy = s.id; h.lastByT = G.t; s.dealtT = G.t; }
   const crew = heliCrew(h);
-  if (crew.includes(G.human) && s) G.dmgDir = { a: Math.atan2(s.y - G.human.y, s.x - G.human.x), t: 1 };
+  if (crew.includes(G.human) && s) addDmgDir(Math.atan2(s.y - G.human.y, s.x - G.human.x), amt);
   if (h.hp <= 0) explodeHeli(h);
   return true;
 }
@@ -390,9 +390,12 @@ function fireGun(f) {
   sendAmmo(h, h.ammo === 0);
   const m = muzzle(h), sp = 0.014, yaw = f.face + rr(-sp, sp), pit = (f.pitch || 0) + rr(-sp, sp), cp = Math.cos(pit);
   const dx = Math.cos(yaw) * cp, dy = Math.sin(yaw) * cp, dz = Math.sin(pit);
-  const hit = gunRay(h, f, m.x, m.y, m.z, dx, dy, dz, 1500);
-  if (hit.t && hit.t.isFighter) { if (withKind('gun', () => hurt(hit.t, 1, f, Math.atan2(dy, dx), 70)) && f === G.human) hitMark(); }
-  else if (hit.h) { if (damageHeli(hit.h, 1, f) && f === G.human) hitMark(); }
+  const hit = gunRay(h, f, m.x, m.y, m.z, dx, dy, dz, 1500), me = f === G.human && G.stats;
+  if (me) G.stats.shots = (G.stats.shots || 0) + 1;
+  let landed = false;
+  if (hit.t && hit.t.isFighter) landed = withKind('gun', () => hurt(hit.t, 1, f, Math.atan2(dy, dx), 70));
+  else if (hit.h) landed = damageHeli(hit.h, 1, f);
+  if (landed && me) { hitMark(); G.stats.hits = (G.stats.hits || 0) + 1; }
   tracer(m.x, m.y, m.z, hit.x, hit.y, hit.z, hit.what);
   G.tracerOut.push([m.x, m.y, m.z, hit.x, hit.y, hit.z, hit.what === 'air' ? 0 : 1].map(Math.round));
   Sfx.play('gun', m.x, m.y, m.z);
@@ -451,17 +454,19 @@ function rocketBlast(x, y, z, owner, hid) {
     const b = blockAt(i + di, j + dj, k + dk);
     if (b && !BLOCKS[b.type].unbreakable && di * di + dj * dj + dk * dk <= 5) breakBlock(i + di, j + dj, k + dk, null);
   }
+  let landed = false;
   for (const t of G.fighters) {
     if (!t.alive || t.layer || t.heli) continue; // crews are covered by the helicopter below
     const d = Math.hypot(t.x - x, t.y - y, t.z + 30 - z);
     if (d > 110) continue;
-    withKind('rocket', () => hurt(t, 7 * (1 - d / 150), owner, Math.atan2(t.y - y, t.x - x), 460, 320));
+    if (withKind('rocket', () => hurt(t, 7 * (1 - d / 150), owner, Math.atan2(t.y - y, t.x - x), 460, 320)) && t !== owner) landed = true;
   }
   for (const o of G.helis || []) {
     if (o.gone || o.id === hid) continue;
     const d = Math.hypot(o.x - x, o.y - y, o.z + 40 - z);
-    if (d < 130) damageHeli(o, 14 * (1 - d / 200), owner);
+    if (d < 130 && damageHeli(o, 14 * (1 - d / 200), owner)) landed = true;
   }
+  if (landed && owner === G.human) hitMark();
   addFx('puff', x, y, 0, { col: '#e2733b', big: true, z: z + 10 }); addFx('puff', x, y, 0, { col: '#3a3632', big: true, z: z + 30 });
   addFx('bolt', x, y, 0, { t: 0.2 });
   noise(x, y, 0, 1000, owner);

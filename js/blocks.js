@@ -487,6 +487,13 @@ function buildLandmarks() {
         if (Math.abs(di) === 2 && Math.abs(dk) === 2) { setB(ci + di, 0, ck + dk, 'cobble'); setB(ci + di, 1, ck + dk, 'cobble'); }
       }
       m.chestZ = 0;
+    } else if (m.id === 'rift') { // eight standing stones in a ring round a low stone platform
+      for (let q = 0; q < 8; q++) {
+        const a = q / 8 * Math.PI * 2, di = Math.round(Math.cos(a) * 4), dk = Math.round(Math.sin(a) * 4), b0 = baseJ(ci + di, ck + dk);
+        for (let j = b0; j < b0 + 2 + (q % 3); j++) setB(ci + di, j, ck + dk, 'cobble');
+      }
+      for (const [di, dk] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) setB(ci + di, baseJ(ci + di, ck + dk), ck + dk, 'slab');
+      m.chestZ = Math.max(heightAt(m.x, m.y), baseJ(ci, ck) * B + B / 2);
     } else if (m.id === 'forge') { // walled ring with two gaps, spike traps just inside each gap
       for (let di = -4; di <= 4; di++) for (let dk = -4; dk <= 4; dk++) {
         const ring = Math.max(Math.abs(di), Math.abs(dk)) === 4;

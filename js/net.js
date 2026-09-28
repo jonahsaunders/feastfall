@@ -163,6 +163,7 @@ function wireMatch(m) {
       if (d.k === 'hole') addFx('hole', d.x, d.y, d.l ? 1 : 0, { t: 6, z: d.z + 0.6 });
       if (d.k === 'dig' && Array.isArray(d.a)) addDig(+d.a[0], +d.a[1], false);
       if (d.k === 'cave') caveFx(d.x, d.y);
+      if (d.k === 'rift') applyRiftMsg(d);
       if (d.k === 'team' && Array.isArray(d.ids)) announceTeam(d.ids, typeof d.c === 'string' ? d.c : null);
       if (d.k === 'betray' && Array.isArray(d.ids)) announceBetrayal(d.ids, fighterById(d.a), fighterById(d.v));
       if (d.k === 'bounty' && !NET.isHost()) { const f = fighterById(d.o); if (f && f.alive) setBounty(f); }
@@ -212,6 +213,7 @@ function sendSnap(to) {
     helis: (G.helis || []).map(h => [h.id, heliState(h), h.pilot, h.gunner, h.owner, h.ammo, h.rockets, h.gone ? 1 : 0]),
     drops: (world.drops || []).map(d => d.st), feast: G.feast ? [FEAST_SITES.indexOf(G.feast.site), G.feast.state] : null,
     pit: G.pit, bounty: G.bounty ? G.bounty.id : null, digs: (world.digs || []).map(d => [Math.round(d.x), Math.round(d.y)]),
+    rifts: [...(G.rifts || new Map())].map(([id, pair]) => [id, pair.map(packRift)]),
   };
   const parts = [head, ...chunk([...NET.blkLog.values()], 500).map(b => ({ blk: b })), ...chunk(G.items.filter(i => !i.gone && !i.local).map(packItem), 120).map(i => ({ items: i }))];
   parts.forEach((p, n) => NET.send('snap', { to, n, of: parts.length, p }));
@@ -257,6 +259,7 @@ function startWatch(cfg, parts = []) {
     G.pit = !!head.pit; G.graceDone = G.clockMin >= G.grace;
     if (head.bounty) G.bounty = fighterById(head.bounty) || null;
     for (const [x, y] of head.digs || []) addDig(x, y, false);
+    for (const [id, pair] of head.rifts || []) if (Array.isArray(pair)) pair.forEach((a, n) => { const r = unpackRift(a, n); if (r) riftsOf(id)[n] = r; });
     for (const p of parts.slice(1)) {
       if (p.blk) { applyBlockOps(p.blk); logBlk(p.blk); }
       if (p.items) for (const a of p.items) if (!G.items.some(i => i.id === a.id)) G.items.push(unpackItem(a));

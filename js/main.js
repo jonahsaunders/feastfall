@@ -92,7 +92,7 @@ function newMatch(nBots, human, seed = Math.floor(Math.random() * 1e9), humans =
     for (const c of world.caves) addItem({ kind: 'chest', x: c.x, y: c.y, z: 0, layer: 1, stacks: caveLoot() });
     for (const m of world.landmarks) addItem({ kind: 'relic', x: m.x, y: m.y, z: m.chestZ, layer: m.layer, stacks: [{ id: LANDMARKS[m.id].item, n: 1 }, { id: 'pot', n: 2 }] });
   }
-  spawnBikes(); spawnHelis(); resetDigs();
+  spawnBikes(); spawnHelis(); resetDigs(); resetRifts();
   for (const o of world.objs) o.a0 = o.amt; // so a spectator joining late can be told what's been used up
   for (const o of world.ores) o.a0 = o.amt;
   NET.blkLog = new Map();
@@ -234,6 +234,18 @@ function phases() {
   updateDrops();
 }
 
+// ---------- key bindings (Options → Controls) ----------
+// Every action key can be changed. Number keys (hotbar), Esc and the arrow keys stay fixed.
+const BIND_DEFAULTS = { fwd: 'w', back: 's', left: 'a', right: 'd', jump: ' ', sneak: 'shift', use: 'e', kit: 'q', drink: 'f', refill: 'r', drop: 'g', inv: 'tab', map: 'm', board: 'p', wheel: 'c', chat: 't', seat: 'x' };
+const BIND_LABELS = { fwd: 'Move forward', back: 'Move back', left: 'Move left', right: 'Move right', jump: 'Jump · swim up · fly up', sneak: 'Sneak · fly down', use: 'Interact (doors, vehicles, tunnels, gather, revive)',
+  kit: 'Kit ability', drink: 'Drink a potion', refill: 'Refill the hotbar', drop: 'Drop the held item', inv: 'Inventory and crafting', map: 'Full-screen map', board: 'Scoreboard (hold)', wheel: 'Emotes and quick chat (hold)', chat: 'Chat (online)', seat: 'Swap helicopter seat' };
+const BINDS = { ...BIND_DEFAULTS };
+try { const b = JSON.parse(localStorage.getItem('ff_keys')); if (b) for (const a in BIND_DEFAULTS) if (typeof b[a] === 'string' && b[a]) BINDS[a] = b[a]; } catch (e) {}
+const keyHeld = a => keys.has(BINDS[a]);
+const keyName = k => ({ ' ': 'Space', shift: 'Shift', tab: 'Tab', control: 'Ctrl', alt: 'Alt', enter: 'Enter', backspace: 'Backspace', capslock: 'Caps Lock', arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→' }[k] || (k.length === 1 ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1)));
+const kbd = a => `<kbd>${escapeHTML(keyName(BINDS[a]))}</kbd>`;
+const isKey = (k, a) => k === BINDS[a];
+
 // ---------- input (first person, pointer lock) ----------
 const keys = new Set();
 const mouse = { down: false, rdown: false, x: 0, y: 0 };
@@ -304,7 +316,7 @@ addEventListener('keydown', e => {
   }
   if (G.mode === 'spectate') {
     const k = e.key.toLowerCase();
-    if (k === 'm') { toggleBigMap(); return; }
+    if (isKey(k, 'map')) { toggleBigMap(); return; }
     if (k === 'escape') { if (bigMapOpen()) { toggleBigMap(false); return; } if (G.freeCam) unlockPointer(); if (G.watching) backToMenu(); else if (!G.over) endGame(false); else setMode('end'); return; }
     if (k === 'f') { if (G.freeCam) { G.freeCam = null; unlockPointer(); spectate(1); } else startFreeCam(); return; }
     if (G.freeCam) { // WASD fly, Space up, Shift down, arrows go back to following someone
@@ -312,36 +324,36 @@ addEventListener('keydown', e => {
       if (k === 'arrowright' || k === 'arrowleft') { G.freeCam = null; unlockPointer(); spectate(k === 'arrowright' ? 1 : -1); return; }
       keys.add(k); return;
     }
-    if (['arrowright', 'd', ' '].includes(k)) { e.preventDefault(); spectate(1); }
-    else if (['arrowleft', 'a'].includes(k)) spectate(-1);
+    if (k === 'arrowright' || isKey(k, 'right') || isKey(k, 'jump')) { e.preventDefault(); spectate(1); }
+    else if (k === 'arrowleft' || isKey(k, 'left')) spectate(-1);
     return;
   }
   if (G.mode !== 'play') { if (e.key === 'Escape' && G.mode === 'paused') resume(); return; }
   const k = e.key.toLowerCase(), h = G.human;
-  if (['tab', ' ', 'arrowup', 'arrowdown', 'shift'].includes(k)) e.preventDefault();
-  if (k === 'c' && !G.invOpen && h.alive) { if (!e.repeat) openWheel(); return; } // hold C: emotes and quick chat
-  if (k === 'm' && !G.invOpen) { if (!e.repeat) toggleBigMap(); return; } // the full map
+  if (['tab', ' ', 'arrowup', 'arrowdown', 'shift'].includes(k) || Object.values(BINDS).includes(k)) e.preventDefault();
+  if (isKey(k, 'wheel') && !G.invOpen && h.alive) { if (!e.repeat) openWheel(); return; } // hold: emotes and quick chat
+  if (isKey(k, 'map') && !G.invOpen) { if (!e.repeat) toggleBigMap(); return; } // the full map
   if (k === 'escape' && bigMapOpen()) { toggleBigMap(false); return; }
   if (G.invOpen) {
-    if (k === 'tab' || k === 'i' || k === 'e' || k === 'escape') toggleInv();
+    if (isKey(k, 'inv') || isKey(k, 'use') || k === 'escape') toggleInv();
     else if (k >= '1' && k <= '9' && INV.hover !== null) swapWithHotbar(INV.hover, +k - 1);
-    else if ((k === 'g' || k === 'q') && INV.hover !== null) dropFromSlot(INV.hover, e.ctrlKey);
+    else if ((isKey(k, 'drop') || isKey(k, 'kit')) && INV.hover !== null) dropFromSlot(INV.hover, e.ctrlKey);
     return;
   }
-  if (k === 'shift') h.sneak = true;
+  if (isKey(k, 'sneak')) h.sneak = true;
   if (keys.has(k)) return;
   keys.add(k);
   if (k >= '1' && k <= '9') selectSlot(+k - 1);
-  else if (k === ' ' && h.alive && !h.bike && !h.heli) jump(h);
   else if (k === 'escape') pause();
-  else if (k === 'tab' || k === 'i') toggleInv();
-  else if (k === 'q' && h.alive) { const a = aimWorld(); if (!useKit(h, a.x, a.y)) kitFail(h); }
-  else if (k === 'r' && canRefill(h) && h.refillT <= 0) h.refillT = 0.22;
-  else if (k === 'f') drink(h);
-  else if (k === 'g' && h.alive && !h.heli) dropHeld(h, e.ctrlKey);
-  else if (k === 'x' && h.alive && h.heli) switchSeat(h);
-  else if (k === 't' && NET.on) openChat();
-  else if (k === 'e' && h.alive) {
+  else if (isKey(k, 'jump') && h.alive && !h.bike && !h.heli) jump(h);
+  else if (isKey(k, 'inv')) toggleInv();
+  else if (isKey(k, 'kit') && h.alive) { const a = aimWorld(); if (!useKit(h, a.x, a.y)) kitFail(h); }
+  else if (isKey(k, 'refill') && canRefill(h) && h.refillT <= 0) h.refillT = 0.22;
+  else if (isKey(k, 'drink')) drink(h);
+  else if (isKey(k, 'drop') && h.alive && !h.heli) dropHeld(h, e.ctrlKey);
+  else if (isKey(k, 'seat') && h.alive && h.heli) switchSeat(h);
+  else if (isKey(k, 'chat') && NET.on) openChat();
+  else if (isKey(k, 'use') && h.alive) {
     const d = aimDoor();
     if (h.bike) dismountBike(h);
     else if (h.heli) leaveHeli(h);
@@ -352,9 +364,9 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => {
   const k = e.key.toLowerCase(); keys.delete(k);
-  if (k === 'c') closeWheel();
-  if (k === 'e' && G.human) G.human.gather = null;
-  if (k === 'shift' && G.human) G.human.sneak = false;
+  if (isKey(k, 'wheel')) closeWheel();
+  if (isKey(k, 'use') && G.human) G.human.gather = null;
+  if (isKey(k, 'sneak') && G.human) G.human.sneak = false;
 });
 addEventListener('blur', () => { keys.clear(); mouse.down = mouse.rdown = false; if (G.human) G.human.sneak = false; if (G.mode === 'play' && !NET.on) pause(); });
 cv.addEventListener('contextmenu', e => e.preventDefault());
@@ -375,13 +387,14 @@ cv.addEventListener('mousedown', e => {
   const h = G.human, item = heldId(h), bucket = item === 'bucket' || !!(item && ITEMS[item].bucket);
   const door = aimDoor();
   if (e.button === 2 && door && !h.sneak) { toggleDoor(door.i, door.j, door.k, h); return; } // right click opens doors (sneak to place against one)
-  if (e.button === 2) { mouse.rdown = true; if (bucket) useBucket(h); else if (!(item && ITEMS[item].block)) drink(h); return; }
+  if (e.button === 2) { mouse.rdown = true; if (bucket) useBucket(h); else if (item === 'riftlantern') openRift(h, 1, VIEW.pitch); else if (!(item && ITEMS[item].block)) drink(h); return; }
   if (e.button !== 0) return;
   mouse.down = true;
   if (bucket) useBucket(h);
   else if (item === 'bow') { if (h.arrows > 0) h.charge = 0; else toast('No arrows. Craft them in the inventory (Tab).'); }
   else if (item === 'pot') drink(h);
   else if (item === 'kit') { const a = aimWorld(); if (!useKit(h, a.x, a.y)) kitFail(h); }
+  else if (item === 'riftlantern') openRift(h, 0, VIEW.pitch);
   else if (item === 'skyhook' && !fireSkyhook(h, VIEW.pitch)) toast(h.skyCd > 0 ? `Skyhook recharging: ${Math.ceil(h.skyCd)}s` : h.layer ? 'The Skyhook doesn’t work underground' : 'Nothing to hook within 22 blocks');
   else if (item === 'everflask' && !drink(h)) { const s = h.slots[h.sel]; toast(s.ready > G.t ? `Everflask refilling: ${Math.ceil(s.ready - G.t)}s` : 'You’re already at full health'); }
 });
@@ -441,22 +454,22 @@ function humanInput(dt) {
   if (!h.alive) { h.mx = h.my = 0; return; }
   if (h.bike) { // W/S throttle, A/D steer, Space brake; the camera drifts back behind you
     const k = h.bike, busy = G.invOpen || G.chatOpen || G.mode !== 'play';
-    k.throttle = busy ? 0 : (keys.has('w') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('arrowdown') ? 1 : 0);
-    k.steer = busy ? 0 : (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
-    k.brake = !busy && keys.has(' ');
+    k.throttle = busy ? 0 : (keyHeld('fwd') || keys.has('arrowup') ? 1 : 0) - (keyHeld('back') || keys.has('arrowdown') ? 1 : 0);
+    k.steer = busy ? 0 : (keyHeld('right') || keys.has('arrowright') ? 1 : 0) - (keyHeld('left') || keys.has('arrowleft') ? 1 : 0);
+    k.brake = !busy && keyHeld('jump');
     if (performance.now() - (VIEW.lookT || 0) > 700) VIEW.lookYaw = (VIEW.lookYaw || 0) * Math.exp(-3 * dt);
     h.mx = h.my = 0; h.pitch = VIEW.pitch; G.aim = null;
     return;
   }
   if (h.heli) { // pilot: W/S forward and back, A/D strafe, Space up, Shift down, the mouse turns the nose. Gunner: hold to fire.
-    const hl = h.heli, busy = G.invOpen || G.chatOpen || G.mode !== 'play', key = (...ks) => !busy && ks.some(q => keys.has(q));
+    const hl = h.heli, busy = G.invOpen || G.chatOpen || G.mode !== 'play', key = (...ks) => !busy && ks.some(q => keys.has(BINDS[q] || q));
     if (h.seat === 'pilot') {
       if (freeLook && !busy) { if (mouse.x < innerWidth * 0.06) h.face -= dt * 2.2; else if (mouse.x > innerWidth * 0.94) h.face += dt * 2.2; }
       if (key('arrowleft')) h.face -= dt * 2;
       if (key('arrowright')) h.face += dt * 2;
-      hl.ctl.fw = (key('w', 'arrowup') ? 1 : 0) - (key('s', 'arrowdown') ? 1 : 0);
-      hl.ctl.st = (key('d') ? 1 : 0) - (key('a') ? 1 : 0);
-      hl.ctl.up = (key(' ') ? 1 : 0) - (key('shift') ? 1 : 0);
+      hl.ctl.fw = (key('fwd', 'arrowup') ? 1 : 0) - (key('back', 'arrowdown') ? 1 : 0);
+      hl.ctl.st = (key('right') ? 1 : 0) - (key('left') ? 1 : 0);
+      hl.ctl.up = (key('jump') ? 1 : 0) - (key('sneak') ? 1 : 0);
     } else if (mouse.down && !busy) fireGun(h);
     h.mx = h.my = 0; h.pitch = VIEW.pitch; G.aim = null; h.sneak = false;
     return;
@@ -471,11 +484,14 @@ function humanInput(dt) {
   if (keys.has('arrowup')) VIEW.pitch = Math.min(1.3, VIEW.pitch + dt * 1.5);
   if (keys.has('arrowdown')) VIEW.pitch = Math.max(-1.45, VIEW.pitch - dt * 1.5);
   const busy = G.invOpen || G.chatOpen || G.mode !== 'play';
-  const fw = busy ? 0 : (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0), st = busy ? 0 : (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
+  const fw = busy ? 0 : (keyHeld('fwd') ? 1 : 0) - (keyHeld('back') ? 1 : 0), st = busy ? 0 : (keyHeld('right') ? 1 : 0) - (keyHeld('left') ? 1 : 0);
   const c = Math.cos(h.face), sn = Math.sin(h.face);
   h.mx = c * fw - sn * st; h.my = sn * fw + c * st;
-  h.climb = !busy && (keys.has('w') || keys.has(' '));
-  h.glide = !busy && keys.has(' ');
+  const moved = hyp(h.x - (h.distX ?? h.x), h.y - (h.distY ?? h.y));
+  if (moved < 60 && G.stats) G.stats.dist = (G.stats.dist || 0) + moved; // (not teleports)
+  h.distX = h.x; h.distY = h.y;
+  h.climb = !busy && (keyHeld('fwd') || keyHeld('jump'));
+  h.glide = !busy && keyHeld('jump');
   if ((fw || st) && h.gather) h.gather = null;
   h.pitch = VIEW.pitch;
   const cp = Math.cos(VIEW.pitch);
@@ -506,17 +522,38 @@ function humanInput(dt) {
 // Close enough to the tunnel wall to dig it (the wall is within the next stride)
 const canDig = (h, a) => !!a && h.layer === 1 && a.hit === 'wall' && a.t * Math.cos(VIEW.pitch) < DIG_R + 12;
 const aimDoor = () => { const a = G.aim; return a && a.hit === 'block' && BLOCKS[a.b.type].door ? a : null; };
-let hitT;
-function hitMark() { const c = $('#cross'); c.classList.add('hit'); clearTimeout(hitT); hitT = setTimeout(() => c.classList.remove('hit'), 140); }
+// ---------- hit and damage feedback ----------
+// Your hits: four ticks round the crosshair and a click (red, bigger and a heavier click on a kill).
+// Hits on you: a red wedge pointing at where each one came from (up to four at once) and a flash at the screen edge.
+let hitT, hitSndT = 0;
+function hitMark(kill = false) {
+  const c = $('#cross'), m = $('#hitmark');
+  c.classList.add('hit'); m.classList.remove('on'); void m.offsetWidth; m.classList.add('on'); m.classList.toggle('kill', kill);
+  clearTimeout(hitT); hitT = setTimeout(() => { c.classList.remove('hit'); m.classList.remove('on', 'kill'); }, kill ? 420 : 170);
+  if (performance.now() - hitSndT > 45) { hitSndT = performance.now(); Sfx.play(kill ? 'killmark' : 'hitmark'); }
+}
+// Someone hurt you from angle a (world space)
+function addDmgDir(a, amt = 1) {
+  G.dmgDirs = (G.dmgDirs || []).filter(d => d.t > 0 && Math.abs(angDiff(d.a, a)) > 0.35);
+  G.dmgDirs.unshift({ a, t: 1.2 });
+  G.dmgDirs.length = Math.min(G.dmgDirs.length, 4);
+  G.hurtFlash = Math.min(1, (G.hurtFlash || 0) + 0.35 + amt * 0.08);
+}
+const DMG_ELS = [...document.querySelectorAll('#dmgdirs i')];
 function updateCross(dt) {
-  const h = G.human, dd = G.dmgDir, el = $('#dmgdir');
-  if (dd && dd.t > 0) { dd.t -= dt * 0.9; el.style.opacity = Math.max(0, dd.t); el.style.transform = `translate(-50%, -50%) rotate(${dd.a - h.face}rad)`; }
-  else el.style.opacity = 0;
+  const h = G.human, dirs = G.dmgDirs || [];
+  DMG_ELS.forEach((el, i) => {
+    const d = dirs[i];
+    if (d) d.t -= dt;
+    el.style.opacity = d && d.t > 0 ? Math.min(1, d.t).toFixed(2) : 0;
+    if (d && d.t > 0) el.style.transform = `rotate(${(angDiff(h.face, d.a)).toFixed(3)}rad)`;
+  });
+  G.hurtFlash = Math.max(0, (G.hurtFlash || 0) - dt * 1.6);
   if (G.killFlash > 0) { G.killFlash -= dt; $('#cross').classList.toggle('kill', G.killFlash > 0); }
   const rv = h.reviving && reviveTarget(h);
   const p = rv ? rv.p.reviveP || 0 : h.breakKey ? h.breakT / h.breakNeed : h.gather ? h.gatherT / gatherTime(h, h.gather) : h.charge >= 0 ? h.charge : h.refillT > 0 ? 1 - h.refillT / 0.22 : 0;
   $('#cross').style.setProperty('--p', p.toFixed(3));
-  $('#hurt').style.opacity = h.hurtT > 0 ? 1 : h.hp < 6 ? 0.45 : 0;
+  $('#hurt').style.opacity = Math.max(G.hurtFlash || 0, h.hurtT > 0 ? 0.6 : 0, h.hp < 6 ? 0.35 + Math.sin(G.t * 5) * 0.1 : 0).toFixed(2);
 }
 
 // Arrows around the crosshair for anyone close by but out of view (you'd hear them), nearest first.
@@ -698,6 +735,7 @@ function step(dt) {
     try { botUpdate(f, dt); } catch (e) { f.plan = null; f.spath = null; reportOnce(e); } // one confused bot shouldn't stop the game
   }
   for (const f of G.fighters) if (f.alive && !f.remote) updateFighter(f, dt);
+  updateRifts(dt);
   netInterp(dt);
   // keep bodies from stacking (only move the ones we simulate)
   const al = G.fighters.filter(f => f.alive && !f.hidden && !f.heli);
@@ -792,7 +830,7 @@ function updateHud() {
     return `<div class="slot ${i === h.sel ? 'sel' : ''} ${s ? '' : 'empty'} ${s && ITEMS[s.id].legendary ? 'legend' : ''}"><span class="key">${i + 1}</span>${cd}${slotInner(s, h)}${sub ? `<span class="sub">${sub}</span>` : ''}</div>`;
   }).join(''));
   const bp = bagPots(h);
-  $('#bagpots').textContent = bp ? `${bp} potion${bp > 1 ? 's' : ''} in backpack${canRefill(h) ? ' · R to refill' : ''}` : 'No potions in backpack';
+  $('#bagpots').textContent = bp ? `${bp} potion${bp > 1 ? 's' : ''} in backpack${canRefill(h) ? ` · ${keyName(BINDS.refill)} to refill` : ''}` : 'No potions in backpack';
   $('#bagpots').classList.toggle('warn', canRefill(h));
   setHTML('#feed', G.feed.map(k => `<div class="${k.you ? 'you' : ''}${k.chat ? ' chat' : ''}${k.relic ? ' relic' : ''}${k.streak ? ' streak' : ''}${k.kill ? ' kf' : ''}">${k.team && k.team !== true ? `<i style="background:${k.team}"></i>` : ''}${k.kill ? feedKill(k.kill) : escapeHTML(k.txt)}</div>`).join(''));
   // Duos: your partner's name, health and whether they're down
@@ -800,48 +838,34 @@ function updateHud() {
   $('#squadtag').hidden = !mate;
   if (mate) setHTML('#squadtag', `<i style="background:${mate.teamCol}"></i><b>${escapeHTML(mate.name)}</b> ${mate.alive ? `<span class="sq-hp"><span style="width:${Math.max(0, mate.hp / mate.maxHp * 100).toFixed(0)}%"></span></span> ${Math.round(hyp(mate.x - h.x, mate.y - h.y) / B)} blocks`
     : revivable(mate) ? `<em>down · revive in ${Math.ceil(mate.reviveUntil - G.t)}s</em>` : '<em>out</em>'}`);
-  // Motorcycle: speedometer and damage while riding
-  const bk = h.bike;
-  $('#bikehud').hidden = !bk;
-  const hl = h.alive && h.heli, gunner = hl && h.seat === 'gunner';
+  // Vehicles: gauges hug the crosshair (fuel or speed on the left, hull on the right, numbers underneath)
+  const bk = h.alive && h.bike, hl = h.alive && h.heli, gunner = hl && h.seat === 'gunner';
   $('#cross').hidden = !!bk || !!(hl && !gunner);
-  $('#helihud').hidden = !hl; $('#hud').classList.toggle('heli', !!hl);
-  if (hl) {
-    const fuel = Math.max(0, hl.fuel / HELI.fuel), hull = Math.max(0, hl.hp / HELI.hp);
-    $('#hh-fuel').style.width = `${(fuel * 100).toFixed(0)}%`; $('#hh-hp').style.width = `${(hull * 100).toFixed(0)}%`;
-    $('#hh-fuelpct').textContent = `${Math.ceil(fuel * 100)}%`;
-    $('#hh-alt').textContent = Math.max(0, Math.round((hl.z - heliGround(hl)) / B));
-    $('#hh-speed').textContent = kmhOf(hl);
-    $('#hh-ammo').textContent = hl.ammo; $('#hh-rk').textContent = hl.rockets;
-    const hud = $('#helihud');
-    hud.classList.toggle('lowfuel', hl.fuel < 30); hud.classList.toggle('critical', hl.fuel < 12 || hl.dead); hud.classList.toggle('wreck', hl.hp < HELI.hp * 0.3);
-    hud.classList.toggle('dry', hl.ammo <= 0); hud.classList.toggle('dryrk', hl.rockets <= 0);
-  }
-  if (bk) {
-    $('#bk-speed').textContent = kmh(bk.speed);
-    const hp = Math.max(0, bk.hp / BIKE.hp);
-    $('#bk-hp').style.width = `${(hp * 100).toFixed(0)}%`;
-    $('#bikehud').classList.toggle('wreck', bk.hp < 35);
-  }
+  vehicleHud(bk, hl, gunner);
+  const lantern = h.alive && heldId(h) === 'riftlantern';
+  $('#riftind').hidden = !lantern;
+  if (lantern) { const r = G.rifts && G.rifts.get(h.id); $('#riftind .a').classList.toggle('on', !!(r && r[0])); $('#riftind .b').classList.toggle('on', !!(r && r[1])); }
+  const U = kbd('use');
   let p = '';
-  if (bk) p = `<kbd>W</kbd><kbd>S</kbd> Throttle · <kbd>A</kbd><kbd>D</kbd> Steer · <kbd>Space</kbd> Brake · <kbd>E</kbd> Get off (hurts at speed)`;
-  else if (hl && gunner) p = `<kbd>Left click</kbd> Chain gun · <kbd>Right click</kbd> Rocket · <kbd>X</kbd> ${hl.pilot ? 'Pilot seat (taken)' : 'Take the controls'} · <kbd>E</kbd> Get out`;
-  else if (hl) p = `<kbd>W</kbd><kbd>S</kbd> Forward · back · <kbd>A</kbd><kbd>D</kbd> Strafe · Mouse to turn · <kbd>Space</kbd> Up · <kbd>Shift</kbd> Down · <kbd>X</kbd> ${hl.gunner ? 'Gunner seat (taken)' : 'Gunner seat'} · <kbd>E</kbd> Get out`;
-  else if (h.alive && nearHeli(h)) { const n = nearHeli(h); p = isTitan(h) ? 'Too big for the cockpit while you’re a Titan' : `<kbd>E</kbd> ${n.pilot ? 'Get in as the gunner' : 'Fly the helicopter'}${n.fuel < 15 && !onPad(n) ? ' · almost out of fuel' : ''}`; }
-  else if (h.alive && nearBike(h)) p = isTitan(h) ? 'Too big to ride while you’re a Titan' : `<kbd>E</kbd> Ride the motorcycle`;
+  if (bk) p = `${kbd('fwd')}${kbd('back')} Throttle · ${kbd('left')}${kbd('right')} Steer · ${kbd('jump')} Brake · ${U} Get off (hurts at speed)`;
+  else if (hl && gunner) p = `<kbd>Left click</kbd> Chain gun · <kbd>Right click</kbd> Rocket · ${kbd('seat')} ${hl.pilot ? 'Pilot seat (taken)' : 'Take the controls'} · ${U} Get out`;
+  else if (hl) p = `${kbd('fwd')}${kbd('back')} Forward · back · ${kbd('left')}${kbd('right')} Strafe · Mouse to turn · ${kbd('jump')} Up · ${kbd('sneak')} Down · ${kbd('seat')} ${hl.gunner ? 'Gunner seat (taken)' : 'Gunner seat'} · ${U} Get out`;
+  else if (h.alive && nearHeli(h)) { const n = nearHeli(h); p = isTitan(h) ? 'Too big for the cockpit while you’re a Titan' : `${U} ${n.pilot ? 'Get in as the gunner' : 'Fly the helicopter'}${n.fuel < 15 && !onPad(n) ? ' · almost out of fuel' : ''}`; }
+  else if (h.alive && nearBike(h)) p = isTitan(h) ? 'Too big to ride while you’re a Titan' : `${U} Ride the motorcycle`;
   else if (h.refillT > 0) p = 'Refilling hotbar…';
-  else if (h.alive && reviveTarget(h)) p = `Hold <kbd>E</kbd> Revive ${escapeHTML(reviveTarget(h).p.name)}`;
-  else if (h.alive && aimDoor()) p = `<kbd>E</kbd> or <kbd>Right click</kbd> ${aimDoor().b.open ? 'Shut' : 'Open'} the ${aimDoor().b.type === 'trapdoor' ? 'trapdoor' : 'door'}`;
-  else if (world.entrances.some(e => hyp(e.x - h.x, e.y - h.y) < 46) && !G.pit) p = h.layer ? '<kbd>E</kbd> Climb out' : '<kbd>E</kbd> Go down into the tunnels';
-  else { const o = gatherTarget(h); if (o) p = `Hold <kbd>E</kbd> ${{ tree: 'Chop tree for wood', rock: 'Break rock for stone', reed: 'Cut reeds', ore: 'Mine iron ore (slow)' }[o.kind]}`; }
+  else if (h.alive && reviveTarget(h)) p = `Hold ${U} Revive ${escapeHTML(reviveTarget(h).p.name)}`;
+  else if (h.alive && aimDoor()) p = `${U} or <kbd>Right click</kbd> ${aimDoor().b.open ? 'Shut' : 'Open'} the ${aimDoor().b.type === 'trapdoor' ? 'trapdoor' : 'door'}`;
+  else if (world.entrances.some(e => hyp(e.x - h.x, e.y - h.y) < 46) && !G.pit) p = h.layer ? `${U} Climb out` : `${U} Go down into the tunnels`;
+  else { const o = gatherTarget(h); if (o) p = `Hold ${U} ${{ tree: 'Chop tree for wood', rock: 'Break rock for stone', reed: 'Cut reeds', ore: 'Mine iron ore (slow)' }[o.kind]}`; }
   if (!p && h.alive && canDig(h, G.aim)) p = `Hold <kbd>Left click</kbd> Dig through the rock`;
   if (!p && h.alive && G.aim && G.aim.hit === 'block' && G.aim.b.type === 'rubble') p = `Hold <kbd>Left click</kbd> Dig out the rubble`;
   const held = heldId(h);
-  if (!p && held && ITEMS[held].block) p = `<kbd>Right click</kbd> Place · hold to keep placing · <kbd>Space</kbd> + look down to tower`;
+  if (!p && lantern) p = `<kbd>Left click</kbd> <span style="color:#c99bff">Violet rift</span> · <kbd>Right click</kbd> <span style="color:#7ff0a8">Green rift</span> · walk into one to come out of the other`;
+  if (!p && held && ITEMS[held].block) p = `<kbd>Right click</kbd> Place · hold to keep placing · ${kbd('jump')} + look down to tower`;
   if (!p && held === 'bucket' && !h.layer) p = `<kbd>Right click</kbd> Fill from swamp water, a lava pool, or poured water or lava`;
   if (!p && held === 'bucket_water' && !h.layer) p = `<kbd>Right click</kbd> Pour · pour it under you just before you land: no fall damage`;
   if (!p && held === 'bucket_lava' && !h.layer) p = `<kbd>Right click</kbd> Pour lava · it burns whoever’s in it`;
-  if (!p && h.inLiq === 'water' && !h.onGround) p = `Hold <kbd>Space</kbd> to swim up`;
+  if (!p && h.inLiq === 'water' && !h.onGround) p = `Hold ${kbd('jump')} to swim up`;
   $('#prompt').innerHTML = p; $('#prompt').hidden = !p;
   const st = [];
   if (h.hidden) st.push(`Disguised as a ${h.disguise === 'snowrock' ? 'rock' : h.disguise}`);
@@ -882,9 +906,34 @@ function updateHud() {
       : `Watching ${t.name} · ${KITS[t.kit].name} · ${Math.ceil(t.hp)} health · ${t.kills} kills   ← → or click to switch · F free camera · ${back}`;
   }
 }
+// The gauges by the crosshair. Motorcycle: speed and damage. Helicopter: fuel and hull, speed and height, and the
+// gunner's rounds and rockets.
+function vehicleHud(bk, hl, gunner) {
+  const el = $('#vhud');
+  el.hidden = !bk && !hl;
+  if (!bk && !hl) return;
+  const arc = (id, f) => $(id).setAttribute('stroke-dasharray', `${(clamp(f, 0, 1) * 100).toFixed(1)} 100`);
+  const show = (id, on) => { $(id).hidden = !on; };
+  if (bk) {
+    arc('#vh-l', Math.abs(bk.speed) / BIKE.top); arc('#vh-r', bk.hp / BIKE.hp);
+    $('#vh-lv').textContent = kmh(bk.speed); $('#vh-lk').textContent = 'km/h'; $('#vh-rv').textContent = `${Math.max(0, Math.round(bk.hp / BIKE.hp * 100))}%`;
+    show('#vh-a', false); show('#vh-b', false); show('#vh-c', false); show('#vh-d', false);
+    el.classList.remove('low', 'crit'); el.classList.toggle('wreck', bk.hp < 35);
+    return;
+  }
+  const fuel = Math.max(0, hl.fuel / HELI.fuel), hull = Math.max(0, hl.hp / HELI.hp);
+  arc('#vh-l', fuel); arc('#vh-r', hull);
+  $('#vh-lv').textContent = `${Math.ceil(fuel * 100)}%`; $('#vh-lk').textContent = 'Fuel'; $('#vh-rv').textContent = `${Math.round(hull * 100)}%`;
+  $('#vh-av').textContent = kmhOf(hl); $('#vh-ak').textContent = 'km/h';
+  $('#vh-bv').textContent = Math.max(0, Math.round((hl.z - heliGround(hl)) / B));
+  $('#vh-cv').textContent = hl.ammo; $('#vh-dv').textContent = hl.rockets;
+  show('#vh-a', true); show('#vh-b', true); show('#vh-c', gunner); show('#vh-d', gunner);
+  $('#vh-c').classList.toggle('dry', hl.ammo <= 0); $('#vh-d').classList.toggle('dry', hl.rockets <= 0);
+  el.classList.toggle('low', hl.fuel < 30); el.classList.toggle('crit', hl.fuel < 12 || hl.dead); el.classList.toggle('wreck', hl.hp < HELI.hp * 0.3);
+}
 // Hold P: everyone in the match, alive first, then by kills
 function renderBoard() {
-  const show = G.mode === 'play' && keys.has('p');
+  const show = G.mode === 'play' && keyHeld('board');
   $('#board').hidden = !show;
   if (!show) return;
   const all = G.fighters.filter(f => !f.isClone).sort((a, b) => (b.alive - a.alive) || (b.kills - a.kills) || a.name.localeCompare(b.name));
@@ -910,11 +959,11 @@ function startFreeCam() {
   if (G.mode !== 'spectate') setMode('spectate');
 }
 function moveFreeCam(dt) {
-  const c = G.freeCam, sp = (keys.has('shift') ? 260 : 620) * dt;
-  const fw = (keys.has('w') ? 1 : 0) - (keys.has('s') ? 1 : 0), st = (keys.has('d') ? 1 : 0) - (keys.has('a') ? 1 : 0);
+  const c = G.freeCam, sp = (keyHeld('sneak') ? 260 : 620) * dt;
+  const fw = (keyHeld('fwd') ? 1 : 0) - (keyHeld('back') ? 1 : 0), st = (keyHeld('right') ? 1 : 0) - (keyHeld('left') ? 1 : 0);
   c.x = clamp(c.x + (Math.cos(c.yaw) * fw - Math.sin(c.yaw) * st) * sp, -200, WORLD + 200);
   c.y = clamp(c.y + (Math.sin(c.yaw) * fw + Math.cos(c.yaw) * st) * sp, -200, WORLD + 200);
-  c.z += ((keys.has(' ') ? 1 : 0) - (keys.has('q') ? 1 : 0)) * sp;
+  c.z += ((keyHeld('jump') ? 1 : 0) - (keys.has('q') ? 1 : 0)) * sp;
   c.z = clamp(c.z, heightAt(c.x, c.y) + 12, 2200);
   c.face = c.yaw; c.biome = biomeAt(c.x, c.y);
 }
@@ -1173,6 +1222,7 @@ function setMode(m) {
   if (m !== 'play' && m !== 'spectate') $('#bigmap').hidden = true;
   if (m !== 'play') $('#clickto').hidden = true; // never leave "Click to play" over a menu
   if (m !== 'play') { $('#board').hidden = true; $('#tipbox').hidden = true; }
+  if (m !== 'options' && m !== 'paused' && rebinding) { rebinding = null; renderBinds(); } // don't swallow a key once Options is closed
   if (m !== 'play') { $('#inv').hidden = true; G.invOpen = false; $('#chat').hidden = true; G.chatOpen = false; }
   $('#opt-resume').hidden = m !== 'paused';
   $('#opt-leave').hidden = m !== 'paused';
@@ -1208,10 +1258,16 @@ function endGame(won) {
     const mate = G.duo ? partnerOf(h) : null;
     $('#end-title').textContent = won ? (mate ? 'Last squad standing' : 'Last one standing') : 'You lost';
     $('#end-sub').textContent = won ? (mate ? `You and ${mate.name} outlasted everyone.` : 'Everyone else is dead.') : G.killedBy ? `Killed by ${G.killedBy}.` : `${G.winnerName || 'Someone'} won the match.`;
-    const st = G.stats;
-    $('#end-stats').innerHTML = [['Place', `#${place} of ${entrants}${G.duo ? ' squads' : ''}`], ['Kills', h.kills], ['Assists', st.assists || 0], ['Survived', fmt(G.clockMin)],
-      ['Damage dealt', st.dmg.toFixed(0)], ['Coins earned', `+${G.coinsEarned}`], ['Longest fall', `${st.fall.toFixed(1)} blocks`], ['Blocks placed', st.blocks]]
-      .map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
+    const st = G.stats, cell = ([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`;
+    $('#end-stats').innerHTML = [['Place', `#${place} of ${entrants}${G.duo ? ' squads' : ''}`], ['Kills', h.kills], ['Damage dealt', st.dmg.toFixed(0)], ['Survived', fmt(G.clockMin)]].map(cell).join('');
+    const acc = st.shots ? `${Math.round((st.hits || 0) / st.shots * 100)}%` : '–';
+    $('#end-more').innerHTML = [['Assists', st.assists || 0], ['Damage taken', (st.taken || 0).toFixed(0)], ['Accuracy', acc],
+      ['Longest kill', st.longKill ? `${Math.round(st.longKill / B)} blocks` : '–'], ['Distance', `${Math.round((st.dist || 0) / B)} blocks`], ['Longest fall', `${st.fall.toFixed(1)} blocks`],
+      ['Blocks placed', st.blocks], ['Blocks broken', st.broken || 0], ['Potions drunk', st.pots || 0],
+      ['Items crafted', st.crafted || 0], ['Rock dug', `${st.dug || 0} strides`], ['Coins earned', `+${G.coinsEarned}`]].map(cell).join('');
+    const vs = st.victims || [];
+    $('#end-kills-h').hidden = !vs.length;
+    setHTML('#end-kills', vs.map(v => `<span class="chip"><img src="${feedIconURL(v.icon)}" alt="">${escapeHTML(v.name)}</span>`).join(''));
     $('#end-online').hidden = !NET.on || won;
     $('#btn-spec').hidden = won || !G.fighters.some(f => f.alive && !f.isClone && f !== G.human);
     $('#btn-replay').hidden = won || !replayReady();
@@ -1248,10 +1304,10 @@ function playPom(done) {
 function backToMenu() { if (NET.match) leaveMatch(); startAttract(); setMode('menu'); renderKits(); }
 function fillOptions() {
   $('#o-len').value = G.settings.len; $('#o-bots').value = G.settings.bots;
-  $('#o-bots-v').textContent = G.settings.bots;
+  $('#o-bots-v').textContent = G.settings.bots; optValues(); renderBinds();
   $('#o-snow').checked = G.settings.snow; $('#o-dmg').checked = G.settings.dmgNums;
   $('#o-shadows').checked = G.settings.shadows; $('#o-sens').value = G.settings.sens; $('#o-vol').value = G.settings.vol;
-  $('#o-fov').value = G.settings.fov; $('#o-fov-v').textContent = G.settings.fov; $('#o-tips').checked = G.settings.tips; $('#o-map').value = G.settings.mapSize;
+  $('#o-fov').value = G.settings.fov; $('#o-tips').checked = G.settings.tips; $('#o-map').value = G.settings.mapSize;
   $('#o-type').value = G.settings.mapType; $('#o-lvl').value = G.settings.botLevel;
   $('#o-mode').value = G.settings.mode; $('#o-voice').checked = G.settings.voice;
 }
@@ -1267,9 +1323,49 @@ $('#o-bots').addEventListener('input', e => { G.settings.bots = +e.target.value;
 $('#o-snow').addEventListener('change', e => { G.settings.snow = e.target.checked; save(); });
 $('#o-dmg').addEventListener('change', e => { G.settings.dmgNums = e.target.checked; save(); });
 $('#o-shadows').addEventListener('change', e => { G.settings.shadows = e.target.checked; save(); });
-$('#o-sens').addEventListener('input', e => { G.settings.sens = +e.target.value; save(); });
-$('#o-vol').addEventListener('input', e => { G.settings.vol = +e.target.value; Sfx.setVolume(G.settings.vol); save(); });
-$('#o-fov').addEventListener('input', e => { G.settings.fov = +e.target.value; $('#o-fov-v').textContent = e.target.value; save(); });
+$('#o-sens').addEventListener('input', e => { G.settings.sens = +e.target.value; optValues(); save(); });
+$('#o-vol').addEventListener('input', e => { G.settings.vol = +e.target.value; Sfx.setVolume(G.settings.vol); optValues(); save(); });
+$('#o-fov').addEventListener('input', e => { G.settings.fov = +e.target.value; optValues(); save(); });
+// The number beside each slider
+function optValues() {
+  $('#o-sens-v').textContent = `${(+G.settings.sens).toFixed(1)}×`; $('#o-vol-v').textContent = `${Math.round(G.settings.vol * 100)}%`;
+  $('#o-fov-v').textContent = `${G.settings.fov}°`; $('#o-bots-v').textContent = G.settings.bots;
+}
+// Options tabs: Match, Video, Audio, Controls
+let optTab = 'match';
+function showOptTab(t) {
+  optTab = t;
+  for (const b of document.querySelectorAll('#opt-tabs button')) { b.classList.toggle('on', b.dataset.tab === t); b.setAttribute('aria-selected', b.dataset.tab === t); }
+  for (const sec of document.querySelectorAll('.opt-sec')) sec.hidden = sec.dataset.sec !== t;
+}
+for (const b of document.querySelectorAll('#opt-tabs button')) b.addEventListener('click', () => showOptTab(b.dataset.tab));
+// Key bindings: click an action, then press the key you want. A key that's taken swaps with it.
+let rebinding = null;
+function renderBinds() {
+  const el = $('#binds');
+  el.textContent = '';
+  for (const a of Object.keys(BIND_DEFAULTS)) {
+    const label = document.createElement('span'); label.textContent = BIND_LABELS[a];
+    const b = document.createElement('button'); b.type = 'button';
+    b.textContent = rebinding === a ? 'Press a key…' : keyName(BINDS[a]);
+    b.classList.toggle('wait', rebinding === a);
+    b.addEventListener('click', () => { rebinding = rebinding === a ? null : a; renderBinds(); });
+    el.append(label, b);
+  }
+}
+function saveBinds() { try { localStorage.setItem('ff_keys', JSON.stringify(BINDS)); } catch (e) {} }
+addEventListener('keydown', e => {
+  if (!rebinding) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const k = e.key.toLowerCase();
+  if (k === 'escape') { rebinding = null; renderBinds(); return; }
+  if ((k >= '0' && k <= '9') || k.startsWith('arrow') || k === 'meta') { toast('Number keys, arrows and Esc can’t be bound'); return; }
+  const other = Object.keys(BINDS).find(a => a !== rebinding && BINDS[a] === k);
+  if (other) { BINDS[other] = BINDS[rebinding]; toast(`${BIND_LABELS[other]} moved to ${keyName(BINDS[other])}`); }
+  BINDS[rebinding] = k; rebinding = null;
+  saveBinds(); renderBinds();
+}, true);
+$('#binds-reset').addEventListener('click', () => { Object.assign(BINDS, BIND_DEFAULTS); rebinding = null; saveBinds(); renderBinds(); toast('Keys reset to the defaults'); });
 $('#o-map').addEventListener('change', e => { G.settings.mapSize = +e.target.value; save(); });
 $('#o-tips').addEventListener('change', e => { G.settings.tips = e.target.checked; save(); });
 $('#o-tips-reset').addEventListener('click', () => { tipsSeen = []; try { localStorage.removeItem('ff_tips'); } catch (e) {} toast('Tips will show again'); $('#o-tips-reset').textContent = 'Tips reset'; });

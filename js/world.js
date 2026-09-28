@@ -374,6 +374,13 @@ function genWorld(seed, size = 4800, type = 'mixed') {
     const fl = flatness(x, y, 40); if (!best || fl < best.fl) best = { x, y, fl };
   }
   if (best) world.landmarks.push({ id: 'crowsnest', x: best.x, y: best.y, layer: 0 });
+  best = null;
+  for (let i = 0; i < 900; i++) { // The Rift Stones: open, level ground in the forest or the desert
+    const x = rr(300, WORLD - 300), y = rr(300, WORLD - 300);
+    if (biomeAt(x, y) > 1 || seaAt(x, y) || hyp(x - PIT.x, y - PIT.y) < PIT.r + 300 || !clear(x, y, 90)) continue;
+    const fl = flatness(x, y, 70); if (!best || fl < best.fl) best = { x, y, fl };
+  }
+  if (best) world.landmarks.push({ id: 'rift', x: best.x, y: best.y, layer: 0 });
   // Rat King's Nest: the tunnel junction with the most branches, furthest from any entrance
   const junction = world.nodes.map((n, i) => ({ i, n, score: n.adj.length * 1000 + Math.min(...ents.map(e => hyp(e.x - n.x, e.y - n.y))) }))
     .filter(q => !q.n.ent && !q.n.cave).sort((a, b) => b.score - a.score)[0];
@@ -427,6 +434,7 @@ const LANDMARKS = {
   forge: { name: 'The Sunken Forge', item: 'maul', hint: 'Walled ruins in the desert, ringed with spikes. The Quake Maul lies inside.' },
   altar: { name: 'The Drowned Altar', item: 'everflask', hint: 'A platform in the heart of the swamp holds the Everflask.' },
   peak: { name: 'Frostpeak Shrine', item: 'boots_wind', hint: 'The highest point in the mountains. The Windwalker Boots are in the shrine.' },
+  rift: { name: 'The Rift Stones', item: 'riftlantern', hint: 'A ring of standing stones on open ground. The Rift Lantern hangs at its heart.' },
   nest: { name: 'The Rat King’s Nest', item: 'crown', hint: 'The deepest tunnel junction, guarded by biting rats. The Rat King’s Crown is there.' },
 };
 
