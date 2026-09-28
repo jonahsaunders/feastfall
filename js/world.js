@@ -3,7 +3,7 @@
 // Everything comes from the match seed, so every player in an online match builds the same map.
 let WORLD = 4800;
 const TUN_R = 46, CELL = 160;
-const MAP_SIZES = { 3200: 'Standard', 4800: 'Large', 6400: 'Huge' };
+const MAP_SIZES = { 3200: 'Standard', 4800: 'Large', 6400: 'Huge', 9600: 'Colossal' };
 const PIT = { x: 2400, y: 2400, r: 380 };
 const BIOME_NAME = ['Forest', 'Desert', 'Mountains', 'Swamp'];
 // Map types: the usual mix, islands in a shallow sea, mostly desert, or a snowbound winter map
@@ -186,7 +186,7 @@ function entranceFor(px, py, x, y) {
 }
 function genWorld(seed, size = 4800, type = 'mixed') {
   WORLD = size; PIT.x = PIT.y = size / 2;
-  const A = size / 3200; // 1 for Standard, 1.5 Large, 2 Huge
+  const A = size / 3200; // 1 for Standard, 1.5 Large, 2 Huge, 3 Colossal
   type = pickMapType(type, seed);
   rng = mulberry32(seed);
   world = {

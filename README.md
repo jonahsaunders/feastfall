@@ -58,7 +58,7 @@ A 60-minute match runs from dawn to night. How long that takes in real time is u
 | ~47:00 | The last supply drop |
 | 60:00 | Night. Everyone left is dropped into the pit. Last one (or last squad) standing wins |
 
-- **A new map every match.** Mountain ranges, deserts, swamps, ruins, landmarks and feast sites are placed from the match seed, in three sizes: Standard, Large (default) and Huge. There are also four [map types](#map-types).
+- **A new map every match.** Mountain ranges, deserts, swamps, ruins, landmarks and feast sites are placed from the match seed, in four sizes: Standard, Large (default), Huge and Colossal (three times as wide as Standard, with more helicopters, motorcycles, ruins and tunnels to match). There are also four [map types](#map-types).
 - **Ruins to loot.** Cabins, broken walls and watchtowers built from real blocks, each with a chest. Watchtower chests hold the best loot, up a ladder.
 - **Caves** cut into every mountain range: a stone arch on the surface (a grey peak on the map) leads to a dead-end cave with extra iron and a chest.
 - **Lava pools** glow in the mountains and deserts (orange on the map). They burn anyone who walks in, and they fill buckets forever.
