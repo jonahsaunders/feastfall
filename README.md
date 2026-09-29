@@ -251,7 +251,7 @@ The app runs its own game server. Your online panel shows your address on the lo
 
 ### Desktop app (Mac)
 
-Download `Feastfall-<version>-mac.dmg` from the [latest release](https://github.com/jonahsaunders/feastfall/releases/latest), open it and drag **Feastfall** into **Applications** (there's a `.zip` of the app too). One download runs on Apple Silicon and Intel Macs, macOS 12 or later.
+Download `Feastfall-<version>-mac.dmg` from the [latest release](https://github.com/jonahsaunders/feastfall/releases/latest), open it and drag **Feastfall** into **Applications** (there's a `.zip` of the app too). One download runs on Apple Silicon and Intel Macs, macOS 13 (Ventura) or later.
 
 > [!NOTE]
 > The Mac app isn't notarized by Apple, so the first time you open it macOS says it can't check it for malicious software, or that it "cannot be opened". Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to Feastfall. On macOS 14 or earlier you can instead right-click the app and choose **Open**. Or run this once in Terminal:
