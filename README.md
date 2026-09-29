@@ -6,10 +6,10 @@
 
 **A first-person, low-poly battle royale about towers, traps, feasts and long falls.**
 
-Runs in the browser or as a Windows app. Up to 99 other fighters. One survivor, or one squad.
+Runs in the browser or as a Windows or Mac app. Up to 99 other fighters. One survivor, or one squad.
 
 [![Latest release](https://img.shields.io/github/v/release/jonahsaunders/feastfall?label=download&color=e0763a)](https://github.com/jonahsaunders/feastfall/releases/latest)
-![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20browser-3d5a45)
+![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20browser-3d5a45)
 ![Built with](https://img.shields.io/badge/built%20with-three.js%20r128%20%C2%B7%20Electron-2b2b2b)
 ![No assets](https://img.shields.io/badge/asset%20files-0-c9a227)
 
@@ -27,6 +27,7 @@ Drop into a freshly generated map of forest, desert, mountains and swamp. Gather
 ## Quick start
 
 - **Windows:** download the installer or the portable `.exe` from the [latest release](https://github.com/jonahsaunders/feastfall/releases/latest) and run it.
+- **Mac:** download `Feastfall-<version>-mac.dmg` from the [latest release](https://github.com/jonahsaunders/feastfall/releases/latest), open it and drag Feastfall to Applications. [First launch](#desktop-app-mac)
 - **Browser:** serve this folder (`npx serve .`) and open it in a desktop browser. [More](#in-the-browser-solo-no-install)
 - **With friends:** `npm install` then `npm start`, and everyone opens the address it prints. [More](#in-the-browser-online-with-friends)
 
@@ -248,6 +249,21 @@ The app runs its own game server. Your online panel shows your address on the lo
 > [!NOTE]
 > The builds aren't code-signed, so Windows SmartScreen says "Windows protected your PC" the first time. Choose **More info → Run anyway**.
 
+### Desktop app (Mac)
+
+Download `Feastfall-<version>-mac.dmg` from the [latest release](https://github.com/jonahsaunders/feastfall/releases/latest), open it and drag **Feastfall** into **Applications** (there's a `.zip` of the app too). One download runs on Apple Silicon and Intel Macs, macOS 12 or later.
+
+> [!NOTE]
+> The Mac app isn't notarized by Apple, so the first time you open it macOS says it can't check it for malicious software, or that it "cannot be opened". Click **Done**, then open **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to Feastfall. On macOS 14 or earlier you can instead right-click the app and choose **Open**. Or run this once in Terminal:
+>
+> ```bash
+> xattr -dr com.apple.quarantine /Applications/Feastfall.app
+> ```
+
+It works like the Windows app: it runs its own game server, and macOS asks whether to accept incoming network connections (allow it if you want friends to join) and, when you join a friend, whether Feastfall may find devices on your local network. Ctrl+Cmd+F toggles fullscreen and Cmd+Q quits.
+
+To build it yourself you need a Mac: `npm install` then `npm run dist:mac`, and the `.dmg` and `.zip` land in `dist/`. The [Mac build](.github/workflows/mac.yml) workflow builds it on GitHub for every release.
+
 ### In the browser, solo (no install)
 
 Serve the folder with any static file server and open it in a desktop browser (you need a keyboard and mouse):
@@ -356,7 +372,8 @@ Plain JavaScript, no build step for the browser version. [three.js](https://thre
 | `js/audio.js` | Generated ambient and combat music, the announcer, positional stereo sound effects and footsteps |
 | `js/main.js` | Game loop, input, HUD, inventory screen, menus, kit store |
 | `server.js` | Static file server plus a WebSocket relay for multiplayer |
-| `desktop/main.js` | The Windows app: starts `server.js` inside the app and opens the game window |
+| `desktop/main.js` | The Windows and Mac app: starts `server.js` inside the app and opens the game window |
+| `.github/workflows/mac.yml` | Builds the Mac app on GitHub and attaches it to each release |
 | `vendor/` | three.js r128 (MIT) and the fonts (SIL Open Font License), bundled so the game works offline |
 
 ### Multiplayer model

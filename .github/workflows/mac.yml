@@ -1,0 +1,59 @@
+# Builds the Mac app (a universal .dmg and .zip that run on Apple Silicon and Intel Macs).
+# A Mac build has to be made on a Mac, so this runs on GitHub's macOS runners.
+#
+# - Publishing a GitHub release builds it from that release's tag and attaches the files.
+# - "Run workflow" on the Actions tab builds any branch or tag. Give it a release tag
+#   (for example v0.14.0) to attach the files to that release too.
+name: Mac build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Release tag to build and attach the files to (leave empty to only build)
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run dist:mac -- --publish never
+
+      # Start the built app hidden, check the game loads, and quit
+      - name: Smoke test
+        run: |
+          out=$(dist/mac-universal/Feastfall.app/Contents/MacOS/Feastfall --smoke 2>&1 | tee /dev/stderr)
+          echo "$out" | grep -q '^SMOKE .*"three":"object"'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: feastfall-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+
+      - name: Attach to the release
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/*.dmg dist/*.zip --clobber

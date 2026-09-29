@@ -5,6 +5,7 @@
 //
 //   npm run desktop   run from source
 //   npm run dist      build the Windows installer and portable .exe into dist/
+//   npm run dist:mac  build the Mac .dmg and .zip into dist/ (run it on a Mac)
 const { app, BrowserWindow, shell } = require('electron');
 const { start } = require('../server.js');
 
@@ -14,7 +15,7 @@ const SMOKE = process.argv.includes('--smoke'); // start hidden, check the game 
 let win = null, srv = null;
 
 async function boot() {
-  // Listen on the network so friends can join (Windows asks once to allow it). The smoke test stays on this computer.
+  // Listen on the network so friends can join (Windows and macOS ask once to allow it). The smoke test stays on this computer.
   const host = SMOKE ? '127.0.0.1' : '0.0.0.0';
   try { srv = await start({ port: PORT, host }); }
   catch (e) { srv = await start({ port: 0, host }); } // port taken (a second copy of the app is open): use any free one
@@ -25,7 +26,7 @@ async function boot() {
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   win.setMenuBarVisibility(false);
-  // F11 toggles fullscreen, like a browser
+  // F11 toggles fullscreen, like a browser (on a Mac, Ctrl+Cmd+F from the default menu works too)
   win.webContents.on('before-input-event', (e, input) => {
     if (input.type === 'keyDown' && input.key === 'F11') { win.setFullScreen(!win.isFullScreen()); e.preventDefault(); }
   });
