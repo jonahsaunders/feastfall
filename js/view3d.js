@@ -239,6 +239,7 @@ function makeItem(it) {
 function makeProj(p) {
   if (p.kind === 'arrow') return new T.Mesh(FG.arrow, FMAT.arrow);
   if (p.kind === 'swap') { const m = new T.Mesh(FG.puff, lam('#f4f8ff', { emissive: 0x303a44 })); m.scale.setScalar(4.5); return m; }
+  if (p.kind === 'shockbomb') { const m = new T.Mesh(FG.puff, lam('#78e5ff', { emissive: 0x205a70 })); m.scale.setScalar(6); return m; }
   const g = new T.Group();
   g.add(new T.Mesh(FG.hook, FMAT.steel));
   const lg = new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3));
@@ -249,7 +250,9 @@ function makeProj(p) {
 }
 const tmpV = new T.Vector3();
 FG.hole = new T.CircleGeometry(15, 9).rotateX(-Math.PI / 2);
+FG.shockwave = new T.SphereGeometry(1, 16, 8);
 function makeFx(e) {
+  if (e.kind === 'shockwave') return new T.Mesh(FG.shockwave, new T.MeshBasicMaterial({ color: e.col, wireframe: true, transparent: true, depthWrite: false }));
   if (e.kind === 'tracer') {
     const l = new T.Line(new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute([0, 0, 0, 0, 0, 0], 3)), new T.LineBasicMaterial({ color: e.col || 0xffd98a, transparent: true, fog: false }));
     l.frustumCulled = false; return l;
@@ -279,7 +282,8 @@ function updFx(m, e) {
     return;
   }
   const k = 1 - e.t / e.max, hz = e.z !== undefined, base = hz ? e.z : e.layer ? 0 : heightAt(e.x, e.y);
-  if (e.kind === 'hole') { m.position.set(e.x, base, e.y); m.material.opacity = Math.min(0.92, e.t); }
+  if (e.kind === 'shockwave') { m.position.set(e.x, base, e.y); m.scale.setScalar(SHOCK.radius * (0.15 + k * 0.85)); m.material.opacity = (1 - k) * 0.8; }
+  else if (e.kind === 'hole') { m.position.set(e.x, base, e.y); m.material.opacity = Math.min(0.92, e.t); }
   else if (e.kind === 'puff' || e.kind === 'chip') { m.position.set(e.x, base + (hz ? 0 : 20) + k * 20, e.y); m.scale.setScalar((e.big ? 30 : e.kind === 'chip' ? 6 : 14) * (0.4 + k)); m.material.opacity = 1 - k; }
   else if (e.kind === 'ring') { m.position.set(e.x, base + (hz ? 0 : 2), e.y); m.scale.setScalar((e.big ? 50 : 26) * (0.3 + k)); m.material.opacity = 1 - k; }
   else if (e.kind === 'strike') { m.position.set(e.x, base + 2, e.y); m.scale.setScalar(75); m.material.opacity = 0.4 + 0.6 * Math.abs(Math.sin(G.t * 20)); }

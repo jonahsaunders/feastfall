@@ -114,6 +114,7 @@ const SUPPLY_LOOT = [
   [['iron_chest', 1], ['pot', 2], ['charm', 1], ['bucket', 1]],
   [['bucket_lava', 1], ['bucket_water', 1], ['cobble', 32], ['pot', 1]],
   [['sword3', 1], ['hay', 4], ['pot', 2], ['bucket', 1]],
+  [['shockbomb', 4], ['pot', 2], ['plank', 24]],
   [['iron_head', 1], ['iron_feet', 1], ['bucket_water', 1], ['pot', 2]],
 ];
 const supplyLoot = () => pick(SUPPLY_LOOT).map(([id, n]) => ({ id, n }));
@@ -393,6 +394,7 @@ cv.addEventListener('mousedown', e => {
   if (bucket) useBucket(h);
   else if (item === 'bow') { if (h.arrows > 0) h.charge = 0; else toast('No arrows. Craft them in the inventory (Tab).'); }
   else if (item === 'pot') drink(h);
+  else if (item === 'shockbomb') { mouse.down = false; throwShockbomb(h, VIEW.pitch); }
   else if (item === 'kit') { const a = aimWorld(); if (!useKit(h, a.x, a.y)) kitFail(h); }
   else if (item === 'riftlantern') openRift(h, 0, VIEW.pitch);
   else if (item === 'skyhook' && !fireSkyhook(h, VIEW.pitch)) toast(h.skyCd > 0 ? `Skyhook recharging: ${Math.ceil(h.skyCd)}s` : h.layer ? 'The Skyhook doesn’t work underground' : 'Nothing to hook within 22 blocks');
@@ -861,6 +863,7 @@ function updateHud() {
   if (!p && h.alive && G.aim && G.aim.hit === 'block' && G.aim.b.type === 'rubble') p = `Hold <kbd>Left click</kbd> Dig out the rubble`;
   const held = heldId(h);
   if (!p && lantern) p = `<kbd>Left click</kbd> <span style="color:#c99bff">Violet rift</span> · <kbd>Right click</kbd> <span style="color:#7ff0a8">Green rift</span> · walk into one to come out of the other`;
+  if (!p && held === 'shockbomb') p = `<kbd>Left click</kbd> Throw shockwave · aim at your feet to launch yourself · your own blast protects your fall for 5s`;
   if (!p && held && ITEMS[held].block) p = `<kbd>Right click</kbd> Place · hold to keep placing · ${kbd('jump')} + look down to tower`;
   if (!p && held === 'bucket' && !h.layer) p = `<kbd>Right click</kbd> Fill from swamp water, a lava pool, or poured water or lava`;
   if (!p && held === 'bucket_water' && !h.layer) p = `<kbd>Right click</kbd> Pour · pour it under you just before you land: no fall damage`;
@@ -890,6 +893,7 @@ function updateHud() {
   if (h.burnT > 0) st.push('On fire');
   else if (h.inLiq === 'water') st.push('In water');
   if (h.punchT > 0) st.push('Punch charged');
+  if (h.noFallT > 0) st.push(`Fall protection · ${Math.ceil(h.noFallT)}s`);
   if (count(h, 'charm')) st.push(`Feather Charm ×${count(h, 'charm')}`);
   if (h.layer === 0 && h.biome === 2 && G.settings.snow && !G.pit) st.push('Snowstorm');
   $('#status').textContent = st.join(' · ');
@@ -999,6 +1003,7 @@ const TIPS = [
   { id: 'feast', when: () => !!G.feast, text: 'The feast has the best gear in the game. Everyone else is heading there too.' },
   { id: 'drop', when: () => (world.drops || []).some(d => d.st === 'announced'), text: 'Supply drops land at the blue square on your map. They hold iron swords, feast armour and buckets, and everyone can see the beam.' },
   { id: 'bucket', when: h => ['bucket', 'bucket_water', 'bucket_lava'].some(id => count(h, id)), text: 'Fill a bucket from swamp water or a lava pool (orange on the map). Pour water under you just before you land and you take no fall damage.' },
+  { id: 'shockbomb', when: h => count(h, 'shockbomb') > 0, text: 'Shockwave Bombs launch fighters without direct damage. Select one and left click to throw; aim at your feet to jump across a gap. Your own blast gives 5 seconds of fall protection. Craft two from 3 stone and 2 reeds in Other.' },
   { id: 'bounty', when: () => !!G.bounty && G.bounty !== G.human, text: 'The top killer has a bounty: the gold star on your map is where they were last seen. Take them down for bonus coins.' },
   { id: 'team', when: () => G.teams && G.teams.length > 0, text: 'Bots sometimes team up (matching colour squares by their names). Sooner or later one turns on the other.' },
   { id: 'bike', when: h => !!nearBike(h, 200) || !!h.bike, text: 'Motorcycles are fast and fragile. Hit a tree at full speed and it can kill you, getting off at speed hurts, and a smoking bike is about to explode. Space brakes.' },

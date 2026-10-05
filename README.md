@@ -123,6 +123,7 @@ A 60-minute match runs from dawn to night. How long that takes in real time is u
 </table>
 
 - **Ladders.** Lean them against a wall and climb. No fall damage while you're on one.
+- **Shockwave Bombs.** Craft two from 3 stone and 2 reeds (Inventory → Other), or find four in a supply drop. Select one and left click to throw: it bursts on impact and launches nearby fighters without direct damage. Knock someone off a tower, scatter a fight, or throw at your feet to cross a gap. Your own blast grants 5 seconds of fall protection; enemies can still take fall damage. Walls block the wave, partners are safe, and Heavy and Titan resist it.
 - **Spike traps** anyone can make; Tripwire, Snare and Updraft get blast traps, fake ground and launch pads.
 - **The tunnels are yours to change.** Build, put up doors and set traps underground just like on the surface: wall off a passage, hide a pitfall in a dark corner, or fort up in a dead end. Hold left click against the rock to dig a new passage a stride at a time (you get stone as you go), to cut a shortcut, flank someone or tunnel into a cave. A blast trap going off underground, or the Sapper's charge, brings the roof down in a **cave-in**: rubble seals the tunnel and hurts anyone under it. Dig or break your way back through. Dug passages show on your map.
 

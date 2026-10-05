@@ -47,6 +47,7 @@ function botThink(b) {
   if (b.style === 'trapper' && count(b, 'spike') < 3) craft(b, recipe('spike'));
   if (b.style === 'trapper' && count(b, 'pitfall') < 2) craft(b, recipe('pitfall'));
   if (count(b, 'reed') >= 3 && count(b, 'hide') >= 1 && !count(b, 'charm')) craft(b, recipe('charm'));
+  if (b.weapon >= 2 && count(b, 'stone') >= 5 && count(b, 'shockbomb') < 2) craft(b, recipe('shockbomb'));
 
   // Look and listen (only what's in line of sight, plus noises), then pick a target
   const L = botLvl(), was = b.plan && b.plan.type;
@@ -540,6 +541,7 @@ function botUpdate(b, dt) {
     if (!t.alive || t.layer !== b.layer) { b.plan = null; return; }
     const d = hyp(t.x - b.x, t.y - b.y), a = Math.atan2(t.y - b.y, t.x - b.x);
     b.face = a + rr(-0.12, 0.12) * botLvl().jitter;
+    botShockbomb(b, t);
     if (p.type === 'flee') { // run for cover, not just straight away
       const aw = p.away || { x: b.x - Math.cos(a) * 300, y: b.y - Math.sin(a) * 300 };
       if (hyp(aw.x - b.x, aw.y - b.y) < 30) p.away = coverPoint(b, t);
