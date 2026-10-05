@@ -137,6 +137,7 @@ function noteDamage(t, src, amt) {
 function applyHit(t, m) {
   if (!t.alive) return;
   const src = m.by ? fighterById(m.by) : null;
+  if (m.shock) { applyShockHit(t, m.shock, src); return; }
   if (m.nofall) { t.noFallT = m.nofall; if (t === G.human) toast('You won the duel: you’ll land safely'); }
   if (src) { t.lastHitBy = src; t.lastHitT = G.t; }
   if (m.shrink) shrinkNow(t);
@@ -915,6 +916,7 @@ function updateRats(dt) {
 }
 function updateProj(dt) {
   for (const p of G.proj) {
+    if (p.kind === 'shockbomb') { updateShockbomb(p, dt); continue; }
     p.life -= dt;
     if (p.kind === 'arrow') p.vz -= 520 * dt;
     if (p.kind === 'swap') p.vz -= 700 * dt;

@@ -145,6 +145,7 @@ function wireMatch(m) {
       const o = fighterById(d.o);
       if (d.k === 'p' && o) { const v = d.v; noise(v[0], v[1], d.l, 480, o); G.proj.push({ kind: d.t, x: v[0], y: v[1], z: v[2], vx: v[3], vy: v[4], vz: v[5], owner: o, layer: d.l, life: d.t === 'hook' ? 0.6 : d.t === 'rocket' ? 2.2 : 2, heli: typeof d.h === 'string' ? d.h : undefined, ghost: true }); }
       if (d.k === 's') addFx('strike', d.x, d.y, d.l, { t: 0.6, ghost: true });
+      if (d.k === 'shock' && [d.x, d.y, d.z].every(Number.isFinite)) { const l = d.l ? 1 : 0; shockFx(d.x, d.y, d.z, l); noise(d.x, d.y, l, 900, o); }
       if (d.k === 'c' && o) for (const dd of [-0.7, 0.7]) spawnClone(o, d.f + dd);
       if (d.k === 'ping') G.pings.push({ x: d.x, y: d.y, layer: 1, t: 12, src: fighterById(msg.peer) });
       if (d.k === 'relic' && typeof d.i === 'string') announceRelic(o, d.i);

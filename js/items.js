@@ -29,6 +29,7 @@ const ITEMS = {
   slab:     { name: 'Stone Slab', stack: 64, cat: 'block', block: 'slab', desc: 'Half a block tall: you walk straight up onto it, no jumping. Good for low cover and ramps.' },
   stairs:   { name: 'Stairs', stack: 64, cat: 'block', block: 'stairs', desc: 'Walk up them without jumping. They climb in the direction you face when you place them.' },
   charm:  { name: 'Feather Charm', stack: 8, cat: 'use', desc: 'Keep it anywhere in your inventory: it is used up to block one fall of 7+ blocks.' },
+  shockbomb: { name: 'Shockwave Bomb', stack: 8, cat: 'use', desc: 'Left click to throw. Bursts on impact, launching nearby fighters without dealing damage. Throw at your feet to launch yourself: your own blast gives 5 seconds of fall protection. Walls block the wave; Heavy and Titan resist it.' },
   bucket: { name: 'Bucket', stack: 16, cat: 'use', desc: 'Right click on swamp water, a lava pool, or poured water or lava to fill it.' },
   bucket_water: { name: 'Water Bucket', stack: 1, cat: 'use', bucket: 'water', desc: 'Right click to pour. Landing in water cancels fall damage: pour it under you just before you hit the ground. Hold Space in water to swim up. Put out fires.' },
   bucket_lava:  { name: 'Lava Bucket', stack: 1, cat: 'use', bucket: 'lava', desc: 'Right click to pour. Lava burns anyone in it, including whoever you pour it on. Water turns it to stone, and it cools away after 30 seconds.' },
@@ -76,6 +77,7 @@ const RECIPES = [
   { out: 'turf', n: 4, cost: { wood: 1 }, cat: 'Blocks', kit: 'snare' },
   { out: 'pad', n: 2, cost: { wood: 1, reed: 1 }, cat: 'Blocks', kit: 'updraft' },
   { out: 'charm', cost: { reed: 2, hide: 1 }, cat: 'Other' },
+  { out: 'shockbomb', n: 2, cost: { stone: 3, reed: 2 }, cat: 'Other' },
   { out: 'bucket', cost: { iron: 1, stone: 2 }, cat: 'Other' },
 ];
 const recipe = id => RECIPES.find(r => r.out === id);
@@ -227,6 +229,10 @@ function paintIcon(id, kit) {
     for (const x of [8.5, 12, 15.5]) L([[x, 7.5], [x, 17.5]], '#7a5c14', x === 12 ? 0.9 : 1.3);
     P([[7, 17.5], [17, 17.5], [18, 21], [6, 21]], '#c9a13a', '#7a5c14', 0.6);
     g.fillStyle = 'rgba(255,248,220,.8)'; g.beginPath(); g.arc(12, 12.5, 1.5, 0, 7); g.fill();
+  } else if (id === 'shockbomb') {
+    P([[12, 3], [19, 7], [20, 15], [14, 21], [6, 18], [3, 10]], '#3a849b', '#bdf4ff', 1.2);
+    P([[12, 7], [16, 11], [13, 12], [15, 17], [8, 12], [11, 11]], '#c9f6ff');
+    L([[1, 5], [4, 3]], '#78e5ff', 1.4); L([[20, 21], [23, 18]], '#78e5ff', 1.4);
   } else if (id === 'blast') {
     P([[3, 16], [21, 16], [21, 20], [3, 20]], '#5a4a3a'); P([[8, 9], [16, 9], [16, 16], [8, 16]], '#9a3a2c', '#5a1a12');
     L([[12, 9], [14, 5]], '#e6dfcc', 1.2); g.fillStyle = '#ffd24a'; g.beginPath(); g.arc(14.5, 4.5, 1.6, 0, 7); g.fill();

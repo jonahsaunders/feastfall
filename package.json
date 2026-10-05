@@ -6,6 +6,7 @@
   "main": "desktop/main.js",
   "author": "Jonah Saunders",
   "scripts": {
+    "test": "node --test tests/*.test.js",
     "start": "node server.js",
     "desktop": "electron .",
     "dist": "electron-builder --win",

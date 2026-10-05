@@ -62,6 +62,7 @@ const Sfx = (() => {
     chop: d => { noise(0.07, 600, 1.5, 0.25, 'bandpass', 0, d); tone(120, 0.06, 'triangle', 0.15, 80, 0, d); },
     drink: d => { for (let i = 0; i < 3; i++) tone(480 + i * 140, 0.07, 'sine', 0.12, 720 + i * 140, i * 0.08, d); },
     shoot: d => { tone(420, 0.16, 'triangle', 0.22, 150, 0, d); noise(0.1, 3000, 2, 0.1, 'bandpass', 800, d); },
+    shockwave: d => { tone(190, 0.3, 'sine', 0.35, 45, 0, d); noise(0.25, 1200, 1, 0.2, 'lowpass', 300, d); },
     bolt: d => { noise(0.9, 3000, 0.5, 0.7, 'lowpass', 150, d); tone(52, 1.0, 'sine', 0.55, 30, 0, d); },
     fall: d => { tone(95, 0.22, 'sine', 0.55, 40, 0, d); noise(0.1, 500, 1, 0.3, 'lowpass', 0, d); },
     pickup: d => { tone(880, 0.07, 'sine', 0.12, 1320, 0, d); tone(1320, 0.08, 'sine', 0.08, 0, 0.06, d); },
